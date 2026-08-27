@@ -325,8 +325,8 @@ await check('what Inherit on the repo row would resolve to is the same answer mi
 await check('the per-repo override is three-state, writable, and refuses what it cannot read', () => {
   assert.deepEqual(
     WORKSPACE_SETTINGS,
-    ['autoEndorse', 'autoMerge', 'requireApproval', 'reviewRequired', 'autoShip'],
-    'these five answer per repo; everything else groups by space'
+    ['autoEndorse', 'autoMerge', 'requireApproval', 'reviewRequired', 'autoShip', 'trustChecksAcrossDownmerge'],
+    'these six answer per repo; everything else groups by space'
   );
   const cfg = { autoEndorsePerWorkspace: {} };
   assert.equal(readWorkspaceSettings(cfg, 'a').autoEndorse, null, 'unset is inherit, not off');
