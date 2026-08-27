@@ -24,6 +24,11 @@
  * resolved. `1` the model process itself could not be run at all (no `python3`, or its
  * output could not be parsed) — every size failed the same infrastructural way, unlike
  * `0`'s per-size refusals.
+ *
+ * Read-only: everything it touches in the sophab checkout is an `import` and a
+ * `python3` subprocess, never a write to that checkout or this one.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';

@@ -53,6 +53,8 @@
  * EXIT CODE is a linter's, not b7e-def's: 0 when nothing is owed, 1 when something is
  * — so `b7e-owes || …` is a gate, the same shape `eslint` or `tsc --noEmit` already
  * are in this house.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import os from 'node:os';

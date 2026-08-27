@@ -72,6 +72,7 @@ delete process.env.BEADCAUSE_READONLY;
 
 const foundation = await import(LIB('foundation.js'));
 const agents = await import(LIB('agents.js'));
+const toolbelt = await import(LIB('toolbelt.js'));
 const { createAdvocates } = await import(LIB('advocate.js'));
 
 /* ---------------------------------------------------------------- the harness */
@@ -345,6 +346,12 @@ await test('the reply agents’ bd grants are named one verb at a time', async (
   const f = await foundation.effective(ROOT, 'dispatch');
   assert.deepEqual(f.allowedTools.filter((e) => /^Bash\(bd\b/.test(e)), DISPATCH_BD);
   assert.deepEqual(agents.DEFAULT_TOOL_LIST.filter((e) => /^Bash\(bd\b/.test(e)), DISPATCH_BD);
+  // And the third end, which is where these verbs actually live: `BASE_TOOL_LIST` in
+  // lib/toolbelt.js, the hand-written half. Named out loud on purpose — since bc-wbrhi
+  // toolbelt.js is a `@manifest`, so lib/affected.js selects a suite for it only when the
+  // suite says one of its names, and this is the suite that would have to notice a `bd`
+  // verb being widened there. See the `@manifest` paragraph in lib/toolbelt.js.
+  assert.deepEqual(toolbelt.BASE_TOOL_LIST.filter((e) => /^Bash\(bd\b/.test(e)), DISPATCH_BD);
   // `--allowedTools` is handed the joined string, so the narrowing has to survive the
   // join as well as the array — a stray `Bash(bd dep:*)` would still be a word in it.
   assert.ok(!agents.DEFAULT_TOOLS.includes('Bash(bd dep:*)'), 'the glob is back in the string the phone is shown');

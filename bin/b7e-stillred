@@ -22,6 +22,8 @@
  * failure, or every one that does already has a fix on `origin/main` since its base);
  * `1` at least one suite is recorded red with no fix on `origin/main` since its base, or
  * has no base to compare at all; `2` refused — bad usage, or no suites to look at.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';

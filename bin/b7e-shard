@@ -28,6 +28,8 @@
  * count, or a narrow list shorter than `--total` — and that is not an error, just nothing
  * for that leg to run; **the caller must not turn an empty slice into a bare `b7e-gate`**,
  * which is every suite); `2` refused, bad usage.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';
