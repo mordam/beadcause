@@ -28282,8 +28282,9 @@ word-set comparison solves — loosening the bar on a graph of several hundred l
 similarly-worded titles (this repo's own convention) would trade a sweep that misses
 real pairs for one that wires unrelated beads together every cycle. So this sweep
 catches what its acceptance criterion actually asks for — a near-verbatim title with
-no edge — and the harder case of the same bug in different words is still open work,
-not a bug in this file.
+no edge — and the harder case of the same bug in different words is
+[the section after next](#and-the-harder-case-the-same-job-in-different-words), not a
+bug in this file.
 
 `node test/dupesweep.mjs` (in `npm test`) covers the plan against real `bd export`
 JSONL through `indexFrom` — an unjoined near-verbatim pair, a pair already linked by
@@ -28291,6 +28292,71 @@ any edge type, one merely sharing a few words, a closed bead, a question on eith
 side, a deterministic three-way tie — and the round trip against a fake `bd`: what it
 writes, that the graph refreshes once per batch rather than once per write, and a
 rejected write landing in the answer rather than throwing into the poll cycle.
+
+### And the harder case: the same job in different words
+
+The section above leaves the hard half open, and this is it. A 0.9 word-set bar catches a
+bead typed twice and nothing else, which is worth having and is not what this graph
+actually produces. The measurement, on beadcause itself: **twelve live beads carry
+`superseded-by:`**, each one a duplicate a worker found by hand and could not close.
+Scored against the bead each duplicates, with this repo's own `titleSimilarity`, they run
+**0.07 to 0.64** — median 0.30, top of the range 0.64. Not one is within reach of 0.9.
+Eleven of the twelve carry `agent-filed`: they came through `beadcause-file`, from a
+session deep in one bead that had not read the tracker.
+
+Lowering the bar does not work, and that was measured too, over all 45,451 live
+non-`human` pairs:
+
+| bar | flags | catches |
+|---|---|---|
+| `dice >= 0.50` | 11 pairs | 2 of 12 |
+| `dice >= 0.40` | 45 pairs | 4 of 12 |
+| `dice >= 0.35` | 100 pairs | 5 of 12 |
+
+Eight times more noise than signal at the loosest bar that catches even five. Requiring a
+shared source file alongside it halves the flags and adds no recall; structure alone is
+worse, with 583 of those pairs sharing files at Jaccard ≥ 0.5 against twelve real
+duplicates. **No lexical threshold separates the two populations**, because what separates
+them is what the words mean.
+
+So `lib/samejob.js` shortlists cheaply and judges semantically:
+
+1. **The shortlist** is pure — no model, no spawn. Three signals, none decisive: a shared
+   file surface (declared *and* prose, unioned, where `surfaceOf` takes one or the other),
+   kinship — two beads in one epic's family, which is three of the twelve pairs — and title
+   similarity at `TITLE_FLOOR` (0.25), far below the near-verbatim bar. Anything clearing
+   any signal is a candidate; the top eight by combined score go on. Replayed over the
+   twelve pairs at the moment the second of each was filed, the first is in that top eight
+   **ten times**. The two misses are epics with generic titles naming no path at all, and
+   they are named in the suite rather than buried in a ratio.
+2. **The judge** is one headless `claude -p` over those eight rows, running as the chat
+   session's foundation for lib/sessionaudit.js's reason — a read-only judge needs exactly
+   the read-only surface every reading agent has, and a new foundation kind owes five
+   registrations before it can run. It is affordable because the shortlist handed it eight
+   rows and not three hundred: about 7 KB of prompt.
+
+**This one refuses, where the create-time flag does not.** lib/dupe.js's rule is that
+refusing loses work nobody can send back — true of a crash the daemon files on itself at
+04:00, and not true here. A session ran `beadcause-file` and is still holding the context
+that produced it, so it is told which bead covers the work, **what it wrote is committed as
+a comment on that bead** rather than dropped, and `--force` files anyway in the same breath.
+The observation survives the refusal; that is the whole reason a refusal is affordable.
+Refused filings exit **5**, distinct from 4 — both mean "you did not get every bead you
+asked for", and only one of them is worth retrying.
+
+Every failure is a pass. A judge that cannot start, times out, answers nonsense, or names
+a bead it was never shown files the bead and says so on stderr. The errors are not
+symmetric and the prompt says so out loud: a wrong `none` costs one duplicate bead, which
+is ordinary and gets tidied later, while a wrong name throws away a discovery a session
+cannot find again.
+
+`node test/samejob.mjs` (in `npm test`) covers the shortlist against the real corpus —
+`test/fixtures/samejob-pairs.json` is those twelve pairs, real titles and descriptions,
+each oriented as a create-time check would meet it — plus the exclusions (closed, `human`,
+ignored), the cap, the deterministic tie order, and the verdict plumbing through an
+injected runner: an invented id, `none`, unparseable YAML, no block at all and a spawn that
+throws are each asserted **not** to be a refusal.
+
 
 ### What you just filed, one tap away
 
