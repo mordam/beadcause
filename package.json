@@ -82,6 +82,7 @@
     "b7e-owes": "bin/b7e-owes.js",
     "b7e-packet": "bin/b7e-packet",
     "b7e-pinned": "bin/b7e-pinned",
+    "b7e-plancheck": "bin/b7e-plancheck",
     "b7e-plate": "bin/b7e-plate",
     "b7e-precedent": "bin/b7e-precedent",
     "b7e-premerge": "bin/b7e-premerge",
