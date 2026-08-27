@@ -210,6 +210,9 @@ check('one create and nothing else', bd.calls.length === 1 && bd.calls[0].kind =
 // whole file reporting into a void.
 check('it goes through the homing seam', 'parent' in bd.calls[0].spec, JSON.stringify(bd.calls[0].spec));
 check('it is a question, so it lands in the inbox', bd.calls[0].spec.labels.includes('human'));
+// bc-7qo.9: closing this bead is always a report and a tap, never code — the label that
+// tells `landedWork` (lib/promote.js) apart from an epic's real work.
+check('and carries the card label so it never reads as work an epic shipped', bd.calls[0].spec.labels.includes('card'), bd.calls[0].spec.labels);
 check('P2, like everything else the daemon files unasked', bd.calls[0].spec.priority === 2);
 check('the title names the merge and the repo', /#231/.test(bd.calls[0].spec.title) && /beadcause/.test(bd.calls[0].spec.title), bd.calls[0].spec.title);
 check('all three pull requests are on it', ['#14', '#11', '#9'].every((n) => bd.calls[0].spec.body.includes(n)), bd.calls[0].spec.body);

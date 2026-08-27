@@ -14403,14 +14403,21 @@ single derivation both ends call.
 
 Three things it deliberately does, each of which is a way of being wrong on purpose:
 
-- **It over-includes.** Ship beads, promotion beads, containers and superseded ones are cut
-  — nothing was built for any of them — and nothing else is. There is no label separating
-  landed work from a card the daemon filed and Adam answered: bc-xl7n.15 (*#244 left 1
-  conflicting pull request behind it*) and bc-xl7n.35 (*a sweep card whose record is dropped
-  can never close*) are both closed under bc-9d37 and both carry `inbox`, and only the
-  second was built. bc-9d37 therefore derives 29 rows where fourteen are its own work. The
-  titles separate them in a glance; the alternative is silently testing four of nine and
-  passing.
+- **It over-includes.** Ship beads, promotion beads, containers, superseded ones and, since
+  bc-7qo.9, `card` beads are cut — nothing was built for any of them — and nothing else is.
+  Before bc-7qo.9 there was no label separating landed work from a card the daemon filed and
+  Adam answered: bc-xl7n.15 (*#244 left 1 conflicting pull request behind it*) and bc-xl7n.35
+  (*a sweep card whose record is dropped can never close*) are both closed under bc-9d37 and
+  both carry `inbox`, and only the second was built. Now a bead a sweep or an advocate raises
+  purely to ask a question — never to be built — carries `card` (lib/card.js) from the moment
+  it is filed, and `NOT_WORK` (lib/promote.js) excludes it the same way it excludes `ship` and
+  `promote`. `card` is narrower than `human`: a decision made mid-flight through a bead that
+  still owes code once answered keeps `human` without `card`, so it still counts as work —
+  pinned by `whyNotWork({labels:['human','p0']}) === ''` in test/promotework.mjs. Beads filed
+  before `card` existed carry no such marker and still over-include — bc-xl7n.15 and
+  bc-xl7n.35 among them, since neither was backfilled by hand. bc-9d37 therefore still derives
+  29 rows where fourteen are its own work, on beads this old. The titles separate them in a
+  glance either way; the alternative is silently testing four of nine and passing.
 - **`unendorsed` is not an exclusion, though it reads like the strongest one there is.**
   bc-9d37.12 and bc-9d37.14 are closed, still carry it, and are two of that epic's nine —
   a session working a neighbour fixed them and nothing takes the label off. Cutting it
