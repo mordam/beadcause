@@ -1,0 +1,209 @@
+#!/usr/bin/env node
+/**
+ * `b7e-bd` — which call does *this* to a bead: the `Bd` wrapper method, the argv it
+ * spawns, and what the `bd` actually installed here advertises for that subcommand.
+ *
+ *   b7e-bd label                    # which Bd method (and which raw bd command) does this
+ *   b7e-bd reparent
+ *   b7e-bd close force
+ *   b7e-bd lease
+ *   b7e-bd --method reopenAbandoned # the reverse lookup: everything about one named method
+ *   b7e-bd label --json
+ *
+ * bc-dgx7.20. Five sessions each spent real minutes on this exact hunt — `bd --help`,
+ * `bd update --help | grep -i parent`, four greps through `lib/bd.js` for a method
+ * guessed from the intent — because none of them knew the symbol's name and `b7e-def`
+ * needs one. `lib/bdintrospect.js` does the actual work: it parses `lib/bd.js` (never
+ * executes it) for every `Bd` method and the exact `bd` argv each one spawns, searches
+ * that the same way `b7e-already` already searches `lib/`, and separately spawns the
+ * *installed* `bd`'s own `--help` — top level and per-subcommand — so an intent with no
+ * `Bd` wrapper at all (`reparent`) still finds the raw flag that answers it, and a
+ * flag a wrapper passes that this bd no longer advertises shows up as a line of output
+ * here rather than as a failed call later.
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { REPO_ROOT } from '../lib/affected.js';
+import { loadConfig } from '../lib/config.js';
+import { notes } from '../lib/memory.js';
+import {
+  bdMethods,
+  tokenize,
+  searchMethods,
+  matchRawCommands,
+  matchNotes,
+  helpForArgv,
+  checkFlagsSupported,
+} from '../lib/bdintrospect.js';
+
+const USAGE = `usage: b7e-bd <intent...>          which Bd method (and raw bd command) does this
+       b7e-bd --method <name>      everything about one named Bd method
+       b7e-bd <intent...> --json   machine-readable
+
+<intent> is a verb or a short phrase: label, reparent, "close force", lease.
+
+For each match, prints: the Bd method (lib/bd.js:<line>) and the exact bd argv it
+spawns; the raw bd command/flag whose own --help text answers the intent, even when
+no Bd method wraps it; and any beadcause-memory note whose key or text names it.
+
+Exit 0 if anything matched, 1 if nothing did, 2 on bad usage.`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const JSON_MODE = argv.includes('--json');
+const methodIdx = argv.indexOf('--method');
+const methodName = methodIdx === -1 ? null : argv[methodIdx + 1];
+const intentWords = argv.filter((a, i) => a !== '--json' && (methodIdx === -1 || (i !== methodIdx && i !== methodIdx + 1)));
+const intent = intentWords.join(' ');
+
+if (!methodName && !intent) {
+  console.error('b7e-bd: an intent or --method <name> is required');
+  console.error(USAGE);
+  process.exit(2);
+}
+
+const cfg = loadConfig();
+const ROOT = REPO_ROOT;
+const methods = bdMethods(ROOT);
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+/** A method's call sites, rendered as `bd <argv...>` plus retries/pushes/flag-support. */
+function describeCalls(calls) {
+  return calls.map((c) => {
+    const flagsHelp = helpForArgv(cfg.bdBin, c.argv);
+    const flags = checkFlagsSupported(c.argv, flagsHelp);
+    const unsupported = flags.filter((f) => !f.supported);
+    return {
+      bdCall: c.bdCall,
+      line: c.line,
+      argv: c.argv,
+      command: `bd ${c.argv.join(' ')}`,
+      dynamic: c.dynamic,
+      pushes: c.pushes,
+      note: c.note,
+      retries: c.retries,
+      unsupportedFlags: unsupported.map((f) => f.flag),
+    };
+  });
+}
+
+function methodResult(m) {
+  return {
+    name: m.name,
+    shortName: m.shortName,
+    signature: m.signature,
+    file: m.file,
+    line: m.line,
+    doc: m.doc,
+    calls: describeCalls(m.calls),
+  };
+}
+
+if (methodName) {
+  const found = methods.find((m) => m.shortName.toLowerCase() === methodName.toLowerCase());
+  if (!found) {
+    if (JSON_MODE) {
+      console.log(JSON.stringify({ method: methodName, found: false }, null, 2));
+    } else {
+      console.error(`b7e-bd: no Bd method named "${methodName}" (case-insensitive) in lib/bd.js`);
+      console.error(`${methods.length} methods total — try an intent instead: b7e-bd <verb-or-phrase>`);
+    }
+    process.exit(1);
+  }
+  const result = methodResult(found);
+  if (JSON_MODE) {
+    console.log(JSON.stringify({ method: methodName, found: true, ...result }, null, 2));
+  } else {
+    console.log(bold(`${result.signature}`) + dim(`  — ${result.file}:${result.line}`));
+    if (result.doc) console.log(`  ${result.doc}`);
+    if (!result.calls.length) {
+      console.log(dim('  spawns no bd call directly (delegates to another Bd method, or calls none)'));
+    }
+    for (const c of result.calls) {
+      console.log(`  ${bold(c.command)}${dim(`  [.${c.bdCall}, retries: ${c.retries}, line ${c.line}]`)}`);
+      if (c.note) console.log(`    ${dim(c.note)}`);
+      for (const p of c.pushes || []) {
+        console.log(`    ${dim((p.guard ? `${p.guard} ` : '') + `push(${p.args.join(', ')})`)}`);
+      }
+      if (c.unsupportedFlags.length) {
+        console.log(`    ${dim(`⚠ not advertised by the installed bd: ${c.unsupportedFlags.map((f) => `--${f}`).join(', ')}`)}`);
+      }
+    }
+  }
+  process.exit(0);
+}
+
+/* --------------------------------------------------------------------- intent search */
+
+const words = tokenize(intent);
+const methodHits = searchMethods(methods, words).slice(0, 6).map(methodResult);
+const rawHits = matchRawCommands(cfg.bdBin, words, { limit: 6 });
+let noteHits = [];
+try {
+  const agent = process.env.BEADCAUSE_AGENT || 'worker';
+  const all = await notes(agent);
+  noteHits = matchNotes(all, words, { limit: 4 });
+} catch {
+  // Not in a repo with a note store, or the ref read failed — a note section with
+  // nothing in it is not worth failing the whole command over.
+  noteHits = [];
+}
+
+const anyHits = methodHits.length || rawHits.length || noteHits.length;
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ intent, words, methods: methodHits, raw: rawHits, notes: noteHits }, null, 2));
+  process.exit(anyHits ? 0 : 1);
+}
+
+console.log(bold(`b7e-bd "${intent}"`));
+
+console.log(`\n${bold('Bd methods')}${dim(` (${path.join('lib', 'bd.js')})`)}`);
+if (!methodHits.length) {
+  console.log(dim('  (none — no Bd method wraps this)'));
+} else {
+  for (const m of methodHits) {
+    console.log(`  ${bold(m.signature)}${dim(`  — ${m.file}:${m.line}`)}`);
+    if (m.doc) console.log(`    ${dim(m.doc)}`);
+    if (!m.calls.length) console.log(dim('    spawns no bd call directly'));
+    for (const c of m.calls) {
+      console.log(`    ${c.command}${dim(`  [retries: ${c.retries}]`)}`);
+      for (const p of c.pushes || []) {
+        console.log(`      ${dim((p.guard ? `${p.guard} ` : '') + `push(${p.args.join(', ')})`)}`);
+      }
+      if (c.unsupportedFlags.length) {
+        console.log(`      ${dim(`⚠ not advertised by the installed bd: ${c.unsupportedFlags.map((f) => `--${f}`).join(', ')}`)}`);
+      }
+    }
+  }
+}
+
+console.log(`\n${bold('Raw bd')}${dim(' (bd --help, and each match\'s own --help)')}`);
+if (!rawHits.length) {
+  console.log(dim('  (none)'));
+} else {
+  for (const r of rawHits) {
+    console.log(`  ${bold(`bd ${r.name}`)}${dim(` — ${r.summary}`)}`);
+    for (const line of r.matchedLines.slice(0, 2)) console.log(`    ${dim(line)}`);
+  }
+}
+
+console.log(`\n${bold('beadcause-memory notes')}`);
+if (!noteHits.length) {
+  console.log(dim('  (none)'));
+} else {
+  for (const n of noteHits) {
+    const clipped = n.value.length > 300 ? `${n.value.slice(0, 300)}…` : n.value;
+    console.log(`  ${bold(n.key)}`);
+    console.log(`    ${clipped}`);
+  }
+}
+
+process.exit(anyHits ? 0 : 1);

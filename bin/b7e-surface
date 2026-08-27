@@ -1,0 +1,700 @@
+#!/usr/bin/env node
+/**
+ * What a module exports, with the one line that says what each export is for —
+ * instead of a guessed grep that comes back empty and looks exactly like "there is
+ * nothing here".
+ *
+ *   b7e-surface <path> [<path> …]      one line per export: kind, name, signature,
+ *                                       line number, first sentence of its doc comment
+ *   b7e-surface --all <path>           + module-private functions, consts and classes
+ *   b7e-surface --class <Name> <path>  only <Name>'s methods, whichever class it is
+ *
+ * bc-dgx7.28 is the audit: five sessions (bc-bmry.10, bc-bmry.11, bc-bmry.12,
+ * bc-khoe.33, bc-xl7n.102) each asked "what is in here that I can call" before
+ * writing against a lib/ file they had not read yet, and each invented a regex for
+ * it — `grep -n "^export"`, `grep -n "^export function\|^export const"`, four more
+ * spellings across the other four. Two of those were retries after a guessed name
+ * came back empty, which is the actual failure: an empty result from
+ * `grep -n "^export function isRoot\|^export function isEpic\|^export function
+ * isP0"` (bc-bmry.12, against lib/ownership.js, which exports none of those three
+ * under those names) is indistinguishable from "this file has nothing like that" —
+ * the tell only reads once the file's real surface is known. And `grep`-for-`export`
+ * cannot answer the question at all against a file whose surface is a class:
+ * bc-bmry.10's `grep -n "show(\|comments(\|list(\|ready(\|search("` on lib/bd.js
+ * came back with nothing, because `show`, `comments` and friends are methods on
+ * `Bd`, and a class method carries no `export` keyword of its own.
+ *
+ * `b7e-def` cannot answer this either: it takes a symbol name, and the whole point
+ * of the question here is that the name is not yet known.
+ *
+ * WHAT COUNTS AS A DEFINITION. A module-level `export function`/`export class`/
+ * `export const|let|var` (kind `function`/`class`/`const`), found the same way
+ * `b7e-def` finds a definition — matched against the trimmed start of a line — but
+ * restricted to lines at curly-brace depth 0, so a same-shaped line inside a
+ * function body is never mistaken for a second top-level export. For every class
+ * found this way (exported, or — with `--all` — not), its direct methods (kind
+ * `method`, matched the same disambiguated way `b7e-def` tells a method definition
+ * apart from a call: the token immediately after the method head's own `(...)`
+ * closes must be `{`, not anything else) are listed nested underneath it, at exactly
+ * one brace-depth deeper than the class's own body — which is what keeps a bare
+ * `if (x) {` or `catch (e) {` *inside* a method body from being read as a second,
+ * phantom method of the class. A file whose whole surface is a class — `lib/bd.js`,
+ * whose module-level exports are five guard functions and `Bd`, and whose real
+ * surface is 60-odd methods on `Bd` — reads as `Bd` with its methods under it, not
+ * as five lines and then silence.
+ *
+ * WHAT THIS DOES NOT DO. Destructured exports (`export const { a, b } = x`) are not
+ * matched — the same bound `b7e-def` accepts for destructured imports. A class field
+ * assigned an arrow function (`onClick = () => {}`) is not read as a method; this
+ * codebase's classes use method-shorthand throughout (checked: five arrow-valued
+ * class fields exist in the whole of `lib/`, against thousands of shorthand
+ * methods), so that is a real gap against unusual style rather than the common case.
+ * Comments are not blanked before scanning, the same tradeoff `b7e-def` already
+ * makes — a line of *prose* that happens to start with `export function foo(` would
+ * be misread, and neither tool guards against it. Signatures are read off the
+ * source text with a small hand-rolled scanner, not a real parser, and are
+ * truncated for display; read the file at the printed line number for the exact
+ * shape.
+ *
+ * A path that does not resolve to a real, readable source file is a refusal (a
+ * message on stderr, exit 2) — never empty output, which is exactly the shape that
+ * cost bc-bmry.11 and bc-bmry.12 a lost call each: a guess that finds nothing prints
+ * nothing, and nothing looks identical whether the guess was wrong or the file was.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+
+const CODE_EXT = new Set(['.js', '.mjs', '.cjs']);
+const NODE_SHEBANG = '#!/usr/bin/env node';
+
+/* ------------------------------------------------------------------- argv */
+
+const argv = process.argv.slice(2);
+const HELP = argv.includes('--help') || argv.includes('-h');
+const ALL = argv.includes('--all');
+
+let CLASS_NAME = null;
+const classIdx = argv.indexOf('--class');
+if (classIdx !== -1) CLASS_NAME = argv[classIdx + 1] || null;
+
+const paths = argv.filter((a, i) => {
+  if (a === '--all' || a === '--help' || a === '-h' || a === '--class') return false;
+  if (argv[i - 1] === '--class') return false;
+  return true;
+});
+
+const USAGE = [
+  'b7e-surface <path> [<path> …]      one line per export: kind, name, signature,',
+  '                                     line number, first sentence of its doc comment',
+  'b7e-surface --all <path>           + module-private functions, consts and classes',
+  'b7e-surface --class <Name> <path>  only <Name>\'s methods, whichever class it is',
+].join('\n');
+
+if (HELP) {
+  console.log(USAGE);
+  process.exit(0);
+}
+if (classIdx !== -1 && !CLASS_NAME) {
+  console.error("b7e-surface: --class needs a name\n\n" + USAGE);
+  process.exit(1);
+}
+if (!paths.length) {
+  console.error(USAGE);
+  process.exit(1);
+}
+
+/* --------------------------------------------------- string/comment aware scan */
+/* The same small scanner bin/b7e-def uses to tell a definition's head from its
+ * body without a real parser — duplicated rather than imported, because neither
+ * file is a library and a bin/ script here is self-contained by house style. */
+
+/** Advance past a quoted string (', ", or `) starting at text[i], respecting `\`. */
+function skipString(text, i) {
+  const q = text[i];
+  i += 1;
+  while (i < text.length) {
+    if (text[i] === '\\') {
+      i += 2;
+      continue;
+    }
+    if (text[i] === q) return i + 1;
+    i += 1;
+  }
+  return i;
+}
+
+/**
+ * text[i] is a `/` already judged (via `isDivision`) to be starting a regex
+ * literal rather than a division operator. Returns the index just past its
+ * closing `/` and any flags, or `i + 1` when no unescaped `/` closes it before a
+ * raw newline — regex literals cannot contain one unescaped, so that is proof it
+ * was division after all, and the caller falls through to treating it as an
+ * ordinary character.
+ *
+ * Without this, an embedded quote inside a regex's own pattern — `lib/bd.js`'s
+ * `CLAIM_GUARD_RE`, matching a bd error that itself quotes an assignee's name —
+ * is read as a *string* opening instead, and every brace and quote for the rest
+ * of the file is then counted from the wrong side of it. Found by this file
+ * shipping with `b7e-surface lib/bd.js` losing every one of `Bd`'s ~60 methods.
+ */
+function skipRegex(text, i) {
+  let j = i + 1;
+  let inClass = false;
+  while (j < text.length) {
+    const c = text[j];
+    if (c === '\n') return i + 1; // never valid unescaped in a regex literal — not one after all
+    if (c === '\\') {
+      j += 2;
+      continue;
+    }
+    if (c === '[') {
+      inClass = true;
+      j += 1;
+      continue;
+    }
+    if (c === ']') {
+      inClass = false;
+      j += 1;
+      continue;
+    }
+    if (c === '/' && !inClass) {
+      j += 1;
+      break;
+    }
+    j += 1;
+  }
+  while (j < text.length && /[A-Za-z]/.test(text[j])) j += 1; // trailing flags
+  return j;
+}
+
+/**
+ * Is a `/` right after this character division (true) rather than the start of a
+ * regex literal (false)? The classic tokenizer ambiguity, resolved the way every
+ * real one does: an identifier, digit, `)`, `]`, or a value that just closed
+ * (a string/regex, represented here by `'0'`) leaves a value behind, so `/` next
+ * divides it; anything else — an operator, an opening bracket, a keyword, or
+ * nothing yet — leaves an expression *expected*, so `/` starts one.
+ */
+function isDivision(lastSig) {
+  return lastSig !== null && /[A-Za-z0-9_$)\]'"`]/.test(lastSig);
+}
+
+/** From `fromIndex`, find where a definition's body starts: `{`, `;`, or null. */
+function findBody(text, fromIndex, { strict = false } = {}) {
+  let i = fromIndex;
+  let depth = 0;
+  let lastSig = null;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      i += 1;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i);
+      if (nl === -1) return null;
+      i = nl;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end === -1) return null;
+      i = end + 2;
+      continue;
+    }
+    if (c === '/' && !isDivision(lastSig)) {
+      const stop = skipRegex(text, i);
+      if (stop > i + 1) {
+        i = stop;
+        lastSig = '0';
+        continue;
+      }
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      i = skipString(text, i);
+      lastSig = '0';
+      continue;
+    }
+    if (c === '(' || c === '[') {
+      depth += 1;
+      lastSig = c;
+      i += 1;
+      continue;
+    }
+    if (c === ')' || c === ']') {
+      depth -= 1;
+      lastSig = c;
+      i += 1;
+      if (strict && depth === 0) return bodyImmediatelyAfter(text, i);
+      continue;
+    }
+    if (c === '{' && depth === 0) return { type: 'brace', index: i };
+    if (c === ';' && depth === 0) return { type: 'semi', index: i };
+    lastSig = c;
+    i += 1;
+  }
+  return null;
+}
+
+/** Strict mode: the very next token after a head's own `(...)` must be `{` or `;`. */
+function bodyImmediatelyAfter(text, i) {
+  while (i < text.length) {
+    const c = text[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      i += 1;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i);
+      if (nl === -1) return null;
+      i = nl;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end === -1) return null;
+      i = end + 2;
+      continue;
+    }
+    if (c === '{') return { type: 'brace', index: i };
+    if (c === ';') return { type: 'semi', index: i };
+    return null;
+  }
+  return null;
+}
+
+/** text[openIndex] is '{'; returns the index of its matching '}'. */
+function matchBrace(text, openIndex) {
+  let depth = 1;
+  let i = openIndex + 1;
+  let lastSig = '{';
+  while (i < text.length && depth > 0) {
+    const c = text[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      i += 1;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i);
+      if (nl === -1) return text.length - 1;
+      i = nl;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end === -1) return text.length - 1;
+      i = end + 2;
+      continue;
+    }
+    if (c === '/' && !isDivision(lastSig)) {
+      const stop = skipRegex(text, i);
+      if (stop > i + 1) {
+        i = stop;
+        lastSig = '0';
+        continue;
+      }
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      i = skipString(text, i);
+      lastSig = '0';
+      continue;
+    }
+    if (c === '{') depth += 1;
+    else if (c === '}') depth -= 1;
+    lastSig = c;
+    i += 1;
+  }
+  return i - 1;
+}
+
+/** text[openIndex] is '('; returns the index of its matching ')' (any bracket nests). */
+function matchParen(text, openIndex) {
+  let depth = 1;
+  let i = openIndex + 1;
+  let lastSig = '(';
+  while (i < text.length && depth > 0) {
+    const c = text[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      i += 1;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i);
+      if (nl === -1) return text.length - 1;
+      i = nl;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end === -1) return text.length - 1;
+      i = end + 2;
+      continue;
+    }
+    if (c === '/' && !isDivision(lastSig)) {
+      const stop = skipRegex(text, i);
+      if (stop > i + 1) {
+        i = stop;
+        lastSig = '0';
+        continue;
+      }
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      i = skipString(text, i);
+      lastSig = '0';
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') depth += 1;
+    else if (c === ')' || c === ']' || c === '}') depth -= 1;
+    lastSig = c;
+    i += 1;
+  }
+  return i - 1;
+}
+
+/** Builds a lookup from char index -> 1-based line number. */
+function lineIndexer(text) {
+  const starts = [0];
+  for (let i = 0; i < text.length; i += 1) if (text[i] === '\n') starts.push(i + 1);
+  return (charIndex) => {
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= charIndex) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+}
+
+/** Walks upward from `startLine` (1-based) over a contiguous // or /** *​/ block. */
+function docCommentStart(lines, startLine) {
+  let li = startLine - 2; // 0-based index of the line above startLine
+  while (li >= 0) {
+    const t = lines[li].trim();
+    if (t.startsWith('//') || t.startsWith('/*') || t.startsWith('*') || t.endsWith('*/')) {
+      li -= 1;
+      continue;
+    }
+    break;
+  }
+  return li + 2; // back to 1-based, first comment line
+}
+
+/**
+ * The first sentence of the doc comment above `startLine`, or ''.
+ *
+ * Bounded to the comment's FIRST paragraph (up to its first blank line) before
+ * hunting for a sentence-ending `.`/`!`/`?` — several doc comments in this repo open
+ * with a `## heading` line or a colon-heavy lead-in paragraph with no period for a
+ * page, and without the paragraph bound the "first sentence" of one of those is the
+ * whole comment (seen against `lib/bd.js`'s `CLAIM_ROLE_GUARD_RE` while building
+ * this). A heading with no terminal punctuation is returned as-is, truncated.
+ */
+function docFirstSentence(lines, docStart, startLine) {
+  if (docStart >= startLine) return '';
+  const stripped = lines.slice(docStart - 1, startLine - 1).map((l) => {
+    let t = l.trim();
+    t = t.replace(/^\/\*\*?/, '');
+    t = t.replace(/\*\/$/, '');
+    t = t.replace(/^\*\/?\s?/, '');
+    t = t.replace(/^\/\/\s?/, '');
+    return t.trim();
+  });
+  const para = [];
+  for (const t of stripped) {
+    if (!t) {
+      if (para.length) break; // first blank line after content ends the paragraph
+      continue; // skip leading blank comment lines
+    }
+    para.push(t);
+  }
+  const text = para.join(' ').replace(/^#+\s*/, '').trim();
+  if (!text) return '';
+  const m = text.match(/^.*?[.!?](?=\s|$)/);
+  return truncate(m ? m[0] : text, 140);
+}
+
+/** Depth (curly-brace nesting) at the START of every line, strings/comments blind. */
+function lineStartDepths(text) {
+  const depths = [0];
+  let depth = 0;
+  let i = 0;
+  const n = text.length;
+  let lastSig = null;
+  while (i < n) {
+    const c = text[i];
+    if (c === '\n') {
+      depths.push(depth);
+      i += 1;
+      continue;
+    }
+    if (c === ' ' || c === '\t' || c === '\r') {
+      i += 1;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i);
+      if (nl === -1) break;
+      i = nl;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      let end = text.indexOf('*/', i + 2);
+      if (end === -1) break;
+      end += 2;
+      for (let j = i; j < end; j += 1) if (text[j] === '\n') depths.push(depth);
+      i = end;
+      continue;
+    }
+    if (c === '/' && !isDivision(lastSig)) {
+      const stop = skipRegex(text, i);
+      if (stop > i + 1) {
+        i = stop;
+        lastSig = '0';
+        continue;
+      }
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      const start = i;
+      const stop = skipString(text, i);
+      for (let j = start; j < stop; j += 1) if (text[j] === '\n') depths.push(depth);
+      i = stop;
+      lastSig = '0';
+      continue;
+    }
+    if (c === '{') {
+      depth += 1;
+      lastSig = c;
+      i += 1;
+      continue;
+    }
+    if (c === '}') {
+      depth -= 1;
+      lastSig = c;
+      i += 1;
+      continue;
+    }
+    lastSig = c;
+    i += 1;
+  }
+  return depths;
+}
+
+function truncate(s, max = 92) {
+  const one = s.replace(/\s+/g, ' ').trim();
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+}
+
+/* -------------------------------------------------------- definition finder */
+
+const IDENT = '[A-Za-z_$][\\w$]*';
+const TOP_HEADS = [
+  { re: new RegExp(`^export\\s+default\\s+(async\\s+)?function\\s*\\*?\\s*(${IDENT})\\s*\\(`), kind: 'function', nameGroup: 2, exported: true },
+  { re: new RegExp(`^export\\s+(async\\s+)?function\\s*\\*?\\s*(${IDENT})\\s*\\(`), kind: 'function', nameGroup: 2, exported: true },
+  { re: new RegExp(`^export\\s+class\\s+(${IDENT})\\b`), kind: 'class', nameGroup: 1, exported: true },
+  { re: new RegExp(`^export\\s+(?:const|let|var)\\s+(${IDENT})\\s*=`), kind: 'const', nameGroup: 1, exported: true },
+  { re: new RegExp(`^(async\\s+)?function\\s*\\*?\\s*(${IDENT})\\s*\\(`), kind: 'function', nameGroup: 2, exported: false },
+  { re: new RegExp(`^class\\s+(${IDENT})\\b`), kind: 'class', nameGroup: 1, exported: false },
+  { re: new RegExp(`^(?:const|let|var)\\s+(${IDENT})\\s*=`), kind: 'const', nameGroup: 1, exported: false },
+];
+
+// static / async / get|set / generator-star / name(  — a class method's head has no
+// `export` keyword to anchor on, so this is the same disambiguation `b7e-def` makes
+// for its own bare `name(` head: kept only when `findBody(..., {strict: true})`
+// finds `{` immediately after the head's own `(...)` closes.
+const MEMBER_RE = new RegExp(`^(static\\s+)?(async\\s+)?(get\\s+|set\\s+)?(\\*)?\\s*(${IDENT})\\s*\\(`);
+
+// Control-flow keywords are syntactically indistinguishable from `name(` at the
+// start of a trimmed line — `catch (e) {` matches MEMBER_RE with name 'catch'. The
+// brace-depth filter already excludes anything inside a method body; this is the
+// belt-and-braces for the one shape (an ES2022 `static { … }` init block) where a
+// bare statement can sit at exactly the class's own member depth.
+const RESERVED = new Set([
+  'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'delete', 'void', 'in', 'of',
+  'instanceof', 'do', 'else', 'try', 'finally', 'throw', 'yield', 'await', 'new', 'with',
+]);
+
+function paramSignature(text, name, openParenIdx, prefix = '') {
+  const closeIdx = matchParen(text, openParenIdx);
+  const params = text.slice(openParenIdx, closeIdx + 1);
+  return truncate(`${prefix}${name}${params}`);
+}
+
+/** Every module-top-level (curly-brace depth 0) function/class/const definition. */
+function topLevelDefs(text, lines, depths, idx) {
+  const out = [];
+  let charOffset = 0;
+  for (let li = 0; li < lines.length; li += 1) {
+    const line = lines[li];
+    if (depths[li] === 0) {
+      const trimmed = line.trimStart();
+      const leadingWs = line.length - trimmed.length;
+      for (const head of TOP_HEADS) {
+        const m = head.re.exec(trimmed);
+        if (!m) continue;
+        const name = m[head.nameGroup];
+        const afterHeadChar = charOffset + leadingWs + m[0].length - 1;
+        const startLine = li + 1;
+        const def = { kind: head.kind, name, exported: head.exported, startLine, docStart: docCommentStart(lines, startLine) };
+        if (head.kind === 'function') {
+          def.sig = paramSignature(text, name, afterHeadChar);
+        } else if (head.kind === 'class') {
+          const body = findBody(text, afterHeadChar, { strict: false });
+          if (!body || body.type !== 'brace') continue; // not a real class body — unusual, skip rather than guess
+          def.sig = name;
+          def.bodyStart = body.index;
+          def.bodyEnd = matchBrace(text, body.index);
+          def.headDepth = depths[li];
+        } else {
+          def.sig = truncate(trimmed.replace(/^export\s+/, '').replace(/^(?:const|let|var)\s+/, ''));
+        }
+        out.push(def);
+        break; // first matching head wins for this line
+      }
+    }
+    charOffset += line.length + 1; // +1 for the '\n' split away
+  }
+  return out;
+}
+
+/** Every direct method of a class def (one brace-depth deeper than its own body). */
+function membersOf(text, lines, depths, idx, cls) {
+  const startLine = idx(cls.bodyStart);
+  const endLine = idx(cls.bodyEnd);
+  const memberDepth = cls.headDepth + 1;
+  const out = [];
+  let charOffset = lines.slice(0, startLine - 1).reduce((n, l) => n + l.length + 1, 0);
+  for (let li = startLine - 1; li < endLine; li += 1) {
+    const line = lines[li];
+    if (li >= startLine && depths[li] === memberDepth) {
+      const trimmed = line.trimStart();
+      const leadingWs = line.length - trimmed.length;
+      const m = MEMBER_RE.exec(trimmed);
+      if (m) {
+        const name = m[5];
+        if (!RESERVED.has(name)) {
+          const afterHeadChar = charOffset + leadingWs + m[0].length - 1;
+          const body = findBody(text, afterHeadChar, { strict: true });
+          if (body && body.type === 'brace') {
+            const prefix = `${m[1] ? 'static ' : ''}${m[2] ? 'async ' : ''}${m[3] ? m[3].trim() + ' ' : ''}${m[4] ? '*' : ''}`;
+            const memberStartLine = li + 1;
+            out.push({
+              kind: 'method',
+              name,
+              startLine: memberStartLine,
+              docStart: docCommentStart(lines, memberStartLine),
+              sig: paramSignature(text, name, afterHeadChar, prefix),
+            });
+          }
+        }
+      }
+    }
+    charOffset += line.length + 1;
+  }
+  return out;
+}
+
+function formatRow({ startLine, kind, sig, doc, indent = 0 }) {
+  const lineNo = String(startLine).padStart(6);
+  const pad = '  '.repeat(indent);
+  const kindCol = kind.padEnd(9);
+  let row = `${lineNo}  ${pad}${kindCol}${sig}`;
+  if (doc) row += `  — ${doc}`;
+  return row;
+}
+
+/** Returns an array of formatted rows, or null when `className` was asked for and not found. */
+function surfaceOf(text, { all, className }) {
+  const lines = text.split('\n');
+  const depths = lineStartDepths(text);
+  const idx = lineIndexer(text);
+  const defs = topLevelDefs(text, lines, depths, idx);
+
+  if (className) {
+    const cls = defs.find((d) => d.kind === 'class' && d.name === className);
+    if (!cls) return null;
+    const out = [formatRow({ startLine: cls.startLine, kind: 'class', sig: cls.sig, doc: docFirstSentence(lines, cls.docStart, cls.startLine) })];
+    for (const m of membersOf(text, lines, depths, idx, cls)) {
+      out.push(formatRow({ startLine: m.startLine, kind: 'method', sig: m.sig, doc: docFirstSentence(lines, m.docStart, m.startLine), indent: 1 }));
+    }
+    return out;
+  }
+
+  const out = [];
+  for (const d of defs) {
+    if (!d.exported && !all) continue;
+    out.push(formatRow({ startLine: d.startLine, kind: d.kind, sig: d.sig, doc: docFirstSentence(lines, d.docStart, d.startLine) }));
+    if (d.kind === 'class') {
+      for (const m of membersOf(text, lines, depths, idx, d)) {
+        out.push(formatRow({ startLine: m.startLine, kind: 'method', sig: m.sig, doc: docFirstSentence(lines, m.docStart, m.startLine), indent: 1 }));
+      }
+    }
+  }
+  return out;
+}
+
+/* --------------------------------------------------------------- path checks */
+
+function isSourceFile(abs) {
+  const ext = path.extname(abs);
+  if (CODE_EXT.has(ext)) return true;
+  if (ext) return false;
+  try {
+    const fd = fs.openSync(abs, 'r');
+    const buf = Buffer.alloc(32);
+    const n = fs.readSync(fd, buf, 0, 32, 0);
+    fs.closeSync(fd);
+    return buf.subarray(0, n).toString('utf8').startsWith(NODE_SHEBANG);
+  } catch {
+    return false;
+  }
+}
+
+/* -------------------------------------------------------------------- run */
+
+let exitCode = 0;
+let printedAny = false;
+
+for (const p of paths) {
+  if (printedAny) console.log('');
+  printedAny = true;
+
+  const abs = path.resolve(process.cwd(), p);
+  let stat;
+  try {
+    stat = fs.statSync(abs);
+  } catch {
+    console.error(`b7e-surface: ${p}: no such file`);
+    exitCode = 2;
+    continue;
+  }
+  if (stat.isDirectory()) {
+    console.error(`b7e-surface: ${p}: is a directory, not a source file`);
+    exitCode = 2;
+    continue;
+  }
+  if (!isSourceFile(abs)) {
+    console.error(`b7e-surface: ${p}: not a source file (expected .js/.mjs/.cjs, or a node shebang)`);
+    exitCode = 2;
+    continue;
+  }
+
+  const text = fs.readFileSync(abs, 'utf8');
+  const rows = surfaceOf(text, { all: ALL, className: CLASS_NAME });
+  console.log(`${p}:`);
+  if (rows === null) {
+    console.error(`b7e-surface: ${p}: no class named '${CLASS_NAME}' in this file`);
+    exitCode = 1;
+    continue;
+  }
+  if (!rows.length) {
+    console.log(`  nothing here — no${ALL ? '' : ' exported'} function, const or class found`);
+    continue;
+  }
+  for (const row of rows) console.log(row);
+}
+
+process.exit(exitCode);
