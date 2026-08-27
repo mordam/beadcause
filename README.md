@@ -21396,19 +21396,29 @@ while it *stays* untracked is now caught too, which a by-name-only comparison wo
 have missed outright, since two untracked snapshots that both simply say "scratch.txt
 is there" read as identical regardless of what changed inside it.
 
-**One known, deliberately accepted false positive**: a file untracked when the run
-started, later `git add`ed and committed with the exact same bytes — the ordinary
-next step right after a gate run this command exists to validate — still reads as
-moved. `tree` only ever captures tracked content, so that path is simply absent from
-it at run-start; once committed, `git diff --name-only` reports it as "added"
-regardless of what the untracked-hash record beside it says. Closing this needs a
-single tree object merging tracked and untracked content (a throwaway index,
-`read-tree` + `update-index --cacheinfo` + `write-tree`), which is real extra
-plumbing with its own wrinkle for `--staged` (untracked content is never staged), and
-was left as a possible follow-up rather than built here — every incident this bead was
-actually filed over was an edit to a file already tracked when the gate started, which
-this reports correctly, and a false "moved" on a file you just wrote is a nudge to
-double-check, not a wrong answer trusted as a right one.
+**Crossing the tracked/untracked line with the same bytes is not drift** (`bc-dgx7.49`).
+It used to read as moved: a file untracked when the run started, later `git add`ed and
+committed unchanged — the ordinary next step right after a gate run this command exists
+to validate — was named every time, because `tree` only ever captures tracked content, so
+that path is simply absent from the baseline and `git diff --name-only` calls it "added"
+whatever its bytes are. `bc-dgx7.39` hit this dogfooding the tool on its own delivery, and
+it fires on almost every delivery rather than rarely. The untracked half of the comparison
+now *nets it out*: a path that left the untracked list is looked up in the new tree, and
+when that blob equals the hash recorded at run start the tracked diff's entry is taken
+back off — symmetrically for a path that entered it (`git rm --cached`), against the blob
+the baseline held. Only the transitions are reconciled, and only on equal content: an
+untracked file edited *and then* added is still reported by name.
+
+Netting rather than the merged tree object the bead first sketched — a throwaway index,
+`read-tree` + `hash-object -w` + `update-index --cacheinfo` + `write-tree`, so `tree`
+covers both halves at once. That route writes to the object store for every untracked file
+on every gate start, still needs the tracked-only tree kept for `--staged` (untracked
+content is never staged, so a merged baseline diffed against an index tree reads every
+baseline-untracked file as removed), and `--cacheinfo` has to name a mode: seeding at
+`100644` makes an executable file committed as `100755` diff as a mode change — the same
+false positive again, on exactly the file that prompted it, since `bin/b7e-gated` is
+`chmod +x`. Blob hashes are mode-blind in both directions and add no state, at the cost of
+one batched `git cat-file` per direction.
 
 `--staged` changes only what "now" means — the baseline is always the working tree
 `b7e-gate` actually tested, because that is what the suites ran against, but the
@@ -21418,7 +21428,7 @@ does that still match what was gated?"
 **On `DEFAULT_TOOL_LIST`**, unlike `b7e-watch`/`b7e-gate`/
 `b7e-blame` just above: it never runs a suite and never calls `runBlame` — the whole
 comparison is `git` reads with no working-tree or index side effects (`stash create`,
-`write-tree`, `hash-object`, `diff --name-only`, `rev-parse`) against a run's own
+`write-tree`, `hash-object`, `diff --name-only`, `rev-parse`, `cat-file`) against a run's own
 already-written record. That is exactly the read-only shape `b7e-def`/`b7e-owes`/
 `b7e-affected`/`b7e-readme` already are, not a lighter version of `npm test`.
 
