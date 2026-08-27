@@ -209,7 +209,26 @@ git('checkout', '-q', '-b', 'worktree-inflight-ggg', c2);
 commit('eight', '8', 'ggg: just committed', { at: new Date(Date.now() - 60000).toISOString() });
 git('checkout', '-q', 'main');
 
-git('update-ref', 'refs/remotes/origin/main', s1);
+// A branch whose commits reached main by being cherry-picked under new shas — the shape
+// bc-1kwl.22 landed under as #471, and the one `commitsAhead`'s sha-based count can never
+// see past on its own: same patch, different sha, so `rev-list --count` never falls to
+// zero. Only `commitsUpstream`'s patch-id check (`git cherry`) tells this apart from a
+// branch that really is stranded.
+git('checkout', '-q', '-b', 'worktree-cherried-hhh', c2);
+const hhh = commit('nine', '9', 'hhh: cherry-picked elsewhere');
+git('checkout', '-q', 'main');
+git('cherry-pick', hhh);
+const s2 = git('rev-parse', 'HEAD');
+
+// Two ids that collide under `tagOf` — `bc-1kwl.22` and `bc-1kwl.2.2` both become
+// `1kwl22`, since it throws every dot away with everything else that is not a letter or
+// a digit — so `ownsBranch` alone hands this one branch to both of them. Never merged,
+// no pull request: the exact shape bc-1kwl.28 and bc-1kwl.29 were filed over.
+git('checkout', '-q', '-b', 'worktree-coldest-read-wins-1kwl22', c2);
+commit('ten', '10', 'a dot-collision two ids would each claim');
+git('checkout', '-q', 'main');
+
+git('update-ref', 'refs/remotes/origin/main', s2);
 
 const {
   sweepNotInMain,
@@ -228,6 +247,9 @@ const {
   strandedTitle,
   RECENT_DAYS,
   GRACE_MS,
+  commitsUpstream,
+  tipOf,
+  pickBase,
 } = await import(LIB('notinmain.js'));
 const { toQuestion } = await import(LIB('decision.js'));
 
@@ -309,6 +331,15 @@ check('a bead with no suffix owns nothing', tagOf('bc') === '' && ownsBranch('bc
 check('the trailing tag is the match', ownsBranch('bc-5lcc', 'worktree-squash-proof-5lcc'));
 check('and it is anchored on the dash, so bc-ab does not own bc-cab’s branch', ownsBranch('bc-ab', 'worktree-x-cab') === false);
 check('a branch that merely contains the tag is not owned', ownsBranch('bc-5lcc', 'worktree-5lcc-notes-aaa') === false);
+check(
+  'a child and a grandchild whose ids differ only by a dot collide under tagOf',
+  tagOf('bc-1kwl.22') === tagOf('bc-1kwl.2.2') && tagOf('bc-1kwl.22') === '1kwl22',
+  `${tagOf('bc-1kwl.22')} ${tagOf('bc-1kwl.2.2')}`
+);
+check(
+  'so ownsBranch alone hands the same branch to both — the sweep is what has to refuse it',
+  ownsBranch('bc-1kwl.22', 'worktree-x-1kwl22') && ownsBranch('bc-1kwl.2.2', 'worktree-x-1kwl22')
+);
 
 const branches = await worktreeBranches(REPO);
 check(
@@ -488,6 +519,77 @@ const noRepo = fakeBd([{ id: 'wg-bbb', title: 'lost' }]);
 const r11 = await sweepNotInMain(noRepo, ws('eleven'), path.join(tmp, 'not-a-repo'));
 check('a workspace with no checkout behind it is not an error', r11.ok === false && /not a git checkout/.test(r11.reason), JSON.stringify(r11));
 check('and the sweep says nothing about it', describeNotInMain(r11).startsWith('not-in-main sweep skipped'), describeNotInMain(r11));
+
+/* -------------------------------------------------- a cherry-picked recovery */
+//
+// bc-4bet.7. `commitsAhead` counts by sha, and a cherry-pick reproduces the same patches
+// under new ones — the ordinary shape of a stranded-branch recovery on this laptop, not
+// an edge case. bc-1kwl.22 landed exactly this way, as #471, and the sweep still called
+// the branch stranded five days later because the rev-list count never fell to zero.
+
+console.log('\na branch cherry-picked into main under new shas');
+
+check(
+  'git cherry says every commit on the cherry-picked branch is already upstream',
+  await commitsUpstream(REPO, hhh, (await pickBase(REPO, 'main')).ref)
+);
+
+setPrs([]);
+const cherried = fakeBd([{ id: 'wg-hhh', title: 'cherried', close_reason: 'On worktree-cherried-hhh, landed by hand elsewhere.' }]);
+const rCherry = await sweepNotInMain(cherried, ws('cherried'), REPO);
+check('a branch cherry-picked into main under new shas is not called stranded', rCherry.flagged.length === 0, JSON.stringify(rCherry.flagged));
+check('and the reason names patch-id, not a generic "nothing ahead"', why(rCherry, 'wg-hhh').includes('patch-id'), why(rCherry, 'wg-hhh'));
+check('nothing was written to the tracker about it', kinds(cherried) === '', kinds(cherried));
+
+const cardOverCherried = fakeBd([{ id: 'wg-hhh', title: 'cherried', close_reason: 'On worktree-cherried-hhh.' }]);
+cardOverCherried.byId.set('wg-cardhhh', { id: 'wg-cardhhh', status: 'open', labels: ['human'], title: strandedTitle('wg-hhh', 'worktree-cherried-hhh') });
+setPrs([]);
+const followCherry = await followNotInMain(cardOverCherried, ws('cherried-follow'), REPO);
+check(
+  'a card already filed for a branch since cherry-picked closes itself on the next sweep',
+  followCherry.corrected.length === 1 && followCherry.corrected[0]?.card === 'wg-cardhhh',
+  JSON.stringify(followCherry.corrected)
+);
+check('and the note names the patch-id reading, not a generic merge', /patch-id/.test(followCherry.corrected[0]?.why || ''), JSON.stringify(followCherry.corrected));
+const cherryCloseWrite = cardOverCherried.writes.find((w) => w.kind === 'close');
+check(
+  'the close reason itself explains it was a cherry-pick `commitsAhead` could not see past',
+  /patch-id/.test(cherryCloseWrite?.reason || '') && /cherry/.test(cherryCloseWrite?.reason || ''),
+  cherryCloseWrite?.reason
+);
+check('nothing was reopened, merged or pushed', !cardOverCherried.writes.some((w) => w.kind === 'update'), kinds(cardOverCherried));
+
+/* ------------------------------------------------------ a tag collision */
+//
+// bc-4bet.7's second half. bc-1kwl.22 and bc-1kwl.2.2 both tag to `1kwl22`, so
+// `ownsBranch` alone answers `true` for either about `worktree-coldest-read-wins-1kwl22`
+// — and on 2026-08-22 the sweep filed the same finding twice, once against a bead (a
+// closed History-ledger bug) that had never touched the branch. The fix does not guess
+// which of the two really owns it: neither does, once the tag collides.
+
+console.log('\ntwo ids that collide on one branch’s tag');
+
+setPrs([]);
+const collide = fakeBd([
+  { id: 'bc-1kwl.22', title: 'the real owner', close_reason: 'On worktree-coldest-read-wins-1kwl22, not merged.' },
+  { id: 'bc-1kwl.2.2', title: 'an unrelated bead the tag also matches', close_reason: 'done, over a different file entirely' },
+]);
+const rCollide = await sweepNotInMain(collide, ws('collide'), REPO);
+check('neither of the colliding ids is filed as the branch’s owner', rCollide.flagged.length === 0, JSON.stringify(rCollide.flagged));
+check('both are checked — the collision is caught after ownership, not by skipping either bead', rCollide.checked === 2, JSON.stringify(rCollide));
+check(
+  'each skip names the other id as the reason ownership could not be decided',
+  why(rCollide, 'bc-1kwl.22').includes('bc-1kwl.2.2') && why(rCollide, 'bc-1kwl.2.2').includes('bc-1kwl.22'),
+  JSON.stringify(rCollide.skipped)
+);
+check('nothing was written to the tracker about it at all', kinds(collide) === '', kinds(collide));
+
+// A tag that matches only one candidate bead is filed as normal — the guard is only for
+// an actual collision, not for every branch a closed bead happens to own.
+setPrs([]);
+const notCollide = fakeBd([{ id: 'wg-bbb', title: 'the work nobody landed', close_reason: 'Built it. On worktree-lost-bbb, not merged.' }]);
+const rNotCollide = await sweepNotInMain(notCollide, ws('not-collide'), REPO);
+check('an ordinary, uncontested branch is unaffected by the collision guard', rNotCollide.flagged.length === 1, JSON.stringify(rNotCollide.flagged));
 
 /* ---------------------------------------------------------- the follow-up */
 //
