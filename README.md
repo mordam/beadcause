@@ -22649,10 +22649,12 @@ this way: nothing in `lib/session.js` imports `lib/advocate.js` today, but
 `lib/advocate.js` already reaches `lib/session.js` transitively (through
 `lib/claude.js`/`lib/sessionlog.js`), so the reverse edge would close a cycle.
 
-**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, the same `b7e-def`/`b7e-owes`/
+**Declares `@grant read` in its own header**, the same `b7e-def`/`b7e-owes`/
 `b7e-affected` shape: it never spawns a subprocess, never runs `bd` or `git`, and only
-ever reads source under `bin/`, `lib/`, `public/`, `scripts/`, `test/`. `lib/grants.js`
-classifies it `read`.
+ever reads source under `bin/`, `lib/`, `public/`, `scripts/`, `test/`. That one line is
+what puts it on `DEFAULT_TOOL_LIST` and classifies it `read` in `lib/grants.js`, both
+derived rather than hand-written — this branch was one of the ten pull requests inserting
+at `lib/grants.js` line 333 that `bc-wbrhi` exists to stop colliding.
 
 See `bin/b7e-callers`, `lib/callers.js` and `test/callers.mjs`.
 

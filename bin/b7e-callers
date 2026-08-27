@@ -18,6 +18,13 @@
  * Exit codes: `0` an answer was found (even "no reference found" is an answer). `1` a
  * qualified/plain/dotted target has no definition anywhere searched, or a `--imports`
  * target does not resolve to a known source file. `2` refused — bad usage.
+ *
+ * Read-only in the same construction sense as `b7e-def`/`b7e-owes`/`b7e-affected`: it only
+ * ever reads source under `bin/`, `lib/`, `public/`, `scripts/`, `test/` (and, for
+ * `--imports`, reuses `lib/affected.js`'s own import graph) and prints an answer — no `bd`,
+ * no `git`, no subprocess.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { REPO_ROOT, findCallers, moduleReport, parseTarget } from '../lib/callers.js';
