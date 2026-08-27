@@ -587,6 +587,18 @@ check('running it twice is idempotent — the second run retires the block the f
   assert.equal(live.description.match(/answered and retired/g).length, 1);
 });
 
+// `decisionTail` does not require a `question:`, and `toQuestion` renders the bead's
+// title in its place — so the readback has to expect the title, not the empty string,
+// or every block written without one would report a disagreement that is not there.
+check('a block with no question: takes the bead title, and the readback agrees', () => {
+  const ws = freshWs();
+  const noQuestion = ['```decision', 'options:', '  - id: go', '    label: Go', '    response: "Go."', '    recommended: true', '```'].join('\n');
+  const { status, stdout } = run(ws, ['-b', 'rc-spent'], { stdin: noQuestion });
+  assert.equal(status, 0, stdout);
+  assert.match(stdout, /readback: one block/);
+  assert.equal(toQuestion(ws.name, worldOf(ws).issues['rc-spent']).question, 'A bead with a spent question on it');
+});
+
 /* -------------------------------------------------------------- the readback gate */
 
 check('a write that silently does not land is caught by the readback, exit 1', () => {

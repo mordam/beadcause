@@ -417,7 +417,11 @@ console.log('');
 
 const problems = [];
 if (liveCount !== 1) problems.push(`${liveCount} decision blocks are on the bead, not 1`);
-if (q.question !== incomingQuestion) problems.push(`the card asks "${q.question}", not "${incomingQuestion}"`);
+// A block with no `question:` is allowed — `decisionTail` does not require one — and
+// `toQuestion` renders the bead's title in its place. So that, not the empty string, is
+// what the card is expected to be asking when the block did not name a question.
+const expected = incomingQuestion || live?.title || live?.id || '';
+if (q.question !== expected) problems.push(`the card asks "${q.question}", not "${expected}"`);
 for (const e of q.errors || []) problems.push(e);
 
 if (problems.length) {
