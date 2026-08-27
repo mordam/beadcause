@@ -7381,12 +7381,12 @@ every `.pagescroll` inside a pane on the way out and writes it back on the way i
 same turn as the unhide: the content was never unbuilt, only unpainted, so there is no
 height still to arrive and no frame to wait for.
 
-**A pane can be present and unshowable, and one is.** `data-pending` names the
-bead that fills a container, and it is load-bearing rather than a note: a pending pane is
-registered nowhere, can never be shown, and the pill row asks the same question, so its pill
-stays the `<a href>` it has always been and still loads its own document. That is what let
-the shell land on its own. The alternative was two of seven pills leading to a blank screen
-until two further beads merged, on an app that
+**A pane can be present and unshowable, and every one of them has been at some point.**
+`data-pending` names the bead that fills a container, and it is load-bearing rather than a
+note: a pending pane is registered nowhere, can never be shown, and the pill row asks the
+same question, so its pill stays the `<a href>` it has always been and still loads its own
+document. That is what let the shell land on its own. The alternative was two of seven
+pills leading to a blank screen until two further beads merged, on an app that
 [deploys itself](#ship-it--the-same-merge-and-then-the-deploy) the moment a branch lands.
 History's attribute came off when
 [bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash),
@@ -7395,12 +7395,14 @@ Releases' with bc-khoe.30.14, and Advocates' — the last of the four the shell 
 went **on** afterwards, which is the direction worth noticing: bc-khoe.50 gave the row a
 fifth view because a pill pointing at a page that is not a view marks nothing current on the
 page it points at, and a view the grammar knows owes a container the same day. **bc-khoe.60**
-fills it. So the attribute is how a view arrives rather than a debt the shell was born with.
-The attribute names the bead whose
-merge *deletes* it, which is why it named bc-khoe.4 rather than bc-khoe.30.6: that bead
-ruled how the fold goes rather than folding it. The mechanism is not retired with the last
-of them; it is how the next view arrives, and `test/panes.mjs` covers it against fixtures
-now that the shell itself has none.
+filled it, and its going with nothing behind it is the fact worth stating: every view the
+grammar knows has a live pane now, and the attribute is how a view *arrives* rather than a
+debt the shell was born with — the next one to join `VIEWS` will carry it exactly the same
+way. The attribute names the bead whose merge *deletes* it, which is why History's and
+Releases' named the fold rather than the ruling that decided it, and why Advocates' named
+**bc-khoe.4** rather than bc-khoe.30.6: that bead ruled how the fold goes rather than
+folding it. `test/panes.mjs` covers the mechanism against fixtures now that the shell
+itself has none left to read it off of.
 
 **The row asks; it does not require.** `public/viewbar.js` is drawn on twelve pages and one
 of them is the shell, so it reaches for `window.beadcause.panes` with `?.` and takes *no* as
@@ -9077,6 +9079,19 @@ a `space.adopt()`, which ends in `paint()` — so the one repaint that thawed th
 repainted the bar above it in the same tick. Deleting the picker's counts deleted that
 call, and nothing else on the inbox reaches `spacebar.js` on a repaint, so the bar would
 have come out of the mode still holding the options it went in with.
+
+**Only the rows wait, not the whole paint (bc-ka5y.33).** The `<select>`'s options are
+the one thing a rebuild can move out from under a thumb, so those are what the freeze
+above covers. The bar's shown label, the control's `title` and the control's own `value`
+name nothing that is not already true — `state.filter` was updated by `adopt()`, or by
+the pick itself, before `paint()` ever runs — so all three are still written on every
+paint, frozen or not. Without that split, a pick made *during* the freeze fell through
+the same cracks the poll did: the browser moves a `<select>`'s value on the tap itself,
+no code involved, so the dropdown already held the new space while `paint()`'s early
+return left the bar's label and title naming the one the tap replaced, under a banner
+promising the screen was held still. It stayed that way, exactly as long as the mode
+did, because nothing but the next `paint()` — held by the same guard — could have said
+otherwise.
 
 **What is still allowed to move, and why none of it is a thing you can point at:** the
 toast (an overlay over nothing, raised only by an act already in flight when the mode
@@ -12283,6 +12298,54 @@ all, and that the scroll position comes back — measured at a deliberately shor
 because at phone height the board fits and an assertion about a scroll position that was
 never there would pass while proving nothing.
 
+### Config as a pane, and the fetch it deliberately does not make
+
+Everything above describes `/config`, a document. It is a **pane of the shell** now:
+`[data-pane="config"]` in `public/index.html`, shown by a `display: none` swap with nothing
+fetched and nothing rebuilt. `/config`, `/settings` and `/config.html` still answer — any of
+them can be sitting on a phone's home screen — but as a **302 onto the pane** since
+bc-khoe.60 rather than as the document. `public/config.js` is still one file written to run
+in either, deciding which by asking whether the one it is in has panes at all;
+`public/config.html` is still on disk and reachable exactly as it always was — unlike
+`public/history.html` and `public/releases.html`, nothing has deleted it, because that is a
+cleanup for once the hop has taken traffic for a while rather than a condition of landing
+it. It is the third view to make this move, after
+[the ledger](#the-ledger-as-a-pane-and-its-filters-in-the-hash) and
+[Releases](#releases-as-a-pane-and-the-two-clocks-it-brought-with-it), and the smallest —
+what is worth writing down is the one place it went a different way.
+
+**It has no `wake` and no clock, where both of the other two have at least one.** Nothing
+about a space's settings changes except a press on this card or the picker moving to a
+different space, so there is no event a poll could carry that a fetch this file already
+made would not already answer. It registers with the stager as `{ build }` alone, the same
+bare shape `public/app.js` registers Home with, and it means a genuine cost rather than an
+oversight: a setting changed on another device does not reach this pane until the picker
+moves or ⟳ is pressed, where the document it replaced got a free re-read on every
+navigation back to it. That is the trade this whole epic is making, paid here in the open
+rather than hidden behind a mechanism that looks complete.
+
+**Two element ids moved with it, and one of them for a reason the ledger and Releases did
+not have.** `id="cfg-observing"` rather than the bare `observing` — not because `#config`
+is a fragment target (nothing in this pane is named that), but because the Advocates pane
+already holds the bare name, the same collision `rel-observing` exists to dodge. The chip
+moved *inside* the pane rather than staying beside the mark, for the reason Releases'
+did: the top bar belongs to every view now, and which group is being watched is a fact
+about one of them. `id="space"` did not move — nothing else in the shell wanted it.
+
+**Presence reporting is dropped in the shell rather than carried over.** The document
+version reports `{ view: 'config', space }` to `public/mirror.js` on every load and every
+picker move; the pane does not, matching `public/history.js` and `public/releases.js`,
+neither of which reports anything once folded. The mirror does not yet know how to say
+"this device is on a pane other than Home", and teaching it that is a shell-wide question
+none of the three pane folds has answered — this one just states the gap explicitly rather
+than leaving it to be rediscovered.
+
+`node scripts/space-check.mjs` is the browser half, and the claims a static read cannot
+make: that a navigation to `/config` lands on the pane rather than the document, that the
+pill on the row is lit while it is up, and that a press under a repaint mid-flight cannot
+take a half-typed Slack channel id away — the whole reason that check exists, unchanged by
+which document is drawing the card.
+
 ### The row is the bead, not a summary of it
 
 Unfolded, a row shows what the agent actually wrote: what the work is, what done looks
@@ -14269,12 +14332,46 @@ either name beads under the epic or they do not. Here the reason *is* the decisi
 "one job" with nothing behind it is indistinguishable from a window that ran out of turn and
 reached for the cheapest exit. The worker opened on that epic reads it before the diff.
 
-lib/plan.js owns the format, `validateWhole` owns the refusals, and lib/epicadvocate.js
-quotes the block rather than spelling it out — an Epic Advocate writes it with `bd comment`
-and `bd label add`, exactly as it already writes the plan, so the two writers of one document
-cannot drift. `test/wholejob.mjs` drives the real `bin/plan.js` against a fake `bd` for the
-three writes and their order; `test/epicqueue.mjs` pins the hold and every way out of it;
-`test/epicadvocate.mjs` pins one case per answer.
+lib/plan.js owns the format and `validateWhole` owns the refusals. `test/wholejob.mjs` drives
+the real `bin/plan.js` against a fake `bd` for the three writes and their order;
+`test/epicqueue.mjs` pins the hold and every way out of it; `test/epicadvocate.mjs` pins one
+case per answer.
+
+### An Epic Advocate reaches that same door through `beadcause-epicplan`, not by hand-typing the markers
+
+The door above assumes whoever writes the document can run `beadcause-plan` — a real
+`node` process — which is true of a planning **worker** (`worker`'s `allowedTools` is the
+unrestricted CLI default) and was not true of the **Epic Advocate** (bc-jvt0.6). Its
+allowlist (lib/foundation.js's `epic-advocate` role) has no `Bash(node:*)` grant — far too
+wide to add just for this — and `beadcause-plan` is not on PATH regardless, being a
+package.json rename of `bin/plan.js` that only resolves after an `npm link` this install has
+never had (bc-jlop). So until this bead, the one agent that actually writes both of these
+documents wrote them by hand instead: a `bd comment` whose body it typed to match
+`WHOLE_OPEN`/`WHOLE_CLOSE` by eye, then a separate `bd label add`. Nothing checked that what
+it typed was the document it meant — a malformed block reads as no decision at all, and
+silently: the label still goes on, the epic still dispatches, and the reason nobody can
+parse the comment is the only record of why.
+
+`bin/beadcause-epicplan` is the fix, and it is deliberately thin: an extensionless,
+filename-is-the-command wrapper — the same shape `beadcause-get` and
+`beadcause-requirements` already use — that spawns `node bin/plan.js` with its own argv and
+stdin unchanged and exits with whatever that exits with, the same composition
+`b7e-shipgate` uses to spawn `b7e-gate` rather than reimplementing it. It is deliberately
+*not* named `b7e-plan`: lib/tooldecl.js turns any `bin/b7e-*` file's `@grant` header into an
+entry on `DEFAULT_TOOL_LIST`, the read-only surface every `dispatch` reply agent gets, and
+this is neither read-only nor for `dispatch` — it is a tracker write, scoped to the one
+agent that plans epics. It decides nothing of its own: `bin/plan.js` stays the one place
+either document's format, validation and the three-write order live, so a rename there
+cannot leave the wrapper out of step. `Bash(beadcause-epicplan:*)` is on the Epic
+Advocate's allowlist and nowhere else, classified in lib/grants.js as a tracker write held
+only by `epic-advocate` — hand-written there exactly as `beadcause-get` is, rather than
+through `lib/tooldecl.js`'s `@grant` mechanism, because writing a bead's plan is not
+something `dispatch` does at all. lib/epicadvocate.js's brief now tells the agent to pipe
+its YAML into `beadcause-epicplan` for either answer, rather than quoting the markers for
+it to retype. `test/epicplanwrite.mjs` drives the real `bin/beadcause-epicplan` against the
+same fake-`bd` fixture `test/wholejob.mjs` uses, and proves the wrapper is transparent: a
+valid decision reaches the tracker, a refused one is refused with `bin/plan.js`'s own exit
+code and writes nothing, and the flags and stdin survive the extra hop.
 
 **And what happens when that job lands** is the section below: an epic worked as one job is
 delivered by a pull request that merges, and the merge queue deliberately leaves an epic open.
@@ -21086,6 +21183,75 @@ which is what all three originating sessions actually were, already carries an
 unrestricted allowlist and needs no grant to run it.
 
 
+### Which call does this to a bead — `b7e-bd`
+
+`bc-dgx7.20`, filed by the session audit (`lib/sessionaudit.js`) against five sessions
+that each spent real minutes on the same hunt, from opposite ends. `bc-xl7n.114` ran
+`bd --version`, `bd --help`, `bd show --help`, `bd update --help | grep -i "lease\|claim"`,
+`bd ready --help`, `bd heartbeat --help`, `bd reclaim --help`, plus `bd ready --id
+bc-xl7n.114` → `Error: unknown flag: --id` — and eight greps through `lib/` and `bin/` for
+`reclaim`, `heartbeat`, `reclaimStale`, `leaseReclaim`, one of which ran past the 120s
+tool timeout. `bc-khoe.33` and `bc-khoe.48` each ran `bd update --help | grep -i parent`
+a day apart, hunting for how to detach a child. `bc-xl7n.117` and `bc-jvt0.4` each ran
+four greps through `lib/bd.js` for `addLabel`, `reopen`, `children`, `reopenAbandoned` —
+the same four greps, twice, to answer "which method does the write". The answers are
+load-bearing and easy to get wrong: `Bd.addLabel` is `bd label add <id> <label>`, id
+first, label last.
+
+```
+b7e-bd label                    # which Bd method does this, and which raw bd command
+b7e-bd reparent
+b7e-bd close force
+b7e-bd lease
+b7e-bd --method reopenAbandoned # the reverse lookup: everything about one named method
+b7e-bd label --json
+```
+
+**Two questions, one command.** Given an intent — a verb or a short phrase — this
+answers "which `Bd` method (`lib/bd.js`) wraps that" *and* "what does the raw `bd`
+binary installed on this machine call that", side by side, plus any
+`beadcause-memory` note whose key or text names it. `lib/bdintrospect.js` does the
+work and none of it runs `bd` write-shaped: the `Bd` half is read straight out of the
+source (parsed with `acorn`, never executed, never imported), and the raw-`bd` half is
+nothing but `bd --help` and `bd <verb> --help` — informational, no workspace ever
+touched.
+
+**The `Bd`-method search is `lib/already.js`'s `scoreEntry`, reused rather than
+reinvented** — the same convention `b7e-already` (`bc-dgx7.81`) already searches
+`lib/` with: a query word must appear, as a substring, in the method's name or the
+*first line* of its doc comment. That first-line rule is why `b7e-bd reparent` finds
+no `Bd` method: `Bd.graph()`'s doc comment does say, eleven paragraphs down, "the thing
+being cached moves only when somebody deliberately *reparents* a bead" — but that
+sentence is not the first line, and `Bd.update()` — the method that actually builds
+every `--flag` it will ever pass — never touches `--parent` at all; `Bd.adopt()` owns
+that flag alone. Reusing the existing scorer rather than a second, subtly different one
+is what keeps "no `Bd` method wraps this" an honest answer instead of an accident.
+
+**The raw-`bd` search reads every top-level command's *full* `--help` text, not just
+its one-line summary**, which is the other half of the `reparent` answer: `bd --help`'s
+own one-liner for `update` is "Update one or more issues" — nothing about a parent
+anywhere — and the only place the word shows up at all is the `--parent` flag's own
+description, one level down ("New parent issue ID (**reparents** the issue, ...)").
+Fetching every subcommand's full `--help` (still under two seconds for the ~50 this
+install has) is what makes that findable with no hand-maintained synonym table to keep
+in sync with the next `bd` release. Matching is anchored to a *left* word boundary only
+(`\bword`, not `\bword\b`) — `\blease` correctly skips the "lease" sitting inside
+"re**lease**" while still matching "reparent**s**" for the query `reparent`, which a
+two-sided boundary would have missed.
+
+**The argv is read out of the source, never executed.** Most `Bd` methods call
+`this.run(workspace, [literal, array], { retries: N })` directly and that array is
+resolved element by element — a string prints as itself, a parameter like `id` or
+`label` prints as `<id>`, anything more exotic falls back to its own source text. A
+handful (`update`, `create`, `closeAnswered`, …) build the argv into a local `const
+args = [...]` and grow it with conditional `args.push(...)` calls through the body;
+those are resolved too, each push labelled with the `if`/`for` that guards it, which is
+exactly how `update()` is shown to never push `--parent`.
+
+**On `DEFAULT_TOOL_LIST`** via its own `@grant read` header (`bc-wbrhi`) — it never
+writes anything, so there is nothing here `lib/grants.js` would classify a write.
+
+
 ### Count the beads that carry a label or an edge — `b7e-census`
 
 `bc-bmry.12`, filed by the session audit (`lib/sessionaudit.js`) against three sessions
@@ -22315,6 +22481,56 @@ parsing and the printing around it. `Bash(b7e-moment:*)` is on `DEFAULT_TOOL_LIS
 write anything either. See `bin/b7e-moment`, `lib/moment.js` and `test/b7emoment.mjs`.
 
 
+### The numbers a named building actually produces, in one call — `b7e-model`
+
+`bc-dgx7.15` is the session audit's finding: five sophab sessions (`sp-oyg`, `sp-0hw`,
+`sp-j8f`, `sp-clh`, `sp-weu`) each needed "what does the model say for THIS size, versus
+the as-built one" and each built the params from scratch, differently — a raw
+`(length, run, rise)` tuple, `dataclasses.replace`, `engine.build_params` by hand, or
+`SolariumParams()` directly. `sp-j8f` burned three failed calls before discovering
+`costing.takeoff()` returns `(items, summary)`, not a list of dicts.
+
+```
+b7e-model 24x14x12 50x22x20                                   as-built vs a projection
+b7e-model 24x14x12 --rib closed --shape 1.2 --place "fredericton, nb"
+b7e-model 24x14x12 50x22x20 --costing                           + the takeoff total
+b7e-model 24x14x12 --json                                        one object per size
+```
+
+Each size is `LxRxH` in feet, the same order `engine.build_params(length, run, rise,
+...)` takes. Per size: section (breadth × depth, `A`, `I`, `Sx`), the governing NBCC
+combo, rib and beam utilisation, base reactions (`R_base_kN`, `thrust_kN`), and whether
+it is over capacity or past the calibrated section ladder — every one of those fields is
+`tools/planset_sweep.py::numbers_for()`'s own, not a re-derivation: it already calls
+`engine.build_params` and the same `fea_report` functions production does ("a sweep that
+re-derived the load path would be checking its own arithmetic"). With `--costing`, also
+`costing.takeoff()` on the same params object, reporting the total and the top 5 line
+items by extended cost. A size whose geometry the model itself refuses is reported
+(`error`/`error_type`) and does not stop the others.
+
+**This is a beadcause `lib/` file that shells out to sophab, not a file written into the
+sophab checkout**, even though the bead's own "belongs at" line — filed while it still
+lived in the sophab tracker — named `tools/b7e_model.py` there. Every wiring requirement
+the bead also lists (`package.json`/lockfile bin entries, `test/*.mjs`, a
+`DEFAULT_TOOL_LIST` entry, this section) is beadcause-repo machinery, and the bead's own
+move-comment says the work lands in the beadcause repo. Splitting the deliverable across
+two repos — a sophab-side Python file needing its own PR, review and merge on top of
+this one — would owe a second delivery nothing here asks for. So the whole thing lives
+here: `lib/b7e_model.js` only *reads* sophab (`sys.path.insert` onto its checkout, then
+`import`), and never writes into it. The interpreter is resolved from the sophab
+checkout itself (`.venv/bin/python3` if it has one, else plain `python3`) — never from
+the caller's own `.venv`, which is what makes `b7e-model` work from a beadcause
+worktree, which has no `.venv` at all and never will.
+
+`lib/b7e_model.js` is the Python bridge (one `python3 -c` process, a JSON job on stdin,
+a JSON array on the last line of stdout — the same shape `lib/plate.js`'s
+`RENDER_SCRIPT` already uses) and the report formatting; `bin/b7e-model` is the argv
+parsing and the printing around it. `Bash(b7e-model:*)` is on `DEFAULT_TOOL_LIST` in
+`lib/toolbelt.js` and `read` in `lib/grants.js` — everything it does is an import and a
+subprocess, never a write to either checkout. See `bin/b7e-model`, `lib/b7e_model.js`
+and `test/b7emodel.mjs`.
+
+
 ### The next free `CHANGE_LOG.md` entry number, across every branch — `b7e-entry`
 
 `bc-dgx7.61`, a session audit against a repo like deluvia's, where `CHANGE_LOG.md` is
@@ -22537,6 +22753,74 @@ against.
 Exit codes: `0` every mutation was caught. `2` bad usage. `3` a baseline test command was
 already red — nothing was mutated. `1` at least one mutation `SURVIVED` or errored. See
 `bin/b7e-mutate`, `lib/mutate.js` and `test/b7emutate.mjs`.
+
+
+### Read the plan on an epic, or check a candidate before filing it — `b7e-plancheck`
+
+`bc-dgx7.18`, filed by the session audit against three planners that each needed exactly
+this and each built a different one-off. `bc-ka5y.15` filed a `plan.yaml` and was refused
+for a prompt over `MAX_PROMPT_CHARS`, then ran ten successive `python3 - <<'PY'` heredocs
+re-measuring every group's dedented length after each trim, guessing at how the writer's
+own indentation was being stripped, and was refused a second time. `bc-1kwl` was a
+*replan* and needed the plan already on the bead back first: five scratchpad programs —
+`replan.cjs` (reconstructing through `planFrom` over `bd comments --json`), a Python
+trimmer, two versions of an `addgroup.cjs`, and a `verify.mjs` to run `dispatchable` and
+`unplanned` against the live queue by hand. `bc-khoe.33` did the same job a third way,
+with a `dump.mjs` and a `python3 -` pass over the dump to print `prompt len` per group.
+`lib/plan.js` already exported everything all three needed — this is the argv and the
+printing around it, and it never writes.
+
+```
+b7e-plancheck bc-jk4m -w beadcause                       the plan (or whole-job decision)
+                                                           on the bead right now
+b7e-plancheck bc-jk4m -w beadcause --json                 the same facts, machine-readable
+b7e-plancheck bc-jk4m -w beadcause --check plan.yaml      would this candidate be accepted?
+cat plan.yaml | b7e-plancheck bc-jk4m -w beadcause --check
+                                                           same, from stdin
+```
+
+**Named `b7e-plancheck` rather than the `bin/b7e-plan` the bead itself asked for.**
+`bc-jvt0.6` landed a *different* command at that exact path while this one was being
+built — a thin write-shaped proxy that spawns `node bin/plan.js` unchanged, so an Epic
+Advocate (whose allowlist has no `node` grant) can reach the door that already writes and
+validates a plan or a whole-job decision. Opposite direction from this one — theirs
+writes, `@grant excluded`; this one only ever reads, `@grant read` — the same shape as
+`bc-dgx7.86`'s `b7e-write` renaming off `b7e-bd`: two beads settling on one name for
+opposite jobs, resolved by moving the reader rather than the writer, since the writer is
+what an allowlist and a role already depend on by that exact name.
+
+**Default mode prints whichever document actually governs the epic**, by the label the
+epic carries — `planned` or `whole-job` — rather than by which comment merely parses,
+because a comment can outlive a label write that failed (`bin/plan.js` warns and carries
+on rather than refusing). `--check` runs a candidate through the same
+`validatePlan`/`validateWhole` `bin/plan.js` would — same refusals, same exit codes (`3`
+for a shape `bin/plan.js` itself refuses at the YAML/document level, `4` for a legal
+document `validatePlan`/`validateWhole` refuses) — without writing the comment, the
+label, or the handback.
+
+**Both modes end with the two verdicts a planner actually needs.** `unplanned` — every
+ready bead under the epic no group names, the one that freezes the whole subtree until
+it is cleared, at whatever depth the export's parent edges reach (see
+"A plan may now name a bead under its epic at any depth" above). And `dispatchable` —
+which groups a tick could actually open a window on. The second is **best-effort**: which
+windows are already live is `a.workers`, in-memory state inside the daemon's own process
+that nothing outside it can read (see `DISPATCHED_PREFIX`'s own header in
+`lib/advocate.js`) — so a group is treated as live here when the tracker itself shows one
+of its beads `in_progress`, the same mark a real worker window's first line
+(`bd update --claim`) leaves. Close to `a.workers`, not identical to it: a bead claimed by
+hand outside dispatch reads the same way.
+
+One `bd export` (`Bd.graph`, already cached a minute) answers both `unplanned`'s parent
+edges and `dispatchable`'s live-bead guess together — the same status map also backs
+`isClosed`'s `unclosed`/`done` verdict, so nothing here pays for a second read of it.
+
+Exit codes: `0` printed — a plan or whole-job decision exists, or `--check` reports a
+candidate that would be accepted. `1` bad usage. `2` the tracker would not answer, or the
+epic does not exist. `3`/`4` — see above. `Bash(b7e-plancheck:*)` is on
+`DEFAULT_TOOL_LIST`, declared `@grant read` in the command's own header: every `bd` verb
+it spawns (`show`, `comments`, `children`, `export`, `ready`, a batched `show` for surface
+notes) is a read, and `--check` validates in memory only. See `bin/b7e-plancheck` and
+`test/b7eplancheck.mjs`.
 
 
 ### Which requirement a change was for — `refs/beadcause/requirements`
@@ -28200,8 +28484,9 @@ word-set comparison solves — loosening the bar on a graph of several hundred l
 similarly-worded titles (this repo's own convention) would trade a sweep that misses
 real pairs for one that wires unrelated beads together every cycle. So this sweep
 catches what its acceptance criterion actually asks for — a near-verbatim title with
-no edge — and the harder case of the same bug in different words is still open work,
-not a bug in this file.
+no edge — and the harder case of the same bug in different words is
+[the section after next](#and-the-harder-case-the-same-job-in-different-words), not a
+bug in this file.
 
 `node test/dupesweep.mjs` (in `npm test`) covers the plan against real `bd export`
 JSONL through `indexFrom` — an unjoined near-verbatim pair, a pair already linked by
@@ -28209,6 +28494,71 @@ any edge type, one merely sharing a few words, a closed bead, a question on eith
 side, a deterministic three-way tie — and the round trip against a fake `bd`: what it
 writes, that the graph refreshes once per batch rather than once per write, and a
 rejected write landing in the answer rather than throwing into the poll cycle.
+
+### And the harder case: the same job in different words
+
+The section above leaves the hard half open, and this is it. A 0.9 word-set bar catches a
+bead typed twice and nothing else, which is worth having and is not what this graph
+actually produces. The measurement, on beadcause itself: **twelve live beads carry
+`superseded-by:`**, each one a duplicate a worker found by hand and could not close.
+Scored against the bead each duplicates, with this repo's own `titleSimilarity`, they run
+**0.07 to 0.64** — median 0.30, top of the range 0.64. Not one is within reach of 0.9.
+Eleven of the twelve carry `agent-filed`: they came through `beadcause-file`, from a
+session deep in one bead that had not read the tracker.
+
+Lowering the bar does not work, and that was measured too, over all 45,451 live
+non-`human` pairs:
+
+| bar | flags | catches |
+|---|---|---|
+| `dice >= 0.50` | 11 pairs | 2 of 12 |
+| `dice >= 0.40` | 45 pairs | 4 of 12 |
+| `dice >= 0.35` | 100 pairs | 5 of 12 |
+
+Eight times more noise than signal at the loosest bar that catches even five. Requiring a
+shared source file alongside it halves the flags and adds no recall; structure alone is
+worse, with 583 of those pairs sharing files at Jaccard ≥ 0.5 against twelve real
+duplicates. **No lexical threshold separates the two populations**, because what separates
+them is what the words mean.
+
+So `lib/samejob.js` shortlists cheaply and judges semantically:
+
+1. **The shortlist** is pure — no model, no spawn. Three signals, none decisive: a shared
+   file surface (declared *and* prose, unioned, where `surfaceOf` takes one or the other),
+   kinship — two beads in one epic's family, which is three of the twelve pairs — and title
+   similarity at `TITLE_FLOOR` (0.25), far below the near-verbatim bar. Anything clearing
+   any signal is a candidate; the top eight by combined score go on. Replayed over the
+   twelve pairs at the moment the second of each was filed, the first is in that top eight
+   **ten times**. The two misses are epics with generic titles naming no path at all, and
+   they are named in the suite rather than buried in a ratio.
+2. **The judge** is one headless `claude -p` over those eight rows, running as the chat
+   session's foundation for lib/sessionaudit.js's reason — a read-only judge needs exactly
+   the read-only surface every reading agent has, and a new foundation kind owes five
+   registrations before it can run. It is affordable because the shortlist handed it eight
+   rows and not three hundred: about 7 KB of prompt.
+
+**This one refuses, where the create-time flag does not.** lib/dupe.js's rule is that
+refusing loses work nobody can send back — true of a crash the daemon files on itself at
+04:00, and not true here. A session ran `beadcause-file` and is still holding the context
+that produced it, so it is told which bead covers the work, **what it wrote is committed as
+a comment on that bead** rather than dropped, and `--force` files anyway in the same breath.
+The observation survives the refusal; that is the whole reason a refusal is affordable.
+Refused filings exit **5**, distinct from 4 — both mean "you did not get every bead you
+asked for", and only one of them is worth retrying.
+
+Every failure is a pass. A judge that cannot start, times out, answers nonsense, or names
+a bead it was never shown files the bead and says so on stderr. The errors are not
+symmetric and the prompt says so out loud: a wrong `none` costs one duplicate bead, which
+is ordinary and gets tidied later, while a wrong name throws away a discovery a session
+cannot find again.
+
+`node test/samejob.mjs` (in `npm test`) covers the shortlist against the real corpus —
+`test/fixtures/samejob-pairs.json` is those twelve pairs, real titles and descriptions,
+each oriented as a create-time check would meet it — plus the exclusions (closed, `human`,
+ignored), the cap, the deterministic tie order, and the verdict plumbing through an
+injected runner: an invented id, `none`, unparseable YAML, no block at all and a spawn that
+throws are each asserted **not** to be a refusal.
+
 
 ### What you just filed, one tap away
 

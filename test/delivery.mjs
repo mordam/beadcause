@@ -311,6 +311,39 @@ const plain = splitDelivery('An ordinary question with no delivery.');
 check('a body with no block splits to null and itself', plain.delivery === null && plain.body === 'An ordinary question with no delivery.');
 check('and no body at all does not throw', splitDelivery(null).delivery === null && splitDelivery(undefined).body === '');
 
+// bc-ka5y.31 (the same bug bc-ka5y.23 fixed in lib/proposal.js, lib/beadfiles.js and
+// lib/decision.js): a `summary: |` block scalar can carry its own fenced block — a
+// worker quoting a decision it made along the way — and YAML indents that inner
+// fence's closing line a few spaces in. An unanchored closing alternative in BLOCK_RE
+// was happy to treat that indented fence as the end of the whole beadpr block, so
+// `tests`, `risk` and `left` — everything serialised after `summary` — vanished.
+const nestedFence = block(
+  [
+    'number: 42',
+    'bead: bc-7qo',
+    'summary: |',
+    '  Weighed shipping now against waiting for another pass.',
+    '',
+    '  ```decision',
+    '  question: Ship now or wait for review?',
+    '  options:',
+    '    - id: ship',
+    '      label: Ship now',
+    '  ```',
+    'tests: npm test — 42 passing',
+    'risk: none',
+    'left: the decision itself, quoted above',
+  ].join('\n')
+);
+const nested = parseDelivery(nestedFence);
+check('a summary quoting its own fenced block parses without error', nested?.error === null, JSON.stringify(nested));
+check(
+  'and the fields serialised after summary survive — this used to truncate at the inner fence',
+  nested?.tests === 'npm test — 42 passing' && nested?.risk === 'none' && nested?.left === 'the decision itself, quoted above',
+  JSON.stringify(nested)
+);
+check('the inner decision block is intact inside summary, not cut at its own closing fence', /- id: ship/.test(nested?.summary || ''), nested?.summary);
+
 /* ------------------------------------------- what the phone is actually sent */
 
 console.log('\nthe options the card offers are answers this file accepts');
