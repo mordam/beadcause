@@ -98,6 +98,21 @@ check('update() builds its argv from a local accumulator — resolved base plus 
   assert.ok(!flags.includes('--parent'), 'update must not itself push --parent — adopt() owns that flag');
 });
 
+check('create()\'s second call site (`args.filter(...)`) resolves off the same accumulator, not as a fake bd verb', () => {
+  const create = methods.find((m) => m.shortName === 'create');
+  assert.ok(create);
+  assert.equal(create.calls.length, 2);
+  const [first, second] = create.calls;
+  assert.equal(first.argv[0], 'create');
+  // The bug this guards: before the fix, an argv built from `args.filter(...)` fell
+  // through to the raw-source-text fallback and printed as a single fake argv[0]
+  // element — `bd args.filter((a) => a !== NO_INHERIT_LABELS)`, which is not a real
+  // bd verb. It must resolve off the same `args` accumulator the first call uses.
+  assert.equal(second.argv[0], 'create');
+  assert.deepEqual(second.argv, first.argv);
+  assert.match(second.note || '', /args\.filter/);
+});
+
 check('reopenAbandoned resolves to the --force update call, by --method reverse lookup', () => {
   const found = methods.find((m) => m.shortName === 'reopenAbandoned');
   assert.ok(found);
