@@ -19018,7 +19018,15 @@ first is still running would double the load a busy Mac is already under, so it 
 (exit `2`) rather than doing that — a lock file under the system temp directory, keyed by
 the resolved root, holding the running pid. A lock whose pid is no longer alive is stale
 and is silently reclaimed on the next attempt, because a runner that leaves a permanent
-lock behind after a crash is worse than the race it exists to prevent.
+lock behind after a crash is worse than the race it exists to prevent. That reclaim is a
+backstop and not the ordinary path: a run that ends at all — cleanly, red, or signalled —
+removes its own lock file, which for a long time it did not (bc-dgx7.40). `onExit` hands
+back a *disarm*, which marks the teardown done without running it, so calling only that on
+the happy path meant the file was never removed at all — and because the path is keyed by
+the root, that is one permanent `beadcause-gate-<hash>.lock` for every tree that has ever
+run a gate, outliving the worktree itself by however long the temp directory lasts.
+Measured on this Mac while fixing it: **108** of them. The stale-lock reclaim above is
+exactly why nobody noticed — the next run on that tree worked every time.
 
 **And two gates on the Mac, with the third in a queue — `bc-xlz32.1`.** That refusal was
 right and too narrow: the doubling happens just as thoroughly from a different worktree,
@@ -21388,19 +21396,29 @@ while it *stays* untracked is now caught too, which a by-name-only comparison wo
 have missed outright, since two untracked snapshots that both simply say "scratch.txt
 is there" read as identical regardless of what changed inside it.
 
-**One known, deliberately accepted false positive**: a file untracked when the run
-started, later `git add`ed and committed with the exact same bytes — the ordinary
-next step right after a gate run this command exists to validate — still reads as
-moved. `tree` only ever captures tracked content, so that path is simply absent from
-it at run-start; once committed, `git diff --name-only` reports it as "added"
-regardless of what the untracked-hash record beside it says. Closing this needs a
-single tree object merging tracked and untracked content (a throwaway index,
-`read-tree` + `update-index --cacheinfo` + `write-tree`), which is real extra
-plumbing with its own wrinkle for `--staged` (untracked content is never staged), and
-was left as a possible follow-up rather than built here — every incident this bead was
-actually filed over was an edit to a file already tracked when the gate started, which
-this reports correctly, and a false "moved" on a file you just wrote is a nudge to
-double-check, not a wrong answer trusted as a right one.
+**Crossing the tracked/untracked line with the same bytes is not drift** (`bc-dgx7.49`).
+It used to read as moved: a file untracked when the run started, later `git add`ed and
+committed unchanged — the ordinary next step right after a gate run this command exists
+to validate — was named every time, because `tree` only ever captures tracked content, so
+that path is simply absent from the baseline and `git diff --name-only` calls it "added"
+whatever its bytes are. `bc-dgx7.39` hit this dogfooding the tool on its own delivery, and
+it fires on almost every delivery rather than rarely. The untracked half of the comparison
+now *nets it out*: a path that left the untracked list is looked up in the new tree, and
+when that blob equals the hash recorded at run start the tracked diff's entry is taken
+back off — symmetrically for a path that entered it (`git rm --cached`), against the blob
+the baseline held. Only the transitions are reconciled, and only on equal content: an
+untracked file edited *and then* added is still reported by name.
+
+Netting rather than the merged tree object the bead first sketched — a throwaway index,
+`read-tree` + `hash-object -w` + `update-index --cacheinfo` + `write-tree`, so `tree`
+covers both halves at once. That route writes to the object store for every untracked file
+on every gate start, still needs the tracked-only tree kept for `--staged` (untracked
+content is never staged, so a merged baseline diffed against an index tree reads every
+baseline-untracked file as removed), and `--cacheinfo` has to name a mode: seeding at
+`100644` makes an executable file committed as `100755` diff as a mode change — the same
+false positive again, on exactly the file that prompted it, since `bin/b7e-gated` is
+`chmod +x`. Blob hashes are mode-blind in both directions and add no state, at the cost of
+one batched `git cat-file` per direction.
 
 `--staged` changes only what "now" means — the baseline is always the working tree
 `b7e-gate` actually tested, because that is what the suites ran against, but the
@@ -21410,7 +21428,7 @@ does that still match what was gated?"
 **On `DEFAULT_TOOL_LIST`**, unlike `b7e-watch`/`b7e-gate`/
 `b7e-blame` just above: it never runs a suite and never calls `runBlame` — the whole
 comparison is `git` reads with no working-tree or index side effects (`stash create`,
-`write-tree`, `hash-object`, `diff --name-only`, `rev-parse`) against a run's own
+`write-tree`, `hash-object`, `diff --name-only`, `rev-parse`, `cat-file`) against a run's own
 already-written record. That is exactly the read-only shape `b7e-def`/`b7e-owes`/
 `b7e-affected`/`b7e-readme` already are, not a lighter version of `npm test`.
 
@@ -23056,6 +23074,61 @@ of the real incident rather than pinning a commit in deluvia's own history, whic
 repo's CI never clones and which keeps moving anyway.
 
 
+### One `CHANGE_LOG.md` entry, sliced by rule instead of by a guessed line range — `b7e-changelog`
+
+`bc-dgx7.100`, a session audit against seven sessions (`dv-gr6.47`, `dv-gr6.46`,
+`dv-gr6.45`, `dv-gr6.44`, `dv-3rn.2`, `dv-b5d.29`, `dv-gr6.36`) that each had to read one
+entry's body before it could edit anything, and each invented a different way to find it.
+`dv-gr6.47`'s `grep -n "Entry 107"` matched prose mentions from other entries and it fell
+back to guessing `sed -n` windows, once landing on `sed -n '3600,3640p'` — Entry 023, not
+107. `dv-gr6.36`'s `awk '/^## Entry 109/,/^## Entry 108/'` only worked because 109 and 108
+happen to be adjacent; the file's 120 `## Entry ` headings (two of them the template) run
+in **descending, non-contiguous** order, so the same shape of range built from arithmetic
+on a missing number — `awk '/^## Entry 117/,/^## Entry 116/'` when Entry 116 does not
+exist — runs straight past 117 into 115.
+
+```
+b7e-changelog -w deluvia 107                 entry 107's full detail
+b7e-changelog -w deluvia 107 --field status   just its Status: line
+b7e-changelog -w deluvia 107 --field body     just its body, with line numbers
+b7e-changelog -w deluvia --list               the index: every entry, in file order
+b7e-changelog -w deluvia 107 --ref origin/main
+b7e-changelog -w deluvia 107 --json           the machine-readable form
+b7e-changelog --dir <root> 107                another tree — this is how it is tested
+```
+
+**Not `b7e-entry`: that allocates the next free entry number.** **Not `b7e-propagated`:
+that verifies a checklist against the tree it names.** Neither hands back the entry's own
+text or the line span an `Edit` has to target, which is what every one of the seven
+sessions above actually wanted first. All three now share one parser — `entryHeadings` in
+`lib/changelog.js` walks headings in **file order**, never by doing arithmetic on the
+entry number, so a missing number costs nothing: entry 117 ends wherever the next heading
+actually is, not at a 116 that was guessed into existence. `checklistRows` and `findEntry`
+moved into `lib/changelog.js` too, out of `lib/propagated.js` (still re-exported from
+there for anything already importing them), so `b7e-propagated`'s own checklist parsing
+and this command's are the same code, not two copies that can drift apart.
+
+The line numbers are real: `startLine`/`endLine` bound the heading through its last
+non-blank line, and every checklist row and every body line carries the file line it
+actually sits on — the exact thing every one of the seven sessions had to reconstruct by
+hand before an `Edit` could aim at it. `--list` prints the index — every entry's number,
+date and starting line — so a caller can jump straight to one instead of re-deriving
+`entryDetail` for every entry just to skim them.
+
+**Reads only ever by ref, never the working tree**, the same as `b7e-entry` and
+`b7e-propagated` and for the same reason: `readRefFile` (`git cat-file -p <ref>:<path>`)
+never sees a stray `.claude/worktrees/*` copy sitting on disk. Never writes to
+`CHANGE_LOG.md`, or anywhere else. `@grant read` in its own header docblock is what puts
+it on `DEFAULT_TOOL_LIST` and classifies it in `lib/grants.js` — see
+`b7e-tool-grant-is-now-a-self-declared-header-tag` for the mechanism, which replaced a
+hand-maintained line in each of those two files. See `bin/b7e-changelog`,
+`lib/changelog.js` (`entryDetail`, `entryIndex`, `changelogLookup`) and
+`test/b7echangelog.mjs` — the fixture reproduces the shape (non-contiguous numbering, a
+wrapped checklist continuation, the two template headings) rather than pinning a commit
+in deluvia's own history, for the same reason `b7e-entry` and `b7e-propagated` already
+give.
+
+
 ### Run this checkout's own `bin/` command, not whichever copy `PATH` found — `b7e-run`
 
 `bc-dgx7.87`, a session audit against three sessions (`bc-dgx7.80`, `bc-dgx7.77`,
@@ -23304,6 +23377,57 @@ difference. `2` refused — bad usage, an unrecognised field name, an unconfigur
 workspace, or the bead does not exist. `Bash(b7e-field:*)` is on `DEFAULT_TOOL_LIST`,
 declared `@grant read` in the command's own header: the only `bd` verb it ever spawns is
 `show`. See `bin/b7e-field` and `test/b7efield.mjs`.
+
+
+### Confirm a filing batch actually landed — `b7e-filed`
+
+`bc-dgx7.104`, moved from deluvia (`dv-afr.34`), filed there against three sessions
+(`dv-afr.6`, `dv-afr.7`, `dv-afr.8`) that each filed beads through `bin/file.js`, could
+not tell whether the filing had landed, and each invented its own recovery: one polled a
+stuck `file.js` for twelve minutes with a scratchpad script; one got a bead back with no
+parent and repaired it by hand (`bd update dv-imex --parent=dv-afr`, confirmed with
+`bd list --parent=dv-afr | tail -12`); one got no output at all from a call that had in
+fact filed, and nearly double-filed the batch running it again. ~20 sessions share this
+Dolt workspace, so the contention behind all three is the normal case, not an outage.
+
+```
+b7e-filed -w beadcause --from bc-dgx7 -f beads.yaml     one row per intended title
+b7e-filed -w beadcause --from bc-dgx7 --repair < spec    also re-attaches a missing parent
+b7e-filed -w beadcause --from bc-dgx7 --json -f spec     the machine-readable form
+```
+
+Takes the same YAML spec that was piped to `bin/file.js`, plus `--from` — the bead that
+was being worked when the batch was filed. Every bead `lib/filing.js` successfully
+creates carries `filed-while:<from>` unconditionally, so `bd list --label
+filed-while:<from>` (all statuses, including closed) is the exhaustive, exact set of
+what that filing produced; a spec title is matched against that set alone, never against
+the whole tracker, which is what lets this tell "this title exists elsewhere" apart from
+"this filing produced a duplicate" — the one distinction a plain title search cannot
+make. No match is `unfiled`; more than one is `duplicate` (the `dv-afr.8` shape, named
+outright); exactly one is `filed`, and only then is there a bead to check further —
+its real id, parent, labels, assignee, and whether its description arrived whole, by
+comparing UTF-8 byte length against what `lib/filing.js#beadToIssue` would have built
+from the spec (the `files:` block folded in via `lib/beadfiles.js#withSurface` when the
+spec named any). A byte count catches the `dv-afr.6` shape — an apostrophe broke
+`file.js`'s shell quoting and truncated the description partway through — without
+reproducing bd's own formatting.
+
+**`--repair` re-attaches a missing parent, and nothing else.** It asks
+`lib/homing.js#homeIn` the same question `fileBeads` asked at filing time — where does a
+bead discovered from `--from` belong — and adopts any singly-matched, non-root
+(`lib/ownership.js#isRoot`) bead that is missing a parent and has somewhere to go: the
+exact `dv-afr.7` recovery, done for you rather than by hand. It only ever attaches an
+*absent* parent; a bead already adopted somewhere on purpose is left alone; running it
+twice changes nothing the second time.
+
+Exit codes: `0` every title filed exactly once, with a parent (or root-shaped, or
+nowhere to hang one), description whole. `1` at least one title is unfiled, duplicate,
+stranded and unrepaired, or truncated. `2` bad usage. `3` the YAML names no beads. `4`
+`-w`/`--from` named something this checkout's tracker does not have. Declared `@grant
+excluded` in the command's own header — it can mutate the tracker under `--repair`, and
+the one caller `DEFAULT_TOOL_LIST` widens is `dispatch`, which files nothing and has no
+batch to confirm (same reasoning as `b7e-apply`, `b7e-take`, `b7e-swbump`). See
+`bin/b7e-filed.js` and `test/b7efiled.mjs`.
 
 
 ### The house skeleton for a new bin/ command — `b7e-scaffold`
