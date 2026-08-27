@@ -42,6 +42,7 @@
     "beadcause-engagement": "bin/engagement.js",
     "beadcause-crosswalk": "bin/crosswalk.js",
     "beadcause-controls": "bin/controls.js",
+    "b7e-accept": "bin/b7e-accept",
     "b7e-affected": "bin/b7e-affected",
     "b7e-already": "bin/b7e-already",
     "b7e-answered": "bin/b7e-answered",
