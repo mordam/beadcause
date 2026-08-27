@@ -42,6 +42,21 @@ const value = (f) => {
   return at === -1 ? undefined : argv[at + 1];
 };
 
+// bc-dgx7.31: otherwise --index/--total come back NaN and this refuses with a bare
+// usage line and exit 2 — inert, but never actually answering the request. Checked
+// before anything else on argv is read.
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(
+    [
+      'b7e-shard --index 0 --total 4        # this shard\'s suites, one per line',
+      'b7e-shard --index 0 --total 4 --dir <root>',
+      'b7e-shard --index 0 --total 4 --from affected.txt   # slice these suites, not all of them',
+      'b7e-affected | b7e-shard --index 0 --total 4 --from -',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
 const ROOT = path.resolve(value('--dir') || REPO_ROOT);
 const INDEX = Number(value('--index'));
 const TOTAL = Number(value('--total'));
