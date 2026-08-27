@@ -1412,6 +1412,26 @@
           : `<span class="model-ran">ran on ${esc(ran.join(', '))}</span>`
       );
     }
+    /**
+     * Whether it fitted the window that model came with — bc-nc6o.8.
+     *
+     * The worst verdict wins where a bead has been worked twice, because that is the one
+     * that is actionable: a bead that fitted in March and overflowed in June needs the
+     * same thing as one that has only ever overflowed.
+     *
+     * **`fit` draws nothing**, and that is the difference between this row and the label
+     * set behind it. The label is written for both outcomes so that "measured and
+     * comfortable" is distinguishable from "never measured"; the row is read by somebody
+     * looking for what to fix, and "the routing did what it promised" is not that. Silence
+     * here therefore means either fine or unmeasured, which is exactly what the rest of
+     * this row already means by saying nothing.
+     */
+    const pressures = m.pressures || [];
+    if (pressures.includes('over')) {
+      bits.push(`<span class="model-ctx is-over">⚠ ran out of context</span>`);
+    } else if (pressures.includes('tight')) {
+      bits.push(`<span class="model-ctx">context was tight</span>`);
+    }
     return `<div class="model-row" id="sheet-model">${bits.join('')}</div>`;
   }
 

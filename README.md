@@ -14917,6 +14917,11 @@ somebody can act on. Nothing throws, and the ordinary answer for a repo with no
 `.beadcause/` at all costs one failed `stat`: no read, no parse, no directory listing, which
 is what lets the advocate ask per checkout on every tick.
 
+One department key is not about the chain at all: `capacity:` is how many windows that
+department may hold at once, and it is the one number in this file that changes what
+dispatches — see [Department capacity](#department-capacity--the-first-thing-a-relay-does-to-dispatch-rather-than-to-a-brief)
+below for why only a *department* may state it and why it can only ever subtract.
+
 **And the launcher asks the bead's own checkout.** `openWorkSession` resolves the relay off
 the directory `resolveSessionRepo` already picked for the bead, not off the workspace name —
 which is what makes *several relays in one workspace* fall out for a multi-repo workspace as
@@ -14932,6 +14937,89 @@ relay: what that list is for is catching `--role clip` for `clio`, not enforcing
 and the same command already declines to check step *order* for exactly that reason. A
 `--relay` flag would be a second routing decision typed by hand at the one place that cannot
 verify it. `bc-ogicx.7`.
+
+### Department capacity — the first thing a relay does to dispatch rather than to a brief
+
+Everything above decorates. The advocate picked the bead first — by priority, then by age —
+and the chain was computed afterwards, at launch, out of whatever bead the queue had already
+chosen. So a department with four beads near the top of a workspace's queue could take every
+window the workspace had, and one with a single bead could wait all day behind it. Nothing
+was wrong and nothing said anything.
+
+A **department** may now declare `capacity: N`, and `candidates` drops a bead whose
+department is already at it. `lib/relaydefs.js`, `node test/deptqueue.mjs`.
+
+```yaml
+relays:
+  studio:
+    departments:
+      dept:story:
+        members: [aria, clio]
+        check: [muse]
+        capacity: 1
+```
+
+**Only a department may declare one, and a capacity can only ever subtract.** Those two
+sentences are the same decision from either side. A relay-level `capacity:` is a second
+spelling of `advocates.perWorkspace.<ws>.maxWorkers` — that number is *yours*, it lives in
+the config on this Mac, and two switches for one limit is the failure this family objects to
+everywhere else; so it is an unknown key, and it refuses the whole file. What is left is
+counted *inside* `maxWorkers` and inside `globalMaxWorkers` and can never raise either, which
+is the whole reason a file a pull request can edit is allowed to state it at all: a repo may
+slow its own department down, and may not take a window from anybody.
+
+**The department comes from the graph, and it could not have come from the queue row.** A
+relay is keyed off the bead's **assignee**, and `bd ready --json` carries no `assignee` field
+— not one the survey drops, one the payload does not contain. A filter reading the row could
+see a `dept:` label and nothing else: a ceiling that applied to the beads somebody had
+happened to label and silently not to the rest. So it is read off the tick's own `bd export`,
+which the roster and the pause set have already paid for. A graph that would not answer this
+tick means **no cap**, never an empty one.
+
+**Both sides of the count ask the same question.** A bead is under a ceiling only where it
+would get a *chain* — not merely where `departmentOf` would match a label. A bead labelled
+`dept:story` whose assignee is a person resolves no chain, so its window records no
+department and could never be counted as occupying one; holding it would be a ceiling that
+subtracts for ever. And the window's department is written down **at launch**, because the
+first thing that window does is `bd update --claim`, which overwrites the assignee — a
+department re-derived a minute later is `null` for every window that has started work, and a
+ceiling counted that way never binds at all.
+
+**It binds within the tick as well as across it.** A tick opens `min(free, globalFree,
+ready)` windows straight down one list, so a ceiling counted only against *running* windows
+would let three windows into a department capped at one and only notice on the next tick.
+Every candidate kept therefore counts too. The cost is deliberate: a bead can be held behind a
+same-tick sibling that then does not launch because the worker limit ran out first, and it
+comes back on the next tick with nothing to release — exactly as a same-tick surface collision
+does. The sentence on the card says which of the two is holding it, so a full department and a
+busy tick are never reported as each other.
+
+**And it is said out loud**, which is the half that is not optional. A held bead joins the
+`heldBy*` family as `heldByDept`, with the department named as well as the bead, because the
+department is where the number is. `heldBySurface` is the only other hold that is not counted
+into the "nothing ready" block, and for the same reason: this one subtracts from `candidates`
+and not from the queue, so it can never be what empties one — its sentence goes on the line
+that reports a queue with nothing pickable in it and on the line that says how many windows
+are opening. A silent subtraction is what `bc-xl7n.111` cost a bead's finished work, and the
+sixty lines above `givenUp` in `lib/advocate.js` are that argument at length.
+
+**A definition that will not load is said out loud too, and holds nothing.** A checkout whose
+`.beadcause/relays.yaml` fails to parse or validate dispatches every one of its beads exactly
+as it did before the file existed — without a relay. So it gets one sentence on the tick note,
+one log line per spell of being broken, a `p1` pill of its own, and **no** `heldBy*` entry,
+because nothing is waiting. What is wrong is that a repo believes it has departments and has
+none, which nothing else can say: the launcher has carried the sentence as far as
+`relayProblem` since `bc-ogicx.5`, and `test/relaywiring.mjs` pins that with *"the problem
+dies inside the launcher"*. This is where it stops dying. Note `repoList().warnings` is
+deliberately **not** the model — it reads well and is read by nobody; the pattern that reaches
+a surface is a sentence on the advocate's record plus one guarded line, which is what
+`repoProblem` already does. `bc-ogicx.6`.
+
+Deliberately **not** here, and argued against rather than merely deferred: making the relay
+influence pick *order* — round-robin, per-department weighting. That is a scheduler, it
+interacts with `byPickOrder`, `maxAttemptsPerBead` and the lease, and it buys much less than
+the cap does. Cap first; propose weighting only if starvation is observed with the cap in
+place.
 
 ### The relay journal — every step and handoff, on the bead and on the epic card
 
@@ -19108,6 +19196,69 @@ write held by `merge-advocate` alone. A worker session, which is what actually h
 shape this bead is about, already carries an unrestricted allowlist and needs no grant to
 run it.
 
+### Wait for a call the harness already backgrounded — `b7e-await`
+
+`bc-dgx7.99` is the opposite end of `b7e-bound`, just above: that one puts a deadline on
+a *foreground* run because this Mac has no `timeout` binary; this collects a task the
+harness has *already* moved to the background and hands back its real exit status. Six
+sessions (`dv-b5d.24`, `dv-b5d.26`, `dv-3rn.2`, `dv-gr6.36`, `dv-nsy.6`, `dv-k4n.5`) each
+invented a different wait for one: `until [ -s …/tasks/<id>.output ]; do sleep 5; done`
+after a bare `cat` returned `---still running?---`; repeated blind `cat` polls, several
+reading a half-written file as a finished one; a `while [ "$(grep -c …)" -lt 57 ]; do :;
+done` busy-wait that spun at full CPU and died at exit 143 after five minutes, followed by
+`setsid` (which does not exist on this Mac) and a `pkill -f`; a line count checked against
+a guessed total of 18. Emptiness is not completion and a line count is not completion —
+the thing that actually means "done" is the task's real exit status, and none of those six
+polls could see it, because none of them knew where it was written down.
+
+```
+b7e-await <task-id>                    block until it exits, print output, exit with
+                                        the SAME code the task exited with
+b7e-await <task-id> --timeout <secs>   give up after that long instead: print whatever
+                                        output exists so far, exit 124
+b7e-await <task-id> --tail <n>         print only the last n lines of the output
+```
+
+**Where it is written down** — worked out by driving a real `run_in_background` call and
+reading what came back, not from any doc: the harness backs a backgrounded task with a
+file at
+
+```
+/private/tmp/claude-<uid>/<cwd, every non-alnum char turned into `-`>/<session id>/tasks/<task-id>.output
+```
+
+which fills with the task's combined stdout+stderr as it runs and, the moment the task
+exits, gets one line appended: `[exited with code N]`. If something else stopped it first
+— the harness itself, at session end or on a `TaskStop` — the file ends `[killed]` instead,
+with no code at all, and `b7e-await` exits `125` for that case rather than guessing at a
+code that was never written. `<uid>` and `<session id>` are `os.userInfo().uid` and
+`$CLAUDE_CODE_SESSION_ID`, no discovery needed; `<cwd>` is the caller's cwd **at the
+moment the background call was made**, which is not necessarily this process's cwd right
+now — a session that calls `EnterWorktree` between backgrounding a task and awaiting it
+has a different cwd than when the task started. So the search tries this process's own
+cwd first and, if that slug has no matching file, falls back across every sibling slug
+under the same uid that has this exact session id under it. `--dir <path>` skips all of
+that and looks for `<task-id>.output` directly under `<path>` — the escape hatch for a
+caller that already has the path (the backgrounding call prints it), and how `test/b7eawait.mjs`
+drives the discovery and fallback logic itself against a throwaway fixture tree instead of
+the real `/private/tmp/claude-<uid>`.
+
+Polls every 300ms, reading only the last 256 bytes of the file rather than the whole
+thing, so a long-running gate log growing under it costs nothing per poll; measured by
+hand at 1-2% CPU while blocked. With no `--timeout`, a task id that never turns up at all
+still gives up after a 2-second grace rather than hanging forever on a typo — completion
+itself is still unbounded, the grace only covers "does this file exist yet".
+
+Exit codes: the task's own code if it exited on its own, normalised into 0-255 the same
+way `process.exit` always does; `124` on `--timeout` (coreutils' own `timeout` uses the
+same number, and so does `b7e-bound` above); `125` for `[killed]`; `127` if no task by
+that id ever turns up.
+
+The file is `bin/b7e-await`, no `.js`, same reasoning as `b7e-bound` just above. **On
+`DEFAULT_TOOL_LIST`**, unlike `b7e-bound`: its argv is a task id plus three flags, none of
+which name a command to run or a path to write, so there is nothing here for the
+"reaches a write" check to be blind to.
+
 ### Given a diff, name the suites that actually cover it — `b7e-affected`
 
 `bc-khoe.40` is the session audit agent naming the same shape a fifth time: eight sessions
@@ -23111,6 +23262,12 @@ b7e-plancheck bc-jk4m -w beadcause --json                 the same facts, machin
 b7e-plancheck bc-jk4m -w beadcause --check plan.yaml      would this candidate be accepted?
 cat plan.yaml | b7e-plancheck bc-jk4m -w beadcause --check
                                                            same, from stdin
+b7e-plancheck bc-jk4m -w beadcause --out plan.yaml        the current plan, as the literal
+                                                           YAML beadcause-plan -f accepts
+b7e-plancheck bc-jk4m -w beadcause --out | beadcause-plan bc-jk4m -w beadcause -f -
+                                                           revise a plan by editing a file
+                                                           instead of retyping it from
+                                                           `bd comments` by hand
 ```
 
 **Named `b7e-plancheck` rather than the `bin/b7e-plan` the bead itself asked for.**
@@ -23148,9 +23305,27 @@ One `bd export` (`Bd.graph`, already cached a minute) answers both `unplanned`'s
 edges and `dispatchable`'s live-bead guess together — the same status map also backs
 `isClosed`'s `unclosed`/`done` verdict, so nothing here pays for a second read of it.
 
+**`--out [file]` (`bc-dgx7.79`) is default mode's own document, back out as the literal
+write shape.** Found by a session audit against three *deluvia* planning sessions that
+each needed to *revise* an existing plan and each rebuilt the read by hand to get there:
+`bd comments --json` piped through a Python pass to pull the fenced block and list group
+keys in order, one of them then resubmitting six times (4355 → … → 3994 characters) to
+land back under `MAX_PROMPT_CHARS` by hand. `lib/plan.js` already has the read — `planFrom`
+parses exactly what is stored — `--out` is that document printed in the shape
+`beadcause-plan -f` takes, to `<file>` or stdout if none is given. Piping it straight into
+`--check` (or into `beadcause-plan -f`) reproduces the stored plan byte-for-byte, because
+`validatePlan` rebuilds every group in the same fixed key order regardless of what order
+the YAML gave it — that round-trip is `bc-dgx7.79`'s whole acceptance test. Only the YAML
+goes to stdout/`<file>`; the per-group budget line and the unplanned list still print, but
+to stderr, so a group whose stored prompt already exceeds `MAX_PROMPT_CHARS` (reachable
+only by hand-editing a comment or by a cap that shrank after the plan was filed — never
+through this tool's own write paths) is flagged in the same run rather than only
+discovered on a later `--check`.
+
 Exit codes: `0` printed — a plan or whole-job decision exists, or `--check` reports a
-candidate that would be accepted. `1` bad usage. `2` the tracker would not answer, or the
-epic does not exist. `3`/`4` — see above. `Bash(b7e-plancheck:*)` is on
+candidate that would be accepted. `1` bad usage. `2` the tracker would not answer, the
+epic does not exist, or `--out` was asked for an epic with neither a plan nor a whole-job
+decision — nothing to write out. `3`/`4` — see above. `Bash(b7e-plancheck:*)` is on
 `DEFAULT_TOOL_LIST`, declared `@grant read` in the command's own header: every `bd` verb
 it spawns (`show`, `comments`, `children`, `export`, `ready`, a batched `show` for surface
 notes) is a read, and `--check` validates in memory only. See `bin/b7e-plancheck` and
@@ -25741,6 +25916,104 @@ Neither renderer decides anything, and both draw **nothing at all** for a bead c
 predates it. `test/modelcard.mjs` covers the derivation, the field arriving on both
 payloads, both renderers run for real over the five shapes that matter, and the rule that
 every class either of them draws has a rule behind it.
+
+### Whether the hour fitted — `ctx:<verdict>`
+
+Everything above records *which* model. None of it records how much room that model had,
+and that is the number the tier is actually a bet about: `low` and `medium` route to
+Sonnet, whose window is 200k, and Sonnet-routed workers are hitting it. A session that
+hits the wall spends part of an unattended hour auto-compacting — the "botched session"
+outcome [the expensive fallback](#which-model-a-session-comes-up-on--the-tier-at-spawn-time)
+exists to avoid, arriving through the tiers somebody *did* rate rather than through the ones
+nobody did.
+
+Worse, the decision had no feedback of any kind. The agent that rates a bead `medium` — the
+proposer, or a session filing a discovery with the files still open — has never been able to
+find out how the last rating turned out. So a finished session now lands one more label:
+`ctx:fit`, `ctx:tight` or `ctx:over`, and `lib/sessiontokens.js` is the whole of it.
+
+**Peak occupancy cannot say it, and that is the trap the file is built around.** The obvious
+measure is how close the context got to the limit, and on its own it is worthless: the
+harness compacts *before* the window is exceeded, so a session that ran out of room reads
+~90% full and one with plenty to spare reads the same. The number that never crosses its
+limit is not evidence about the limit.
+
+What is evidence is the compaction. Claude Code writes a `system` event with
+`subtype: 'compact_boundary'`, carrying `compactMetadata.trigger` (`auto` when the harness
+ran out of room, `manual` when somebody typed `/compact`), `preTokens`, `postTokens` and
+`cumulativeDroppedTokens`. An `auto` boundary is the definitive "this needed more window
+than it had", written by the thing that made the decision. So the verdict rests on the
+boundary, and occupancy is kept for the case the boundary cannot cover — a session that
+fitted, and by how much. "Fitted at 41%" and "fitted at 94%" are the same outcome and
+different advice, which is why there are three verdicts and not two. A `manual` boundary is
+counted as a compaction and **not** as an overflow, while the occupancy it measured still
+raises the peak: how the compaction was started and how full the window was are two facts.
+
+**The window is not in the transcript, so it comes off the selection.** `message.model` is
+`claude-opus-5` whether the session was opened on the 200k model or the 1M variant — the
+`[1m]` marker belongs to the *selection* and is written to no turn, and no field anywhere in
+the file names the context limit. So the window is derived from the model string beadcause
+itself passed to `--model`, which it already stores in `meta.json`, by the same rule the
+status line uses: a string mentioning `1m` is the long window, anything else is 200k. A
+session whose selection was never recorded is refused a grade rather than given the default
+one — `fit` is a claim about a limit, and inventing the limit would manufacture reassurance.
+
+**A subagent's tokens are on the bill and not in the window.** Sidechain turns ride in the
+same transcript with `isSidechain: true`. Folded into the peak, a session that fanned out to
+six readers would look like one about to overflow — exactly backwards, since fanning out is
+how a session *avoids* filling its window. So the totals include them, the peak does not,
+and `meta.json` counts them apart so no reader has to know that.
+
+**A label, a set, and protected, for the reasons [`ran:`](#and-what-it-actually-ran-on--the-ran-label)
+is all three.** `bd list --label ctx:over` is then the list of beads whose tier was wrong,
+askable today from any machine on the workspace. A bead that fitted in March and overflowed
+in June keeps both labels, and that pair is the most useful thing the tracker can say about
+it: the work grew and the tier did not. `isCtxLabel` joins `isRanLabel` in
+`isProtectedLabel`, because losing this one costs more than losing most records here — it is
+the only feedback the tier decision has ever had, and a bead whose `ctx:over` was dropped by
+an unrelated title edit goes back into the queue rated exactly as badly as the first time.
+A create cannot state it either: a bead being proposed has never run, and the refusal says
+to set `complexity:` instead.
+
+**`ctx:fit` is written rather than left implicit**, and the sheet's row deliberately does not
+draw it. Those are not in tension. The absence of `ctx:over` is ambiguous in the direction
+that matters — nearly every bead in the tracker has never been measured, and a rater reading
+"no overflow label" off one of those is reading reassurance out of a bead nothing has ever
+run on — so the label is written for all three outcomes. The row is read by somebody looking
+for what to fix, and "the routing did what it promised" is not that, so it draws
+`⚠ ran out of context` and `context was tight` and stays quiet about the third.
+
+**The numbers go in the archive.** Every session's `meta.json` gains `tokens`: the turns
+(and the sidechain turns apart from them), the fresh input, cache reads, cache creations and
+output, the peak occupancy, the window it was routed into, that peak as a percentage of it,
+the compaction counts and what they dropped, and the verdict — stored rather than left to be
+recomputed, because it is the question the record exists to answer and it should be
+answerable from the file alone. `null`, not a record of zeroes, for a session that left
+nothing measurable and for every entry archived before the field existed: zeroes would read
+as "this session spent nothing", and there are hundreds of the other thing.
+
+Read off the same single pass that already reads the transcript for the log and the
+`ran:` ids — a transcript runs to megabytes and that is the one place in the archive it is
+already open — and written whether or not the workspace keeps a session log, for the reason
+`ran:` is: `sessionLog: false` means "do not put a log in this repo", not "do not know what
+the hour cost". An overflow is said out loud once in the daemon log, with the numbers on it,
+because "it overflowed" alone is not enough to re-rate anything.
+
+**One thing this does not fix, and it is worth knowing.**
+[`MODEL_BY_TIER`](#which-model-a-session-comes-up-on--the-tier-at-spawn-time) sends `high` to
+plain `opus`, which is *also* a 200k window. Rating a bead `high` today buys a better model
+and not one token more room, so a bead that overflows Sonnet on breadth rather than on
+difficulty has nowhere in the current vocabulary to go. Whether the tier should pick the
+window as well as the family is bc-nc6o.9, and it was unanswerable before this: it needs
+these numbers over a corpus of runs, and until now no run had left any.
+
+`test/sessiontokens.mjs` covers it: the six traps above stated as assertions, a transcript
+built to contain a `usage` block quoted inside tool output, the earlier-run-survives case,
+an adjust that would have stripped the label, a log long enough to blow the 4MB rendering
+cap (because the long session is the one most likely to have run out of window), a session
+split across two project slugs, the real `archiveSession` against a throwaway repo and
+`$HOME`, and a real advocate tick down all three routes — archived, unlogged, and archive
+failed.
 
 ### Where the *ruling* is — the second axis, beside the pull request
 
@@ -38306,6 +38579,64 @@ guard is watching.
 touches `bd`, and it is pointless for `dispatch` besides — no drawing sheet is ever in
 front of one phone comment. Its occasion is a worker session with a branch of its own,
 which already has the unrestricted CLI default.
+
+### Run the invocations a bead's own acceptance criteria quote — `b7e-accept`
+
+`bc-dgx7.93`, filed by the session audit against five sessions (`bc-dgx7.81`,
+`bc-dgx7.85`, `bc-dgx7.77`, `bc-dgx7.82`, `bc-dgx7.84`) that each carried a literal
+`` `b7e-already time ago` ``-style invocation from their own bead's `acceptance_criteria`
+field into `Bash` by hand, one call at a time, resolving the binary a different way
+every session. `bc-dgx7.81`'s session made four separate calls for the three
+invocations its own criteria quote plus the no-match case; `bc-dgx7.77`'s carried an
+absolute worktree path as a shell variable through roughly ten calls because it never
+entered its own worktree first.
+
+```
+b7e-accept -w beadcause -b bc-dgx7.81                run every invocation the bead's
+                                                      acceptance_criteria quotes
+b7e-accept -w beadcause -b bc-dgx7.81 --list         resolve and report only; runs nothing
+b7e-accept -w beadcause -b bc-dgx7.81 --timeout 10   a shorter per-invocation deadline
+b7e-accept -w beadcause -b bc-dgx7.81 --dir <root>   another checkout entirely
+```
+
+**What counts as an invocation.** Every backtick-quoted span in a criterion sentence is
+a candidate, but only one whose first token — after stripping a leading `./bin/`,
+`bin/` or `node bin/` — names a file that actually exists at `<root>/bin/<name>` is
+treated as one to run: the same resolution rule `bin/b7e-run` landed for `bc-dgx7.87`,
+never whichever copy `PATH` would find. A quoted file path, function name or comparison
+tool (`` `grep "^export function"` ``, in `bc-dgx7.81`'s own criteria) stays inert
+prose, exactly like a sentence that quotes nothing runnable at all. A candidate whose
+text carries an angle-bracket placeholder (`` `b7e-propagated -w deluvia 108 --at
+<commit before dv-b5d.32 landed>` ``, `bc-dgx7.82`'s own case) is reported **not
+runnable, verbatim** — never guessed at; inventing a value for it is exactly what that
+session spent five calls establishing was impossible to do honestly.
+
+**What counts as safe to run.** `lib/tooldecl.js` (bc-wbrhi) is now the only place a
+`b7e-*` tool's own `@grant` decision lives — `lib/grants.js`'s `GRANTS` map carries no
+`b7e-*` entry any more. So classification here reads the resolved target file's own
+`@grant` line directly, not a derived registry computed over *this* checkout: a `--dir`
+pointed elsewhere is judged by its own `bin/`. Anything not declared `@grant read` —
+`write`, `excluded`, undeclared, or a `bin/` file with no `b7e-` prefix at all (the
+write-shaped infrastructure scripts — `deliver.js`, `file.js`, … — which declare
+nothing) — is refused and never executed. That is what lets `b7e-accept` itself carry
+`@grant read` and sit on `DEFAULT_TOOL_LIST`: nothing it can be pointed at can make it
+write.
+
+`lib/accept.js` is the whole decision — extraction, placeholder detection, the
+read/write classification — pure and tested without spawning anything
+(`test/b7eaccept.mjs` drives it against a small fixture `bin/` it fully controls, the
+same arrangement `lib/tooldecl.js`'s own suite uses). `bin/b7e-accept` is the argv shell,
+the one spawn per runnable invocation and the printing. One block per criterion
+sentence, in the order `acceptance_criteria` writes them: the sentence itself, verbatim;
+then either the resolved command line, the exit code and the first ten lines of output,
+or a one-line reason it did not run.
+
+Exit codes: `0` every runnable invocation exited `0` and nothing was refused. `1` at
+least one invocation ran and exited non-zero — a real acceptance failure, not a crash.
+`3` nothing failed, but at least one criterion's invocation was refused — the run
+completed; some criteria could not be verified this way. `2` bad usage, or
+`acceptance_criteria` is empty — a legitimate, distinct state, not "ran and found
+nothing wrong." `4` `-w`/`-b` named something this checkout's tracker does not have.
 
 ## Notes on bd
 
