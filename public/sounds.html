@@ -65,6 +65,22 @@
       <div id="named"></div>
     </section>
 
+    <!-- The answer haptic, bc-ka5y.15.18. Drawn only inside the app — see sounds.js —
+         because both pads fire through BeadcauseNative, and there is no web equivalent
+         of either one worth comparing: navigator.vibrate has no amplitude and no
+         primitive, so a browser version would be 20ms against 20ms. -->
+    <section class="card admin-card" id="haptic-section" hidden>
+      <div class="admin-head">
+        <h2>Feel it</h2>
+      </div>
+      <p class="admin-detail">
+        The Decisions channel's own buzz, and the alternative to it — side by side, before
+        either one costs anything. Both are silent; only the phone in your hand tells them
+        apart.
+      </p>
+      <div id="haptic"></div>
+    </section>
+
     <!-- The caveat that would otherwise be found the hard way, on the one screen where
          somebody is deciding how loud a sound is. -->
     <p class="admin-said" id="caveat">
