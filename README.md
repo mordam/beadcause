@@ -7381,12 +7381,12 @@ every `.pagescroll` inside a pane on the way out and writes it back on the way i
 same turn as the unhide: the content was never unbuilt, only unpainted, so there is no
 height still to arrive and no frame to wait for.
 
-**A pane can be present and unshowable, and one is.** `data-pending` names the
-bead that fills a container, and it is load-bearing rather than a note: a pending pane is
-registered nowhere, can never be shown, and the pill row asks the same question, so its pill
-stays the `<a href>` it has always been and still loads its own document. That is what let
-the shell land on its own. The alternative was two of seven pills leading to a blank screen
-until two further beads merged, on an app that
+**A pane can be present and unshowable, and every one of them has been at some point.**
+`data-pending` names the bead that fills a container, and it is load-bearing rather than a
+note: a pending pane is registered nowhere, can never be shown, and the pill row asks the
+same question, so its pill stays the `<a href>` it has always been and still loads its own
+document. That is what let the shell land on its own. The alternative was two of seven
+pills leading to a blank screen until two further beads merged, on an app that
 [deploys itself](#ship-it--the-same-merge-and-then-the-deploy) the moment a branch lands.
 History's attribute came off when
 [bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash),
@@ -7395,12 +7395,14 @@ Releases' with bc-khoe.30.14, and Advocates' — the last of the four the shell 
 went **on** afterwards, which is the direction worth noticing: bc-khoe.50 gave the row a
 fifth view because a pill pointing at a page that is not a view marks nothing current on the
 page it points at, and a view the grammar knows owes a container the same day. **bc-khoe.60**
-fills it. So the attribute is how a view arrives rather than a debt the shell was born with.
-The attribute names the bead whose
-merge *deletes* it, which is why it named bc-khoe.4 rather than bc-khoe.30.6: that bead
-ruled how the fold goes rather than folding it. The mechanism is not retired with the last
-of them; it is how the next view arrives, and `test/panes.mjs` covers it against fixtures
-now that the shell itself has none.
+filled it, and its going with nothing behind it is the fact worth stating: every view the
+grammar knows has a live pane now, and the attribute is how a view *arrives* rather than a
+debt the shell was born with — the next one to join `VIEWS` will carry it exactly the same
+way. The attribute names the bead whose merge *deletes* it, which is why History's and
+Releases' named the fold rather than the ruling that decided it, and why Advocates' named
+**bc-khoe.4** rather than bc-khoe.30.6: that bead ruled how the fold goes rather than
+folding it. `test/panes.mjs` covers the mechanism against fixtures now that the shell
+itself has none left to read it off of.
 
 **The row asks; it does not require.** `public/viewbar.js` is drawn on twelve pages and one
 of them is the shell, so it reaches for `window.beadcause.panes` with `?.` and takes *no* as
@@ -9077,6 +9079,19 @@ a `space.adopt()`, which ends in `paint()` — so the one repaint that thawed th
 repainted the bar above it in the same tick. Deleting the picker's counts deleted that
 call, and nothing else on the inbox reaches `spacebar.js` on a repaint, so the bar would
 have come out of the mode still holding the options it went in with.
+
+**Only the rows wait, not the whole paint (bc-ka5y.33).** The `<select>`'s options are
+the one thing a rebuild can move out from under a thumb, so those are what the freeze
+above covers. The bar's shown label, the control's `title` and the control's own `value`
+name nothing that is not already true — `state.filter` was updated by `adopt()`, or by
+the pick itself, before `paint()` ever runs — so all three are still written on every
+paint, frozen or not. Without that split, a pick made *during* the freeze fell through
+the same cracks the poll did: the browser moves a `<select>`'s value on the tap itself,
+no code involved, so the dropdown already held the new space while `paint()`'s early
+return left the bar's label and title naming the one the tap replaced, under a banner
+promising the screen was held still. It stayed that way, exactly as long as the mode
+did, because nothing but the next `paint()` — held by the same guard — could have said
+otherwise.
 
 **What is still allowed to move, and why none of it is a thing you can point at:** the
 toast (an overlay over nothing, raised only by an act already in flight when the mode
@@ -12282,6 +12297,54 @@ a browser can make: that the pill stopped being an `<a>`, that a tap loads no do
 all, and that the scroll position comes back — measured at a deliberately short viewport,
 because at phone height the board fits and an assertion about a scroll position that was
 never there would pass while proving nothing.
+
+### Config as a pane, and the fetch it deliberately does not make
+
+Everything above describes `/config`, a document. It is a **pane of the shell** now:
+`[data-pane="config"]` in `public/index.html`, shown by a `display: none` swap with nothing
+fetched and nothing rebuilt. `/config`, `/settings` and `/config.html` still answer — any of
+them can be sitting on a phone's home screen — but as a **302 onto the pane** since
+bc-khoe.60 rather than as the document. `public/config.js` is still one file written to run
+in either, deciding which by asking whether the one it is in has panes at all;
+`public/config.html` is still on disk and reachable exactly as it always was — unlike
+`public/history.html` and `public/releases.html`, nothing has deleted it, because that is a
+cleanup for once the hop has taken traffic for a while rather than a condition of landing
+it. It is the third view to make this move, after
+[the ledger](#the-ledger-as-a-pane-and-its-filters-in-the-hash) and
+[Releases](#releases-as-a-pane-and-the-two-clocks-it-brought-with-it), and the smallest —
+what is worth writing down is the one place it went a different way.
+
+**It has no `wake` and no clock, where both of the other two have at least one.** Nothing
+about a space's settings changes except a press on this card or the picker moving to a
+different space, so there is no event a poll could carry that a fetch this file already
+made would not already answer. It registers with the stager as `{ build }` alone, the same
+bare shape `public/app.js` registers Home with, and it means a genuine cost rather than an
+oversight: a setting changed on another device does not reach this pane until the picker
+moves or ⟳ is pressed, where the document it replaced got a free re-read on every
+navigation back to it. That is the trade this whole epic is making, paid here in the open
+rather than hidden behind a mechanism that looks complete.
+
+**Two element ids moved with it, and one of them for a reason the ledger and Releases did
+not have.** `id="cfg-observing"` rather than the bare `observing` — not because `#config`
+is a fragment target (nothing in this pane is named that), but because the Advocates pane
+already holds the bare name, the same collision `rel-observing` exists to dodge. The chip
+moved *inside* the pane rather than staying beside the mark, for the reason Releases'
+did: the top bar belongs to every view now, and which group is being watched is a fact
+about one of them. `id="space"` did not move — nothing else in the shell wanted it.
+
+**Presence reporting is dropped in the shell rather than carried over.** The document
+version reports `{ view: 'config', space }` to `public/mirror.js` on every load and every
+picker move; the pane does not, matching `public/history.js` and `public/releases.js`,
+neither of which reports anything once folded. The mirror does not yet know how to say
+"this device is on a pane other than Home", and teaching it that is a shell-wide question
+none of the three pane folds has answered — this one just states the gap explicitly rather
+than leaving it to be rediscovered.
+
+`node scripts/space-check.mjs` is the browser half, and the claims a static read cannot
+make: that a navigation to `/config` lands on the pane rather than the document, that the
+pill on the row is lit while it is up, and that a press under a repaint mid-flight cannot
+take a half-typed Slack channel id away — the whole reason that check exists, unchanged by
+which document is drawing the card.
 
 ### The row is the bead, not a summary of it
 
@@ -22248,6 +22311,56 @@ parsing and the printing around it. `Bash(b7e-moment:*)` is on `DEFAULT_TOOL_LIS
 `lib/toolbelt.js` and `read` in `lib/grants.js` — every `bd` verb it spawns (`show
 --include-comments`, `list --label`) is a read, and the log/deploy/git reads never
 write anything either. See `bin/b7e-moment`, `lib/moment.js` and `test/b7emoment.mjs`.
+
+
+### The numbers a named building actually produces, in one call — `b7e-model`
+
+`bc-dgx7.15` is the session audit's finding: five sophab sessions (`sp-oyg`, `sp-0hw`,
+`sp-j8f`, `sp-clh`, `sp-weu`) each needed "what does the model say for THIS size, versus
+the as-built one" and each built the params from scratch, differently — a raw
+`(length, run, rise)` tuple, `dataclasses.replace`, `engine.build_params` by hand, or
+`SolariumParams()` directly. `sp-j8f` burned three failed calls before discovering
+`costing.takeoff()` returns `(items, summary)`, not a list of dicts.
+
+```
+b7e-model 24x14x12 50x22x20                                   as-built vs a projection
+b7e-model 24x14x12 --rib closed --shape 1.2 --place "fredericton, nb"
+b7e-model 24x14x12 50x22x20 --costing                           + the takeoff total
+b7e-model 24x14x12 --json                                        one object per size
+```
+
+Each size is `LxRxH` in feet, the same order `engine.build_params(length, run, rise,
+...)` takes. Per size: section (breadth × depth, `A`, `I`, `Sx`), the governing NBCC
+combo, rib and beam utilisation, base reactions (`R_base_kN`, `thrust_kN`), and whether
+it is over capacity or past the calibrated section ladder — every one of those fields is
+`tools/planset_sweep.py::numbers_for()`'s own, not a re-derivation: it already calls
+`engine.build_params` and the same `fea_report` functions production does ("a sweep that
+re-derived the load path would be checking its own arithmetic"). With `--costing`, also
+`costing.takeoff()` on the same params object, reporting the total and the top 5 line
+items by extended cost. A size whose geometry the model itself refuses is reported
+(`error`/`error_type`) and does not stop the others.
+
+**This is a beadcause `lib/` file that shells out to sophab, not a file written into the
+sophab checkout**, even though the bead's own "belongs at" line — filed while it still
+lived in the sophab tracker — named `tools/b7e_model.py` there. Every wiring requirement
+the bead also lists (`package.json`/lockfile bin entries, `test/*.mjs`, a
+`DEFAULT_TOOL_LIST` entry, this section) is beadcause-repo machinery, and the bead's own
+move-comment says the work lands in the beadcause repo. Splitting the deliverable across
+two repos — a sophab-side Python file needing its own PR, review and merge on top of
+this one — would owe a second delivery nothing here asks for. So the whole thing lives
+here: `lib/b7e_model.js` only *reads* sophab (`sys.path.insert` onto its checkout, then
+`import`), and never writes into it. The interpreter is resolved from the sophab
+checkout itself (`.venv/bin/python3` if it has one, else plain `python3`) — never from
+the caller's own `.venv`, which is what makes `b7e-model` work from a beadcause
+worktree, which has no `.venv` at all and never will.
+
+`lib/b7e_model.js` is the Python bridge (one `python3 -c` process, a JSON job on stdin,
+a JSON array on the last line of stdout — the same shape `lib/plate.js`'s
+`RENDER_SCRIPT` already uses) and the report formatting; `bin/b7e-model` is the argv
+parsing and the printing around it. `Bash(b7e-model:*)` is on `DEFAULT_TOOL_LIST` in
+`lib/toolbelt.js` and `read` in `lib/grants.js` — everything it does is an import and a
+subprocess, never a write to either checkout. See `bin/b7e-model`, `lib/b7e_model.js`
+and `test/b7emodel.mjs`.
 
 
 ### The next free `CHANGE_LOG.md` entry number, across every branch — `b7e-entry`
