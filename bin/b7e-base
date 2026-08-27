@@ -1,0 +1,181 @@
+#!/usr/bin/env node
+/**
+ * `b7e-base` — is this branch based on current main, and what has landed under it since.
+ *
+ *     b7e-base                  fetch origin/main, compare HEAD against it
+ *     b7e-base --base develop   compare against a ref other than the repo's default
+ *     b7e-base --no-fetch       skip the fetch — use whatever origin/<base> already is
+ *     b7e-base --json           one object on stdout, for a caller
+ *
+ * bc-36xx.25: nine sessions (bc-36xx.13, bc-xl7n.83, bc-ywiy, bc-khoe.19, bc-khoe.18,
+ * bc-36xx.12, bc-36xx.11, bc-bmry.8, bc-gdub.3) each answered "am I current?" by hand,
+ * in five different shapes, and every one of the seven that never fetched first was
+ * comparing against a ref as stale as the last time some *other* session happened to
+ * fetch — invisible, because a stale ref still prints a sha. bc-bmry.8's `git log
+ * --oneline -1 main` is the sharpest case: local `main` can carry commits `origin/main`
+ * has never seen (nobody has pushed them yet), so reading it says "up to date" over a
+ * branch that is nothing of the sort. See the bead for the full roster.
+ *
+ * **Always the fetched remote, never the stale local ref.** Unless `--no-fetch`, this
+ * fetches `origin <base>` first; the comparison then prefers `origin/<base>` over a
+ * local `<base>` whenever both exist, so a local-only commit on `main` is never read as
+ * something that "landed" (the bc-bmry.8 failure). `--no-fetch` is for a caller that
+ * fetched a moment ago and does not want to pay for a second one.
+ *
+ * **The default `--base` is the literal `main`, not a call to GitHub.** `lib/pr.js`'s
+ * `defaultBranch` asks GitHub because a delivery has to land in the branch GitHub
+ * actually merges into, and `refs/remotes/origin/HEAD` goes stale in a way that has
+ * burned real repos (see its own docstring). This tool answers a cheaper, more frequent
+ * question — asked at the top of nearly every session, long before there is anything to
+ * deliver — and a repo whose integration branch is not `main` says so with `--base`,
+ * the same way `bin/deliver.js` lets a delivery override it.
+ *
+ * Reports one block: the branch, the merge-base, whether it is **current** (nothing has
+ * landed on the base since the fork point), **behind** (only the base has moved — this
+ * branch has no commits of its own yet), or **diverged** (both sides have unique
+ * commits); the commit subjects that landed on the base since the fork; and — the part
+ * none of the nine sessions computed by hand — the overlap between the files those
+ * commits touched and the files this branch's own commits touch, because that overlap
+ * is the whole of what a merge later has to resolve.
+ *
+ * Exit codes: `0` current, `1` behind or diverged, `2` bad usage or not a git checkout.
+ *
+ * @grant read
+ */
+import { git, gitCode, ok } from '../lib/gitref.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (name) => {
+  const at = argv.indexOf(name);
+  return at > -1 ? argv[at + 1] : undefined;
+};
+
+const USAGE = `usage: b7e-base [--base <ref>] [--no-fetch] [--json]
+
+Is this branch based on current main, and what has landed under it since. Fetches
+origin/<base> (default: main) and compares HEAD against it — the merge-base, whether
+this branch is current/behind/diverged, what landed since the fork, and which of the
+files it touched this branch also touches.
+
+  --base <ref>   compare against origin/<ref> instead of origin/main
+  --no-fetch     skip the fetch — use whatever origin/<base> already is
+  --json         one object on stdout instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const cwd = process.cwd();
+const base = value('--base') || 'main';
+const noFetch = has('--no-fetch');
+const jsonMode = has('--json');
+
+const die = (msg, code = 2) => {
+  console.error(`b7e-base: ${msg}`);
+  process.exit(code);
+};
+
+const branch = (await ok(git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])))?.trim();
+if (branch === undefined) die(`${cwd} is not a git checkout`);
+
+let fetched = false;
+if (!noFetch) {
+  const { code } = await gitCode(cwd, ['fetch', 'origin', base, '--quiet']);
+  fetched = code === 0;
+  // Not fatal either way — offline, or no such branch on the remote yet — the
+  // comparison below just runs against whatever origin/<base> already was.
+}
+
+const hasOriginBase = (await ok(git(cwd, ['rev-parse', '--verify', '--quiet', `origin/${base}`]))) !== null;
+const hasLocalBase = (await ok(git(cwd, ['rev-parse', '--verify', '--quiet', base]))) !== null;
+const upstream = hasOriginBase ? `origin/${base}` : hasLocalBase ? base : null;
+if (!upstream) die(`no origin/${base} and no local ${base} — nothing to compare against`);
+
+const head = (await git(cwd, ['rev-parse', 'HEAD'])).trim();
+const upstreamSha = (await git(cwd, ['rev-parse', upstream])).trim();
+
+let mergeBase;
+try {
+  mergeBase = (await git(cwd, ['merge-base', head, upstreamSha])).trim();
+} catch {
+  die(`HEAD and ${upstream} share no common history — is this even the same repo?`);
+}
+
+const count = async (range) => Number((await git(cwd, ['rev-list', '--count', range])).trim());
+const ahead = await count(`${upstream}..HEAD`);
+const behind = await count(`HEAD..${upstream}`);
+const state = behind === 0 ? 'current' : ahead === 0 ? 'behind' : 'diverged';
+
+/** Commit subjects in a range, oldest-landed-last never assumed — git's own order. */
+const subjects = async (range) => {
+  const out = await ok(git(cwd, ['log', '--format=%h\t%s', range]));
+  if (!out) return [];
+  return out
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => {
+      const [sha, ...rest] = l.split('\t');
+      return { sha, subject: rest.join('\t') };
+    });
+};
+
+/** Files touched between two trees — `mergeBase` and the far side, never a two-dot range. */
+const filesTouched = async (from, to) => {
+  const out = await ok(git(cwd, ['diff', '--name-only', from, to]));
+  return out ? out.trim().split('\n').filter(Boolean) : [];
+};
+
+const SHOWN = 30;
+const commits = await subjects(`${head}..${upstreamSha}`);
+const commitsOverflow = Math.max(0, commits.length - SHOWN);
+const commitsShown = commits.slice(0, SHOWN);
+
+const landedFiles = await filesTouched(mergeBase, upstreamSha);
+const branchFiles = ahead ? await filesTouched(mergeBase, head) : [];
+const branchFileSet = new Set(branchFiles);
+const overlap = landedFiles.filter((f) => branchFileSet.has(f)).sort();
+
+const short = (sha) => sha.slice(0, 8);
+
+if (jsonMode) {
+  console.log(
+    JSON.stringify({
+      branch,
+      base,
+      upstream,
+      fetched,
+      head,
+      upstreamSha,
+      mergeBase,
+      state,
+      ahead,
+      behind,
+      commits,
+      landedFiles,
+      branchFiles,
+      overlap,
+    })
+  );
+} else {
+  const fetchNote = noFetch ? '(--no-fetch)' : fetched ? '' : '(fetch failed — offline?)';
+  if (state === 'current') {
+    console.log(`[b7e-base] ${branch} is current with ${upstream} (${short(upstreamSha)}) ${fetchNote}`.trim());
+  } else {
+    const label = state === 'behind' ? `behind by ${behind} commit${behind === 1 ? '' : 's'}` : `diverged — ${ahead} ahead, ${behind} behind`;
+    console.log(`[b7e-base] ${branch} vs ${upstream}: ${label} (merge-base ${short(mergeBase)}) ${fetchNote}`.trim());
+    for (const c of commitsShown) console.log(`  ${c.sha} ${c.subject}`);
+    if (commitsOverflow) console.log(`  … and ${commitsOverflow} more`);
+    if (landedFiles.length) {
+      console.log(
+        `[b7e-base] those commits touched ${landedFiles.length} file${landedFiles.length === 1 ? '' : 's'}` +
+          (branchFiles.length ? `; this branch touches ${overlap.length} of them:` : ', this branch touches none of them yet')
+      );
+      for (const f of overlap) console.log(`  ${f}`);
+    }
+  }
+}
+
+process.exit(state === 'current' ? 0 : 1);

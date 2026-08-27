@@ -32,6 +32,8 @@
  *
  * Exit codes: 0 on success, 1 on a bad argv, 2 if building the sandbox itself failed
  * (a workspace directory that does not exist, `bd` not found for `--bd real`, a bad seed).
+ *
+ * @grant excluded
  */
 import { createSandbox } from '../lib/sandbox.js';
 
@@ -117,6 +119,12 @@ try {
   process.exit(2);
 }
 
+// `process.exit(0)` right after either write below used to drop whatever of it was
+// still pending: stdout to a **pipe** is async, so a caller-sized report — many seeded
+// beads, many workspaces — could cut at the 64KB pipe buffer with a success status and
+// no signal at all (bc-dgx7.45, bc-dgx7.53). The if/else is what stands in for the
+// early return `process.exit` used to give; falling off the end with
+// `process.exitCode` set instead flushes.
 if (jsonMode) {
   console.log(
     JSON.stringify(
@@ -132,14 +140,14 @@ if (jsonMode) {
       2
     )
   );
-  process.exit(0);
+  process.exitCode = 0;
+} else {
+  console.log(result.dir);
+  console.log(result.env);
+  for (const w of result.workspaces) console.log(`  workspace ${w.name}: tracker ${w.dir}, checkout ${w.checkoutDir}`);
+  if (result.seeded.length) {
+    console.log(`seeded ${result.seeded.length} bead${result.seeded.length === 1 ? '' : 's'}:`);
+    for (const b of result.seeded) console.log(`  ${b.id}${b.ref ? ` (${b.ref})` : ''} — ${b.title} [${b.workspace}]`);
+  }
+  process.exitCode = 0;
 }
-
-console.log(result.dir);
-console.log(result.env);
-for (const w of result.workspaces) console.log(`  workspace ${w.name}: tracker ${w.dir}, checkout ${w.checkoutDir}`);
-if (result.seeded.length) {
-  console.log(`seeded ${result.seeded.length} bead${result.seeded.length === 1 ? '' : 's'}:`);
-  for (const b of result.seeded) console.log(`  ${b.id}${b.ref ? ` (${b.ref})` : ''} — ${b.title} [${b.workspace}]`);
-}
-process.exit(0);

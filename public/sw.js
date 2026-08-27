@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v98';
+const CACHE = 'beadcause-v104';
 const SHELL = [
   '/',
   '/index.html',
@@ -73,6 +73,13 @@ const SHELL = [
   // beside panes.js and for the same reason — it runs on boot on the one page that is the
   // app, and a page cached without it is a page whose panes never get built at all.
   '/panestage.js',
+  // The host for the views the repos declare about themselves. In the shell because it
+  // is loaded on the one page that is the app and because the panes it adopts are the
+  // only way to reach those views at all — a page cached without it is a page where a
+  // repo's board is not merely stale but absent, with no pill saying it ever existed.
+  // What it hosts is *not* precached: a repo's script and its payload come from that
+  // repo's checkout, which only the daemon can read.
+  '/viewhost.js',
   // The pill row across the top of every page. Every one of them is useless without it
   // — it is the only way off a page — so it belongs in the shell rather than being
   // fetched once per page over a phone link.
@@ -87,6 +94,11 @@ const SHELL = [
   // page cached without it is a page with no way to change which repo the app is about,
   // and on the inbox it is what the space and workspace chip rows became.
   '/spacebar.js',
+  // The dialog behind the picker's last row. In the shell because the row that opens it
+  // is: a cached page that drew ＋ Add a bead-space and then could not fetch the file
+  // behind it would be a control that does nothing at all, which is worse than a page
+  // that never offered it.
+  '/addspace.js',
   // The account switcher beside it, and in the shell for a stronger version of the same
   // reason: a page cached without this file has no way to change which *life* the app is
   // about — and, because the menu is where the page's own top-right buttons now live, no
@@ -225,13 +237,15 @@ const SHELL = [
   // going: the document they used to name is `/`, which is the first line in this list,
   // and `VIEW_HOPS` below is what answers them when there is no daemon to ask.
   '/history.js',
-  // The selected space's own settings (bc-khoe.10). In the shell because it is a pill:
-  // every pill has to open instantly from the row whatever the link is doing. Its rows
-  // come from /api/space, which is never cached — so with no daemon it is an honest
-  // "can't reach the server" rather than a card of switches that would write nowhere.
-  '/config',
-  '/settings',
-  '/config.html',
+  // The selected space's own settings (bc-khoe.10) — a pane of the shell since
+  // bc-khoe.60, drawn by this script wherever that view is up. Its rows come from
+  // /api/space, which is never cached — so with no daemon it is an honest "can't reach
+  // the server" rather than a card of switches that would write nowhere.
+  //
+  // `/config`, `/settings` and `/config.html` are **gone from this list**, under the same
+  // rule the ledger's two obey above: they are a 302 to `/#config` now, and `Cache.put`
+  // refuses a redirected response. `VIEW_HOPS` below is what answers them when there is
+  // no daemon to ask.
   '/config.js',
   // And `/closed` and `/done` are **deliberately not here**, which is the one place in
   // this list where leaving a path out is a decision rather than an oversight.
@@ -549,6 +563,19 @@ function cachedInstead(request, res) {
  * by `viewAddress` below, on the same split `viewHop` makes in lib/server.js: what the
  * daemon reads stays in front of the `#`, what the view reads goes behind it.
  */
+/*
+  **A scoped address needs no row here, and must not be given one** (bc-xnj67).
+
+  `/bdcoz/personal/deluvia` is the shell at its own address — the space in the path, the
+  view still in the hash — so the `caches.match('/')` at the foot of `fallback` already
+  answers it correctly with no daemon to ask: the shell, served where it was asked for,
+  with the path intact for public/spacebar.js to read off `location.pathname`.
+
+  That is the whole difference between a scope and the entries below. Every one of these
+  exists because a *fragment* had to reach the address bar and only a redirect can put one
+  there. A scope is already in the path the browser asked for, so redirecting it would be
+  this worker rewriting an address that was right when it arrived.
+*/
 const VIEW_HOPS = {
   '/history': { view: 'history' },
   '/history.html': { view: 'history' },
@@ -572,6 +599,10 @@ const VIEW_HOPS = {
   '/releases': { view: 'releases' },
   '/deploys': { view: 'releases' },
   '/releases.html': { view: 'releases' },
+  // The selected space's own settings (bc-khoe.60).
+  '/config': { view: 'config' },
+  '/settings': { view: 'config' },
+  '/config.html': { view: 'config' },
   // The ledger under the name of the one question it is most often asked (bc-nib3.7).
   // Not in SHELL and never was; the difference is that the answer is now knowable here.
   '/closed': { view: 'history', narrow: [['status', 'closed']] },
@@ -626,17 +657,21 @@ function fallback(request, url) {
     // Then the same path with its query string set aside (bc-nib3.11).
     //
     // `Cache.match` keys on the *whole* URL, and no path in SHELL has ever had a query
-    // string on it — so every URL in this app that carries its state in the query was a
-    // clean miss here and fell through to the index page below. That is the History
-    // tab's four filters (bc-nib3.3) and every shortcut built on them: a phone opening
-    // `/history?status=closed&priority=P0` with no signal got the inbox, silently, which
-    // is the one moment that page is most worth having.
+    // string on it — so a request that carries its state in the query, at the same
+    // pathname a bare entry was precached under, was a clean miss here and fell through
+    // to the index page below. That is the terminal's own id (`/terminal?id=…`, term.js):
+    // a phone opening one with no signal got the shell with nothing steerable, silently,
+    // which is the one moment that page is most worth having.
     //
     // `ignoreSearch` compares the two sides on path alone, so the request resolves to
-    // the cached `/history.html` and the page reads its own filters off
-    // `location.search` exactly as it does online. The exact match above still goes
-    // first, because a cache holding both `/history` and `/history?status=closed` should
-    // answer the URL that was asked for rather than whichever went in first.
+    // the cached `/terminal` and the page reads its own id off `location.search` exactly
+    // as it does online. The exact match above still goes first, because a cache holding
+    // both `/terminal` and `/terminal?id=…` should answer the URL that was asked for
+    // rather than whichever went in first.
+    //
+    // This is also what `/history?status=closed&priority=P0` used to fall back through,
+    // before bc-khoe.30.7 turned it into a hop (`VIEW_HOPS` below) rather than a document
+    // with a bare alias to ignoreSearch onto.
     //
     // It cannot serve the login page, for the reason that page is never in the cache at
     // all: `fetchAndStore` refuses to store a redirected response or `/login` itself, so

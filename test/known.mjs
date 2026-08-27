@@ -225,6 +225,11 @@ await memory.debrief('known-tester', 'ws-child', DEBRIEF_REPORT);
 // A second store, big enough that its --json report cannot fit in a 64KB pipe buffer.
 const LONG = 'A fail-open hasRootAbove check over a census misses an orphan when a second root exists anywhere in the same fixture tree. '.repeat(40);
 for (let i = 0; i < 30; i += 1) await memory.note('bulk-tester', `orphan-census-fixture-root-${i}`, `${LONG}${i}`);
+// bc-dgx7.46: `--agent` is now refused unless the name is on `agents()`'s roster, which
+// is built from tier 2 (remember) alone. `bulk-tester` only ever noted, so without this
+// it would trip the new gate and the pipe-buffer test below would start failing for the
+// wrong reason. The value is off-topic on purpose, so it never outscores the 30 notes.
+await memory.remember('bulk-tester', 'unrelated-marker', 'Driving a browser check needs a warmed keys cache before its baseline shot.');
 process.chdir(cwd0);
 
 check('--help prints usage and exits 0', () => {
@@ -274,6 +279,30 @@ check('genuinely new prose says so in one line and exits 0', () => {
   assert.equal(status, 0);
   const lines = stdout.trim().split('\n');
   assert.equal(lines.length, 1, `expected one line, got:\n${stdout}`);
+  assert.match(stdout, /nothing on file reads like this/);
+  assert.match(stdout, /Safe to file a new key/);
+});
+
+check('an --agent naming no real store is refused by name, not answered as a confident all-clear', () => {
+  // The repro on bc-dgx7.46: a typo'd or made-up agent name used to read an empty store
+  // and print "Safe to file a new key" at exit 0 — indistinguishable from a real agent
+  // that just has nothing on file yet.
+  const { status, stdout, stderr } = run(['-w', 'known-ws', '--agent', 'not-a-real-agent'], { input: 'anything' });
+  assert.notEqual(status, 0);
+  assert.equal(status, 4, stderr);
+  assert.match(stderr, /--agent "not-a-real-agent" has no store/);
+  assert.match(stderr, /known agents:/);
+  // known-tester and bulk-tester are the only two this suite ever remembered into.
+  assert.match(stderr, /known-tester/);
+  assert.match(stderr, /bulk-tester/);
+  assert.equal(stdout, '');
+});
+
+check('a real --agent with nothing relevant on file still answers 0/0 at exit 0', () => {
+  const { status, stdout } = run(['-w', 'known-ws', '--agent', 'known-tester'], {
+    input: 'Populate Clockify timesheets for July 2026, filling in the hours per project.',
+  });
+  assert.equal(status, 0);
   assert.match(stdout, /nothing on file reads like this/);
   assert.match(stdout, /Safe to file a new key/);
 });

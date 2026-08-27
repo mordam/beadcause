@@ -43,21 +43,57 @@
   anyway, rather than a second request for one bit.
 */
 (() => {
+  /** The view id this file draws, in public/hashroute.js's vocabulary. */
+  const VIEW = 'config';
+
+  const panes = (window.beadcause && window.beadcause.panes) || null;
+  const route = (window.beadcause && window.beadcause.route) || null;
+
+  /**
+   * Is this the shell's Config pane, or the `/config` (also `/settings`,
+   * `/config.html`) document it also still is?
+   *
+   * Asked of the document rather than of a flag, and asked of `panes` rather than of
+   * the path, for the reason public/montabs.js gives: the nine pages that are not
+   * the shell have no `window.beadcause.panes` at all, and a pane still marked
+   * `data-pending` answers `has()` false — which was this container's own state until
+   * bc-khoe.60 filled it.
+   */
+  const inShell = Boolean(panes && typeof panes.has === 'function' && panes.has(VIEW) && route);
+
   /* The pairing token, picked out of `?t=` once and kept — the same pickup every page in
      the app does, and the reason a link in a notification works on a phone that has never
-     scanned the QR. */
-  const token = (() => {
-    const fromUrl = new URLSearchParams(location.search).get('t');
-    if (fromUrl) {
-      localStorage.setItem('beadcause.token', fromUrl);
-      history.replaceState(null, '', location.pathname + location.hash);
-    }
-    return localStorage.getItem('beadcause.token') || '';
-  })();
+     scanned the QR.
+
+     Skipped in the shell: public/accountbar.js has already read `?t=` into localStorage
+     by the time this script runs — it loads first and does not strip the query, "the
+     page's own pickup will complain if it matters" — and public/app.js's `bootToken` is
+     the shell's own page and the one that does the stripping. A second strip here would
+     race it for nothing: this script parses on every load of the shell, not only one
+     that lands on Config, so an unconditional strip would take `?t=` off a link that
+     opened a *different* pane before that pane's own script (or app.js) had a turn to
+     want it. */
+  const token = inShell
+    ? localStorage.getItem('beadcause.token') || ''
+    : (() => {
+        const fromUrl = new URLSearchParams(location.search).get('t');
+        if (fromUrl) {
+          localStorage.setItem('beadcause.token', fromUrl);
+          history.replaceState(null, '', location.pathname + location.hash);
+        }
+        return localStorage.getItem('beadcause.token') || '';
+      })();
 
   const out = document.getElementById('space');
-  const pulse = document.getElementById('pulse');
-  const observing = document.getElementById('observing');
+  /* The brand dot. Left alone in the shell for the reason public/releases.js leaves it
+     alone: it is the whole document's there, driven off public/report.js's own count of
+     what is in flight, and a second writer toggling `busy` on it would clear it under a
+     fetch of the inbox's that is still out. */
+  const pulse = inShell ? null : document.getElementById('pulse');
+  /* `cfg-observing` rather than the `observing` this page used before bc-khoe.60 — see
+     the id's own comment in public/config.html and public/index.html. One id across
+     both documents, so this lookup does not need to ask which one it is in. */
+  const observing = document.getElementById('cfg-observing');
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -134,7 +170,7 @@
      may be worked before you have read it — joined them after that, and `autoShip` joined
      them with the release queue that deploys a merge without being tapped. Editing them
      meant opening
-     `~/.beadcause/config.json` on the Mac — which is exactly the wrong place, because
+     `~/.config/beadcause/config.json` on the Mac — which is exactly the wrong place, because
      the moment you know a setting is wrong is the moment you are looking at what it
      did, on a phone, at the weekend.
 
@@ -222,8 +258,8 @@
       </div>
       <p class="space-help">${esc(help)}</p>
       <div class="space-btns">
-        ${btn(true, 'On', `${label} — on for this space, whatever the global says`)}
-        ${btn(false, 'Off', `${label} — off for this space, whatever the global says`)}
+        ${btn(true, 'On', `${label} — on for this group, whatever the global says`)}
+        ${btn(false, 'Off', `${label} — off for this group, whatever the global says`)}
         ${btn(null, `Inherit (${onOff(inherited)})`, `Follow the global default, which is currently ${onOff(inherited)}`)}
       </div>
     </div>`;
@@ -246,8 +282,8 @@
     {
       key: 'autoEndorse',
       what: 'Beads agents file here',
-      on: 'files arrive endorsed, whatever the space says',
-      off: 'files stay held for a tap, whatever the space says',
+      on: 'files arrive endorsed, whatever the group says',
+      off: 'files stay held for a tap, whatever the group says',
     },
     {
       key: 'autoMerge',
@@ -281,6 +317,16 @@
       what: 'Merges ship themselves',
       on: 'a merge runs this repo’s deploy without waiting for Ship',
       off: 'a merge waits for the Ship button',
+    },
+    {
+      // Moot with auto-merge off for the two rows above's reason and one of its own: with
+      // every delivery already a question in your hand, there is no queue tick waiting on
+      // a re-run for this to shorten.
+      key: 'trustChecksAcrossDownmerge',
+      what: 'A clean downmerge keeps its checks',
+      moot: (r) => !r.autoMerge,
+      on: 'an already-passing pull request merges on the tick the base goes in',
+      off: 'every downmerge waits for the whole gate to run again',
     },
   ];
 
@@ -337,7 +383,7 @@
       // Not an error and not worth a card: nothing is narrowed, so there is no one
       // space whose settings these would be. The picker in the bar above is the fix,
       // and saying so once is cheaper than drawing a card of controls that write nowhere.
-      return `<p class="subtitle space-none">Pick a space in the bar above to see and change its settings.</p>`;
+      return `<p class="subtitle space-none">Pick a group in the bar above to see and change its settings.</p>`;
     }
     if (state.spaceError) {
       // The synthetic "Other" group lands here: it is a place the picker offers, not a
@@ -346,13 +392,13 @@
         <div class="work-head"><h2>${esc(name)}</h2><span class="mon-state dim">no settings</span></div>
         <p class="subtitle">${esc(state.spaceError)}${
           name === 'Other'
-            ? ' — repos in no configured space follow the global defaults, and there is nothing here to set on them.'
+            ? ' — bead-spaces in no configured group follow the global defaults, and there is nothing here to set on them.'
             : ''
         }</p>
       </article>`;
     }
     const d = state.space;
-    if (!d || d.space !== name) return '<p class="subtitle space-none">Reading this space…</p>';
+    if (!d || d.space !== name) return '<p class="subtitle space-none">Reading this group…</p>';
 
     const s = d.settings;
     const g = d.defaults;
@@ -378,7 +424,7 @@
           <span class="space-what">Muted</span>
           <span class="space-state ${s.muted ? 'held' : 'dim'}">${s.muted ? 'on' : 'off'}</span>
         </div>
-        <p class="space-help">Never light the phone up for this space. Its questions still arrive, still list, still count — see lib/spaces.js.</p>
+        <p class="space-help">Never light the phone up for this group. Its questions still arrive, still list, still count — see lib/spaces.js.</p>
         <div class="space-btns">
           <button class="adv-btn${s.muted ? ' on' : ''}" data-space-set="muted" data-value="true">Mute</button>
           <button class="adv-btn${s.muted ? '' : ' on'}" data-space-set="muted" data-value="null">Unmute</button>
@@ -455,7 +501,7 @@
         <div class="space-btns space-channel">
           <input type="text" id="slack-channel" value="${esc(draft ?? s.slackChannel ?? '')}" placeholder="${esc(
             g.slackChannel || 'C0123456789'
-          )}" aria-label="Slack channel for this space" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+          )}" aria-label="Slack channel for this group" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
           <button class="adv-btn primary" data-space-channel="set" title="Post this space&#39;s questions to the channel typed here">Set</button>
           <button class="adv-btn${s.slackChannel === '' ? ' on' : ''}" data-space-set="slackChannel" data-value="" title="This space never posts to Slack, whatever the global channel is">Never</button>
           <button class="adv-btn${s.slackChannel === null ? ' on' : ''}" data-space-set="slackChannel" data-value="null" title="Follow the global slack.channel, which is currently ${esc(g.slackChannel || 'unset')}">Inherit (${esc(g.slackChannel || 'none')})</button>
@@ -480,7 +526,7 @@
       tri(
         'autoDispatch',
         'Agents may answer unasked',
-        'Whether an unattended agent may reply to comments in this space. The global switch is a veto: with it off, nothing here can turn it back on.',
+        'Whether an unattended agent may reply to comments in this group. The global switch is a veto: with it off, nothing here can turn it back on.',
         s.autoDispatch,
         g.autoDispatch
       ),
@@ -518,6 +564,13 @@
         'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. An epic labelled auto-ship or no-auto-ship overrides this for its own work.',
         s.autoShip,
         g.autoShip
+      ),
+      tri(
+        'trustChecksAcrossDownmerge',
+        'A clean downmerge keeps its checks',
+        'On means the queue judges an already-passing pull request on the checks it has, instead of waiting for a whole gate run against the base that just arrived — a branch can otherwise pay for three of those over a diff that never changed. Only where the downmerge went in with no conflict; a conflict still gets a resolver. Leave it off in a repo whose CI does not also run on its base, because that run is what would catch two branches breaking it together.',
+        s.trustChecksAcrossDownmerge,
+        g.trustChecksAcrossDownmerge
       ),
     ].join('');
 
@@ -575,6 +628,7 @@
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
               ${r.autoMerge && r.reviewRequired ? '<span class="tag warn">reviewed first</span>' : ''}
               <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
+              ${r.autoMerge && r.trustChecksAcrossDownmerge ? '<span class="tag ok">downmerge keeps its checks</span>' : ''}
               ${
                 // Only where Slack is on at all: a "no slack" tag on every repo of every
                 // install that has never configured it would be a column of noise about a
@@ -611,7 +665,7 @@
 
     const missing = d.missing.length
       ? `<div class="adv-note warn">${esc(d.missing.join(', '))} ${
-          d.missing.length === 1 ? 'is named by this space and is not a configured workspace' : 'are named by this space and are not configured workspaces'
+          d.missing.length === 1 ? 'is named by this group and is not a bead-space this Mac serves' : 'are named by this group and are not bead-spaces this Mac serves'
         } — config drift, and nothing here reaches them.</div>`
       : '';
 
@@ -897,49 +951,96 @@
     state.slackDraft = { space: spaceName(), text: e.target.value };
   };
 
-  out?.addEventListener('click', onClick);
-  out?.addEventListener('input', onInput);
-
-  /* The ⟳. One `/api/space` read of the daemon's config object, with no `bd` and no `gh`
-     behind it — which is why this page can offer one at all without it being a button
-     that sweeps every tracker on the Mac. */
-  document.getElementById('refresh')?.addEventListener('click', () => load());
-
-  /* The space picker moved, so this is a different space's config and it is fetched.
-     Painted first all the same: the card says it is reading rather than sitting on the
-     previous space's answers under the new space's name.
-
-     The picker's *fine* level matters here too and costs nothing — `onlyRepo` narrows the
-     repo panel to the one repo you pinned, which is a repaint with no fetch involved. */
-  window.beadcause?.space?.onChange(() => {
-    state.spaceSaid = null;
-    render();
-    tellPresence();
-    loadSpace().then(render);
-  });
-
-  /* Where this device is, for anything mirroring it. Reported once at boot and again
-     whenever the picker moves, because *which space* is half of what the mirror says
-     this screen is showing. `config` is already one of `VIEWS` in lib/presence.js and
-     already has a sentence in public/mirror.js — it was a chip on the console before it
-     was a page, and neither of those had to change when it moved. */
+  /* Where this device is, for anything mirroring it — but only outside the shell.
+     public/history.js and public/releases.js report nothing here once they are a pane
+     (their VIEW never reaches public/presence.js), and this file matches them rather
+     than inventing a different answer for the one pane that still could: the mirror
+     does not yet know how to distinguish "this device is on the Config pane" from "this
+     device is on Home", and teaching it that is a shell-wide question, not this bead's.
+     `config` is already one of `VIEWS` in lib/presence.js and already has a sentence in
+     public/mirror.js from when this was a chip on the console; both go on being read
+     correctly for the standalone document and are dead code for the pane until that
+     question is answered. */
   const tellPresence = () =>
-    window.beadcause?.presence?.report({ view: 'config', space: spaceName() || '', detail: spaceName() || 'every space' });
+    window.beadcause?.presence?.report({ view: 'config', space: spaceName() || '', detail: spaceName() || 'every group' });
 
-  /* Draw whatever the picker already says before the first request lands: with no space
-     selected that is the "pick a space" line, which is the final answer rather than a
-     placeholder, and with one it is "Reading this space…". */
-  if (!token) {
-    // The whole page is behind the token, where on the console this card was one pane of
-    // four and could afford to answer "no settings" in the daemon's words. Said plainly
-    // instead, and said before anything is fetched: a screen of controls under a 401 is a
-    // screen that looks broken rather than one that looks locked.
-    out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
-  } else {
+  /**
+   * Everything this view does on the way up, in one function so the shell can time it.
+   *
+   * It was the last dozen lines of this IIFE and it still is on the document; what the
+   * stager buys is the other case — a load that lands on Home builds this after the
+   * first paint, and a load that lands on `/#config` builds it first and the inbox
+   * after.
+   *
+   * Every registration is in here rather than at module scope, and that is the trap
+   * this shape exists to avoid: `space.onChange` left outside would have the picker
+   * announce itself before there was anything to repaint, and the click/input
+   * listeners below would bind against a container a pending pane does not have.
+   */
+  function build() {
+    out?.addEventListener('click', onClick);
+    out?.addEventListener('input', onInput);
+
+    /* ⟳. The page's own on the document; the app's, shared with every other view, in
+       the shell — which is why the handler asks whether this pane is the one showing
+       before it does anything. One tap must not read two views' settings and draw
+       one of them. */
+    const refreshBtn = document.getElementById('refresh');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => {
+        if (inShell && panes.showing() !== VIEW) return;
+        load();
+      });
+    }
+
+    /* The space picker moved, so this is a different space's config and it is fetched.
+       Painted first all the same: the card says it is reading rather than sitting on
+       the previous space's answers under the new space's name.
+
+       The picker's *fine* level matters here too and costs nothing — `onlyRepo`
+       narrows the repo panel to the one repo you pinned, which is a repaint with no
+       fetch involved. */
+    window.beadcause?.space?.onChange(() => {
+      state.spaceSaid = null;
+      render();
+      if (!inShell) tellPresence();
+      loadSpace().then(render);
+    });
+
+    /* Draw whatever the picker already says before the first request lands: with no
+       space selected that is the "pick a space" line, which is the final answer rather
+       than a placeholder, and with one it is "Reading this space…". */
+    if (!token) {
+      // The whole page is behind the token, where on the console this card was one
+      // pane of four and could afford to answer "no settings" in the daemon's words.
+      // Said plainly instead, and said before anything is fetched: a screen of
+      // controls under a 401 is a screen that looks broken rather than one that looks
+      // locked.
+      out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
+      return;
+    }
     render();
     load();
-    tellPresence();
+    if (!inShell) tellPresence();
   }
+
+  /*
+    Offered to the stager, and built here when there is no stager to take it — the
+    `/config`, `/settings` and `/config.html` documents, or a service worker cache from
+    before public/panestage.js existed. `register` answering false has to leave this
+    file exactly as it was, which is why `build` is the function it would have called on
+    its own rather than something only reachable through the shell.
+
+    No `wake` and no `want`, unlike public/history.js and public/releases.js beside it:
+    this view follows no event stream — nothing changes what it draws except a press on
+    it or the picker moving — so there is nothing a poll could tell it that a fetch it
+    already made did not. That is the same reasoning the header comment at the top of
+    this file gives for why the page makes one request and no more. A cost of the choice:
+    a setting changed on another device does not reach this pane until the picker moves
+    or ⟳ is pressed, where the old document got a free read on every navigation back to
+    it — the trade this whole epic is making, paid here rather than hidden.
+  */
+  if (!window.beadcause?.stage?.register?.(VIEW, { build })) build();
 
   /* What `scripts/space-check.mjs` drives to prove a repaint landing under your thumb
      cannot take a half-typed channel id away — the same door

@@ -1166,6 +1166,44 @@ body {
 .accountform-repo { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--prose); cursor: pointer; }
 .accountform-error { margin: 10px 0 0; color: var(--danger); font-size: 13px; }
 
+/* ＋ Add a bead-space (public/addspace.js). It borrows the account dialog's chrome —
+   same class on the `<dialog>`, same buttons, same fields — because it is the same kind
+   of thing: a form you reached from a control in the top bar, on a phone, and a second
+   set of dialog styles is a second set to keep in step. What is added here is only what
+   that form does not have: a two-way radio, a select in a field, and two kinds of note. */
+.addspace-kinds { display: flex; flex-direction: column; gap: 6px; margin: 0 0 14px; }
+.addspace-kind {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; min-height: var(--tap);
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--text); font-size: 14px; cursor: pointer;
+}
+.addspace-kind input { accent-color: var(--accent); width: 18px; height: 18px; }
+/* The chosen one said in the border too, for the reason the account rows say it twice:
+   a radio is four pixels of a row read at arm's length. */
+.addspace-kind:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+.accountform-field select {
+  width: 100%; padding: 11px 12px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--text); font-size: 16px;
+}
+.addspace-note { margin: -6px 0 14px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+/* `.accountform-field` sets `display: flex`, which beats the UA's own `[hidden]` rule —
+   so the Clone-to field drew under "A path on the Mac", where there is nothing to clone.
+   The same shape as `.filter-menu[hidden]` above, and the same reason. */
+.accountform-field[hidden], .addspace-note[hidden] { display: none; }
+/* Not an error — the press it belongs to succeeded, or has not happened yet. This is the
+   sentence that says what it will cost, or what is now true and unfinished. */
+.addspace-warn {
+  display: block; margin: 0 0 12px; padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line)); border-radius: 10px;
+  color: var(--prose); font-size: 12.5px; line-height: 1.5;
+}
+.addspace-changed { display: block; margin-top: 6px; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 /* The bottom 12px is the gap after the last card. It used to be 0 because the body
    reserved the bottom bar's whole height under the list; the list is the scroller now
    and ends where the screen does, so the breathing room has to be its own. */
@@ -6449,6 +6487,37 @@ button.viewpill { cursor: pointer; }
    a line of its own, where it read as a second fact about this bead. */
 .eq-from-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* The last thing anybody said about this bead. Muted and truncated to one line: it is a
+   reason to open the thread, not the thread. Italic so it reads as a quotation rather
+   than as another field of the bead — everything above it is the bead's own words.
+   `.eq-last`, not `.eq-said`: that name is taken, by the sticky line further up that
+   says what a verdict did. Two unrelated things on one page called "said" is how a
+   stylesheet starts lying, and test/css.mjs refuses the second declaration outright. */
+.eq-last {
+  display: flex; align-items: baseline; gap: 5px; min-width: 0;
+  font-size: 12px; color: var(--muted);
+}
+.eq-last-who { flex: none; font-weight: 600; }
+.eq-last-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+
+/* An open question naming this bead — the one line on the row that is an argument
+   *against* the tap beside it, so it is the one line that is not muted. Bordered rather
+   than merely coloured, because the whole failure it exists to stop is a thumb moving
+   down a list of rows that all look alike. */
+.eq-ask {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; min-width: 0;
+  margin-top: 2px; padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  font-size: 12px; font-weight: 600; color: var(--text);
+}
+/* The question's own title wraps where everything else on the row truncates. It is the
+   sentence the row exists to make you read, and an ellipsis in the middle of "is this
+   already finished work?" is the row keeping the secret it was added to give up. */
+.eq-ask-title { min-width: 0; font-weight: 400; color: var(--prose); overflow-wrap: anywhere; }
+.eq-ask-sep { color: var(--muted); }
+
 /* The agent's own words, headed so the three of them do not run together into one
    grey wall. pre-wrap because a filed description is plain prose out of YAML and its
    line breaks are the only formatting it has. */
@@ -6680,6 +6749,13 @@ a.pill { text-decoration: none; }
 .model-why.is-bad { color: var(--warn); font-style: normal; }
 .model-ran { margin-left: auto; color: var(--muted); }
 .model-ran.is-diverged { color: var(--warn); }
+/* And whether the hour fitted the window that model came with (bc-nc6o.8). Sits after the
+   run because it is a fact about it, and `.model-ran` already holds the `margin-left: auto`
+   that pushes the pair to the right of the row. `is-over` is a warning in the same sense
+   `is-diverged` is: the plan and the outcome came apart, and this is the more expensive of
+   the two ways that can happen — an unattended hour that spent part of itself compacting. */
+.model-ctx { color: var(--muted); }
+.model-ctx.is-over { color: var(--warn); }
 
 /* Where the ruling on this bead is — the approval row on the bead sheet (bc-bmry.5,
    `approvalRowHtml`). Shaped like `.model-row` and `.owner-row` above it because it sits
@@ -8009,3 +8085,101 @@ body.editing::after {
 .sound-words { min-width: 0; }
 .sound-file { margin-left: 8px; font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .sound-detail { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+
+
+/* ------------------------------------------------------------------ repo views */
+/*
+  The chrome around a view a repo declared — a title, how old the board is, and ⟳.
+  Deliberately short, and that is the design rather than an omission: everything below the
+  header is the repo's, and it inherits this file, so a `.card` drawn by deluvia is the
+  same card the inbox draws and a `.pill` is the same badge. The only thing worth styling
+  here is the seam, so that a hosted view reads as a pane of this app rather than as
+  something embedded in one. See the header of public/viewhost.js.
+*/
+.viewhost-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem 0.35rem;
+}
+.viewhost-title {
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+.viewhost-age {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-inline-end: auto;
+}
+/* A payload the generator could not refresh. What is under it is still the last good
+   board, so this is the amber and not the red: it is old, not wrong. */
+.viewhost-age[data-stale='1']::after {
+  content: ' · stale';
+  color: var(--warn);
+}
+.viewhost-refresh {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem 0.3rem;
+}
+.viewhost-refresh:hover {
+  color: var(--text);
+}
+/* One line, and only one: the chrome and the view share it, last writer wins. Two
+   stacked banners saying what is wrong with the same screen is the shape that gets
+   scrolled past. */
+.viewhost-note {
+  margin: 0 0.9rem 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
+}
+/* The view has nothing to draw at all — no payload has ever built, or its script did not
+   load. Red, because unlike the amber above there is no board underneath it. */
+.viewhost-note[data-kind='stop'] {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+.viewhost-body {
+  padding: 0 0.9rem 1.2rem;
+}
+
+/*
+  A bead id a repo view drew, as a thing you can tap.
+
+  Minted by `ctx.bead.link()` in public/viewhost.js, which is why the class is styled here
+  and not in whichever repo happens to use it: the SDK emits the markup, so the SDK owes
+  the appearance. A repo view that had to style its own bead links would be a repo view
+  that looked like a different app the day this stylesheet's accent moved.
+
+  This file has no global rule for `a` — every context styles its own, see `.md a` and
+  `.release-list a` — so without this a bead link is the browser's default blue, underlined,
+  on a dark ground. Which is exactly what the first screenshot of the studio board showed.
+
+  Underlined on hover and focus only. The board is *made* of these — 139 of them on the
+  deluvia board — and a page where every id is underlined is a page of blue rules.
+*/
+.beadlink {
+  color: var(--accent);
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+.beadlink:hover,
+.beadlink:focus-visible {
+  text-decoration: underline;
+}
+/* Inside a badge the accent is wrong twice over: it fights the badge's own colour, and a
+   badge is already saying "this is metadata". The id keeps the pill's ink and is a link
+   because the whole pill is one. */
+.pill .beadlink {
+  color: inherit;
+}

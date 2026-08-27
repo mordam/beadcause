@@ -37,6 +37,10 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { removeTreeSync } from './helpers/tmp.mjs';
+// The assembled list, which since bc-wbrhi is the hand-written half in lib/toolbelt.js
+// plus whatever the tools in bin/ declare — so asking the module is the only reading that
+// cannot go stale against a literal that is no longer there.
+import { DEFAULT_TOOL_LIST } from '../lib/tooldecl.js';
 import {
   DEFAULT_THEMES,
   DEFAULT_WIDTHS,
@@ -541,10 +545,56 @@ check('it is deliberately NOT on DEFAULT_TOOL_LIST, and the reason is written do
   // read"), and the only agent DEFAULT_TOOL_LIST governs is `dispatch`: one turn, one
   // `bd comment`, no branch. Adding it here would also turn test/grants.mjs red on sight
   // for being unclassified, and the answer to that failure is not to classify it.
-  const toolbelt = fs.readFileSync(path.join(ROOT, 'lib', 'toolbelt.js'), 'utf8');
-  const list = toolbelt.slice(toolbelt.indexOf('export const DEFAULT_TOOL_LIST'));
-  assert.ok(!/^\s*'Bash\(b7e-eyeball:\*\)'/m.test(list), 'b7e-eyeball was granted to dispatch');
-  assert.ok(list.includes('b7e-eyeball'), 'the reason it is not on the list is not written down');
+  //
+  // Both halves are still asserted, and since bc-wbrhi they live in two different places
+  // on purpose: the *decision* is `@grant excluded` in the tool's own header, where it
+  // cannot be made by accident, and the *reason* is the paragraph in lib/tooldecl.js,
+  // which is where the whole of that argument moved so it could keep arguing by
+  // cross-reference. Checking only the first would let the paragraph be deleted; checking
+  // only the second is what this used to do, and it could not tell a decision from a
+  // passing mention.
+  const src = fs.readFileSync(path.join(ROOT, 'bin', 'b7e-eyeball'), 'utf8');
+  assert.match(src, /^\s*\*\s*@grant excluded\s*$/m, 'b7e-eyeball no longer declares itself off the list');
+  assert.ok(!DEFAULT_TOOL_LIST.includes('Bash(b7e-eyeball:*)'), 'b7e-eyeball was granted to dispatch');
+  const argument = fs.readFileSync(path.join(ROOT, 'lib', 'tooldecl.js'), 'utf8');
+  assert.ok(argument.includes('b7e-eyeball'), 'the reason it is not on the list is not written down');
+});
+
+/* ------------------------------------------------------ every b7e-* answers --help */
+
+// bc-dgx7.31 (`bin/b7e-usage`): the second half of what makes that command safe to
+// trust — it reads a header doc comment and never runs the command it describes, but
+// that promise is worthless if the command itself does not treat `--help` as inert.
+// `bin/b7e-gate` used to fall through `--help` into a real 400-suite sweep;
+// `bin/b7e-affected` and five others turned it away as an "unrecognised flag" or a
+// missing positional, which is a refusal, not an answer. This spawns every `bin/b7e-*`
+// file with `--help` and a closed stdin (several of the family read stdin when no
+// other input is given, and `--help` must never wait on that) and asserts each one
+// exits 0 within a few seconds — cheap, once, rather than trusting the doc comment.
+console.log('\nevery bin/b7e-* answers --help inertly');
+
+check('every bin/b7e-* exits 0 on --help, fast, with a closed stdin', () => {
+  const binDir = path.join(ROOT, 'bin');
+  const files = fs
+    .readdirSync(binDir)
+    .filter((f) => f.startsWith('b7e-'))
+    .filter((f) => fs.statSync(path.join(binDir, f)).isFile());
+  assert.ok(files.length >= 60, `only ${files.length} bin/b7e-* files found — the scan is not reading bin/`);
+  const bad = [];
+  for (const f of files) {
+    try {
+      execFileSync('node', [path.join(binDir, f), '--help'], {
+        cwd: ROOT,
+        input: '',
+        timeout: 8000,
+        encoding: 'utf8',
+        maxBuffer: 4 * 1024 * 1024,
+      });
+    } catch (err) {
+      bad.push(`${f} (${err.signal || `exit ${err.status}`})`);
+    }
+  }
+  assert.deepEqual(bad, [], `did not answer --help cleanly: ${bad.join(', ')}`);
 });
 
 /* ------------------------------------------------------------------- done */

@@ -1,0 +1,129 @@
+#!/usr/bin/env node
+/**
+ * `b7e-window` — is another live window already on this bead? One call, not seven
+ * inventions.
+ *
+ *     b7e-window -w beadcause -b bc-dgx7.88
+ *     b7e-window -w beadcause -b bc-dgx7.88 --family
+ *     b7e-window -w beadcause -b bc-dgx7.88 --json
+ *
+ * bc-dgx7.88: seven sessions in the deluvia tracker each opened by asking this by hand,
+ * with a different `ps` pipeline every time, and the variation was not cosmetic — it
+ * changed the answer (one flooded a file nobody read, one got a false negative on the
+ * one question this exists to get right). See lib/window.js for the design, what it
+ * reuses, and its noted overlap with bc-7qo.24 (`b7e-onbead`); this file is only the
+ * argv parsing and the printing around it, same split as `bin/b7e-prior`.
+ *
+ * **A self-check, not the dispatch-time door.** `lib/onewindow.js` (bc-7qo.19) refuses
+ * at dispatch when the daemon already knows a bead is live. This is for a window that
+ * cannot assume that door caught every case — a hand-opened session, a race, a stale
+ * lease — and wants the answer for itself, with an exit code it can act on.
+ *
+ * `--family` widens from the one bead to the nearest root (P0 or epic) above it, and
+ * every bead under that root — the per-bead census a couple of the deluvia sessions
+ * (dv-b5d.23, dv-b5d.40) assembled by hand for a whole epic's worth of live windows.
+ * Under `--family` this is a report, not a gate: a sibling bead worked in a different
+ * window is ordinary, not a competitor, so the exit code stays 0 either way.
+ *
+ * Exit codes (single-bead mode only — `--family` always exits 0): `0` at most one live
+ * window names the bead (nobody else is on it, or it could not tell — never a false
+ * "somebody else is here"). `1` two or more are live, and their pids are named. `2` bad
+ * usage. `4` `-w`/`-b` named something this checkout's tracker does not have.
+ *
+ * @grant read
+ */
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { processLines, ownClaudePid, windowsNaming, familyIds, censusFamily } from '../lib/window.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-window -w <workspace> -b <bead> [--family] [--json]
+
+Is another live window already on this bead? One row per live process naming it: pid,
+elapsed time, and whether it looks like this session's own window or another one's.
+
+  -w, --workspace <name>   which tracker (required; one of the configured workspaces)
+  -b, --bead <id>          the bead to check (required)
+  --family                 also census every bead under this one's nearest root epic/P0
+  --json                   the machine-readable form instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const beadId = value('-b', '--bead');
+const FAMILY = has('--family');
+const JSON_MODE = has('--json');
+
+function fail(msg, code = 2) {
+  console.error(`b7e-window: ${msg}`);
+  process.exit(code);
+}
+
+if (!wsName) fail(`-w/--workspace is required\n${USAGE}`);
+if (!beadId) fail(`-b/--bead is required\n${USAGE}`);
+
+const cfg = loadConfig();
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 4);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+try {
+  const row = await bd.show(ws, beadId);
+  if (!row) throw new Error('not found');
+} catch (err) {
+  fail(`${ws.name} has no bead ${beadId}: ${String(err?.message || err).split('\n')[0]}`, 4);
+}
+
+const lines = await processLines();
+const selfPid = await ownClaudePid(cfg);
+
+if (FAMILY) {
+  const index = await bd.graph(ws);
+  const ids = familyIds(index, beadId);
+  const rows = censusFamily(lines, wsName, ids);
+  if (JSON_MODE) {
+    console.log(JSON.stringify({ workspace: wsName, family: true, ids, rows, selfPid }, null, 2));
+  } else if (!rows.length) {
+    console.log(`b7e-window ${beadId} · ${wsName} (family of ${ids.length}): nobody is live on any of them.`);
+  } else {
+    console.log(`b7e-window ${beadId} · ${wsName} (family of ${ids.length})\n`);
+    for (const r of rows) {
+      console.log(`  ${r.bead}  pid ${r.pid}  ${r.etime}${r.pid === selfPid ? '  (this window)' : ''}`);
+    }
+  }
+  process.exitCode = 0;
+} else {
+  const rows = windowsNaming(lines, wsName, beadId);
+  if (JSON_MODE) {
+    console.log(JSON.stringify({ workspace: wsName, bead: beadId, family: false, rows, selfPid }, null, 2));
+  } else if (!rows.length) {
+    console.log(`b7e-window ${beadId} · ${wsName}: nothing live names it (not even this window — no session record found).`);
+  } else {
+    console.log(`b7e-window ${beadId} · ${wsName}\n`);
+    for (const r of rows) {
+      console.log(`  pid ${r.pid}  ${r.etime}${r.pid === selfPid ? '  (this window)' : ''}`);
+    }
+    if (rows.length > 1) {
+      const others = rows.filter((r) => r.pid !== selfPid).map((r) => r.pid);
+      console.log(`\n${rows.length} live windows on ${beadId} — not just this one. Other pid(s): ${others.join(', ') || rows.map((r) => r.pid).join(', ')}.`);
+    }
+  }
+  process.exitCode = rows.length > 1 ? 1 : 0;
+}

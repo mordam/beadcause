@@ -10,7 +10,7 @@
        terminals, sign out — and this is one *space's*, which is what the picker in the
        bar above selects. The word is the one the chip this page came from used
        (bc-me2b), so a bookmark made in the day it existed reads as the same screen. -->
-  <title>Beadcause · space config</title>
+  <title>Beadcause · group config</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -23,8 +23,14 @@
            page has one, where the ledger next door deliberately does not, and the
            difference is that everything here is a button: what the chip warns you about
            is a press that would reach the wrong Mac. It rides on /api/space, which is
-           the one request this page makes anyway. -->
-      <span class="observing" id="observing" hidden>⦿ observing</span>
+           the one request this page makes anyway.
+
+           `cfg-observing` rather than the bare `observing` every other page calls this,
+           and the id is shared with the pane this page also is in public/index.html
+           (bc-khoe.60). There it cannot be `observing`: the Advocates pane already holds
+           that name, so the bare one is a collision waiting on a sibling. One id across
+           the two documents, and it is the one that cannot collide. -->
+      <span class="observing" id="cfg-observing" hidden>⦿ observing</span>
     </div>
     <div class="sheet-actions">
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
@@ -37,7 +43,7 @@
          and every write redraws — so nothing that has to survive one may live in here.
          That is why the half-typed Slack channel is held in `state` and not in the DOM. -->
     <div id="space">
-      <div class="empty">Reading this space…</div>
+      <div class="empty">Reading this group…</div>
     </div>
   </main>
 
@@ -65,6 +71,7 @@
        answer: /api/space takes exactly one space, so "which space am I looking at" is
        not a filter over the response here, it is the request. -->
   <script src="/spacebar.js"></script>
+  <script src="/addspace.js"></script>
   <!-- Where this device is, so a screen with room can follow a phone onto it. `config`
        has been one of the views public/mirror.js can name since it was a chip on the
        console (bc-me2b); it is a page now, and this is what still reports it. -->

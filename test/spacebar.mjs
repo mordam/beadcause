@@ -495,10 +495,34 @@ check('and a page handing it counts and trouble anyway changes nothing it draws'
   assert.equal(h.select.innerHTML, before, 'a number got back in through adopt()');
 });
 
-check('one repo is no choice at all, so the bar does not draw', () => {
+check('one repo is a choice now, because the last row adds another', () => {
+  // It used to hide here: one repo and one space is nothing to pick between, and a
+  // control with a single option is furniture. ＋ Add a bead-space changed that, and it
+  // changed it exactly where it matters — an install with one tracker, or with none, is
+  // the one that needs the button, and hiding the bar there left the only way to add a
+  // tracker on the Mac the app exists so you would not have to sit at.
   const h = load();
   h.space.adopt({ spaces: [], workspaces: ['only'], filter: { space: 'all', workspace: 'all' } });
+  assert.equal(h.bar.hidden, false);
+  assert.ok(h.select.innerHTML.includes('Add a bead-space'), `no add row: ${h.select.innerHTML}`);
+});
+
+check('but nothing draws before the first payload lands', () => {
+  // The other half of the rule that is still true: a bar drawn from no data at all is a
+  // control that says "All spaces" over a list nobody has fetched yet.
+  const h = load();
   assert.equal(h.bar.hidden, true);
+});
+
+check('the add row is the last one, outside every group, and never selected', () => {
+  // Outside the optgroups so it reads as an action rather than as a repo in the last
+  // group — and unselected whatever the filter is, because it is not a place to be.
+  const h = fresh();
+  const html = h.select.innerHTML;
+  const add = html.indexOf('Add a bead-space');
+  assert.ok(add > 0, `no add row: ${html}`);
+  assert.ok(add > html.lastIndexOf('</optgroup>'), 'the add row is inside a group');
+  assert.ok(!/<option value="add:beadspace" selected/.test(html), 'the add row draws as selected');
 });
 
 check('and it says on itself that it is narrowed', () => {
@@ -586,6 +610,36 @@ check('and it registers one listener however many polls land under the freeze', 
   h.win.beadcause.editMode = edit.mode;
   for (let i = 0; i < 5; i += 1) h.space.adopt({ workspaces: [...NAMES, `r${i}`] });
   assert.equal(edit.listeners.length, 1, 'a listener per skipped paint is a leak on a long edit');
+});
+
+check('a pick made while the screen is frozen still moves the label and the title, in the same turn', () => {
+  // bc-ka5y.33. The freeze holds the *rows* still so a poll cannot move an option out
+  // from under a thumb — but the browser moves the `<select>`'s own value on the tap
+  // itself, no code involved, and the bar used to leave the shown label and the title
+  // naming the space the pick replaced until the thaw, under a banner promising the
+  // screen was held still.
+  const h = fresh();
+  const edit = editStub();
+  h.win.beadcause.editMode = edit.mode;
+
+  h.select.value = 'ws:beadcause';
+  h.select.events.change();
+
+  assert.equal(h.shown.textContent, 'beadcause', 'the bar still names the space the pick replaced');
+  assert.equal(h.select.title, 'beadcause', 'the title still names the space the pick replaced');
+  assert.equal(h.select.value, 'ws:beadcause', 'the control disagrees with its own pick');
+});
+
+check('but the rows themselves still wait for the thaw, even on a pick', () => {
+  const h = fresh();
+  const before = h.select.innerHTML;
+  const edit = editStub();
+  h.win.beadcause.editMode = edit.mode;
+
+  h.select.value = 'ws:beadcause';
+  h.select.events.change();
+
+  assert.equal(h.select.innerHTML, before, 'a pick rebuilt the rows under a frozen screen');
 });
 
 check('a page with no edit mode on it paints exactly as it always did', () => {
@@ -845,7 +899,14 @@ check('the service worker ships it in the shell, or a cached page has no picker'
   const sw = read('public/sw.js');
   assert.ok(sw.includes("'/spacebar.js'"), 'not in SHELL');
   // The version is what makes the new file and the pages that need it arrive together.
-  assert.ok(/const CACHE = 'beadcause-v(2[2-9]|[3-9]\d)'/.test(sw), 'CACHE was not bumped past v21');
+  // Read as a number and compared, rather than matched against a hand-rolled
+  // alternation of the digits that were plausible when this was written. The four
+  // suites that did it the other way (this one, spacedetails, warm, termdoor) all
+  // spelled a two-digit range and so stopped matching the moment the cache reached
+  // v100 — reporting "CACHE was not bumped" about a version three higher than the one
+  // they were asking for. Every other suite here already captures `(\d+)`.
+  const version = Number(sw.match(/const CACHE = 'beadcause-v(\d+)'/)?.[1]);
+  assert.ok(version > 21, `CACHE was not bumped past v21 — it reads v${version}`);
 });
 
 check('the inbox no longer draws the two chip rows the picker replaced', () => {

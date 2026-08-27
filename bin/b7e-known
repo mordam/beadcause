@@ -30,15 +30,17 @@
  * here are `lib/memory.js` and `lib/sessionlog.js`, and neither of those takes one.
  *
  * Exit codes: `0` always, once argv parses and the prose is non-empty — this answers a
- * question, it does not gate anything. `2` bad usage, or nothing to check. `4` `-w`, or
- * an *explicit* `-b`, named something this checkout's tracker does not have — an inherited
+ * question, it does not gate anything. `2` bad usage, or nothing to check. `4` `-w`, an
+ * *explicit* `-b`, or `--agent`, named something real does not have — an inherited
  * `$BEADCAUSE_BEAD` that does not resolve is not a failure, it is one fewer store checked.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
 import { resolveSessionDir } from '../lib/session.js';
-import { recallDetail, notesIn, nearestEntries, debriefFamily } from '../lib/memory.js';
+import { recallDetail, notesIn, nearestEntries, debriefFamily, agents } from '../lib/memory.js';
 import { debriefBeads, readDebriefs } from '../lib/sessionlog.js';
 
 const argv = process.argv.slice(2);
@@ -85,6 +87,10 @@ always; checks the debrief entries for -b's bead and its family only when -b is 
   --json                   the machine-readable form instead of the printed report`;
 
 if (has('--help') || has('-h')) {
+  // `process.exit(0)` right after a `console.log` is the shape that dropped a pending
+  // `--json` write below (see the note over the final `process.exitCode = 0`) — but not
+  // here: USAGE is a fixed, small constant (well under a kilobyte), never `--keep`-scaled
+  // or store-scaled the way a report is, so there is nothing async left pending to drop.
   console.log(USAGE);
   process.exit(0);
 }
@@ -112,6 +118,25 @@ const cfg = loadConfig();
 const ws = cfg.workspaces.find((w) => w.name === wsName);
 if (!ws) {
   fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 4);
+}
+
+// bc-dgx7.46: an `--agent` naming no real store used to read an empty tier 2 and tier 1
+// and print "nothing on file reads like this ... Safe to file a new key" — a confident
+// all-clear indistinguishable from a genuinely fresh, correctly-named agent that just has
+// not filed anything yet. `agents()` is tier 2's own roster (`lib/memory.js`'s "which
+// agents have ever remembered anything"), and it is the one deterministic list this file
+// can check a name against — tier 1 deliberately has no roster of its own, because a note
+// store's agents vary by which repo the process is standing in (see lib/memory.js's note
+// beside `agents()`). This cannot be a hard error on an empty *store* — a real agent that
+// has genuinely never noted or remembered anything for this repo yet is a plausible state,
+// and still answers 0/0 at exit 0 below — so the check is on the *name*, not the count.
+const knownAgents = await agents();
+if (!knownAgents.includes(who)) {
+  fail(
+    `--agent "${who}" has no store — known agents: ${knownAgents.join(', ') || 'none yet'}. ` +
+      'A typo here used to read as a confident "nothing on file"; check the name.',
+    4
+  );
 }
 
 // An unreadable --file is bad usage like any other, not a raw ENOENT stack at exit 1 —

@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.Settings
 import android.view.View
 import android.webkit.JavascriptInterface
@@ -354,6 +356,47 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }
+
+        /**
+         * The Decisions channel's own buzz, fired outside a channel — bc-ka5y.15.18.
+         *
+         * `Notifications.SMALLEST_BUZZ` is the pattern a channel is actually cut with,
+         * so this is not an approximation of it, it is the same array. Firing it from
+         * here spends no channel and changes nothing about `answers_v1` — it is a way
+         * to feel the existing buzz beside the alternative below, nothing more.
+         */
+        @JavascriptInterface
+        fun feelBuzz() {
+            runOnUiThread { vibrate(VibrationEffect.createWaveform(longArrayOf(0, 20), -1)) }
+        }
+
+        /**
+         * The other side of the comparison: a true single tick, which a channel's
+         * `vibrationPattern` has no way to express — that field is durations only, with
+         * no amplitude, so the smallest it can ask for is [feelBuzz]'s floor. `EFFECT_TICK`
+         * is a device-tuned haptic primitive rather than a raw motor pulse, which is the
+         * whole reason bc-ka5y.15.6 called it worth feeling before spending a channel on
+         * it. Below API 29 there is no predefined effect to ask for, so this falls back to
+         * a 1ms pulse — the closest a plain waveform gets, and clearly still not the same
+         * primitive, which the fallback does not pretend otherwise about.
+         */
+        @JavascriptInterface
+        fun feelTick() {
+            runOnUiThread {
+                vibrate(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK)
+                    } else {
+                        VibrationEffect.createOneShot(1, VibrationEffect.DEFAULT_AMPLITUDE)
+                    }
+                )
+            }
+        }
+    }
+
+    /** Behind [Bridge.feelBuzz] and [Bridge.feelTick] — fires and forgets. */
+    private fun vibrate(effect: VibrationEffect) {
+        ContextCompat.getSystemService(this, Vibrator::class.java)?.vibrate(effect)
     }
 
     /**

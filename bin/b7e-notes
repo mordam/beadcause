@@ -1,0 +1,143 @@
+#!/usr/bin/env node
+/**
+ * `b7e-notes` — ask for the notes about this bead and these files, rather than
+ * guessing key names.
+ *
+ *     b7e-notes <bead-id> [<path>...]
+ *     b7e-notes bc-xl7n.71 lib/superseded.js test/landcheck.mjs
+ *     b7e-notes bc-khoe.43                    # no paths given: uses what the bead names
+ *     b7e-notes bc-khoe.43 --json
+ *     b7e-notes bc-khoe.43 --dir <root>       # another tree — this is how it is tested
+ *
+ * bc-khoe.43: eleven sessions guessed a `beadcause-memory` key by hand rather than
+ * asking for it — 58 calls between them, usually two or three guesses per Bash call —
+ * and the note that would have helped was usually found only after the mistake it
+ * would have prevented. `beadcause-memory` is key-addressed on purpose (lib/memory.js);
+ * this is the index over its keys the sessions kept re-deriving by hand.
+ *
+ * `lib/b7enotes.js` does the matching, against the same two stores
+ * `beadcause-memory notes` and `beadcause-memory debriefs` already read — this file is
+ * the argv parsing, the one `bd show` call, and the printing. Three groups, printed in
+ * the order they are most likely to matter: the bead's own lineage, then the files it
+ * touches, then what earlier runs at its family already reported.
+ *
+ * Exit codes: `0` at least one group returned something, `1` all three came back
+ * empty, `2` refused — bad usage, or `bd show` could not find the bead.
+ *
+ * @grant read
+ */
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import { REPO_ROOT, toRepoRel } from '../lib/affected.js';
+import { gather } from '../lib/b7enotes.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f) => {
+  const at = argv.indexOf(f);
+  return at === -1 ? null : (argv[at + 1] ?? null);
+};
+
+// bc-dgx7.31: unrecognised-flag territory otherwise — checked before --dir or
+// anything else on argv is read.
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-notes <bead-id> [<path>...]',
+      'b7e-notes bc-xl7n.71 lib/superseded.js test/landcheck.mjs',
+      'b7e-notes bc-khoe.43                    # no paths given: uses what the bead names',
+      'b7e-notes bc-khoe.43 --json',
+      'b7e-notes bc-khoe.43 --dir <root>       # another tree — this is how it is tested',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const DIR_GIVEN = value('--dir');
+const ROOT = path.resolve(DIR_GIVEN || REPO_ROOT);
+const JSON_MODE = has('--json');
+// A bare path on argv is relative to wherever this process actually runs from — the same
+// distinction `b7e-affected` draws — except with `--dir`, where the whole point is
+// testing against a tree this process is not sitting in, so a path there is relative to
+// THAT tree instead.
+const CWD_BASE = DIR_GIVEN ? ROOT : process.cwd();
+
+const FLAG_VALUES = new Set(['--dir']);
+const positional = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--json') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1; // skip its value
+    continue;
+  }
+  if (a.startsWith('--')) {
+    console.error(`\x1b[31munrecognised flag: ${a}\x1b[0m`);
+    process.exit(2);
+  }
+  positional.push(a);
+}
+
+const [id, ...paths] = positional;
+if (!id) {
+  console.error('usage: b7e-notes <bead-id> [<path>...] [--dir <root>] [--json]');
+  process.exit(2);
+}
+
+/** `bd show <id> --json` — always a list, per lib/bd.js's own convention: an array of
+ * whatever it found, or `{error: ...}` with a non-zero exit when it found nothing. */
+function bdShow(bin, ids) {
+  let out;
+  try {
+    out = execFileSync(bin, ['show', ...ids, '--json'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  } catch (err) {
+    const detail = `${err.stderr || ''}${err.stdout || ''}`.trim();
+    throw new Error(detail || err.message);
+  }
+  const parsed = JSON.parse(out);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+let bead;
+try {
+  const rows = bdShow('bd', [id]);
+  bead = rows.find((r) => r.id === id);
+  if (!bead) throw new Error(`no issue found matching "${id}"`);
+} catch (err) {
+  console.error(`b7e-notes: ${err.message}`);
+  process.exit(2);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+const givenPaths = paths.map((p) => toRepoRel(ROOT, CWD_BASE, p));
+const result = await gather(ROOT, bead, givenPaths);
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(result, null, 2));
+  const empty = !result.bead.length && !result.files.length && !result.debriefs.length;
+  process.exit(empty ? 1 : 0);
+}
+
+console.log(bold(`${id} — ${bead.title}`));
+console.log(dim(`files: ${result.paths.length ? result.paths.join(', ') : '(none named)'}`));
+
+const section = (title, rows, line) => {
+  console.log(`\n${bold(title)}`);
+  if (!rows.length) {
+    console.log(dim('  (none)'));
+    return;
+  }
+  for (const row of rows) console.log(line(row));
+};
+
+section('bead — names this bead or one of its ancestors, or reads like it does', result.bead, (n) => `  ${n.key}  ${dim(`— ${n.reason}`)}\n    ${n.value}`);
+section('files — names one of the files below, or a suite covering one', result.files, (n) => `  ${n.key}  ${dim(`— ${n.reason}`)}\n    ${n.value}`);
+section('debriefs — earlier runs at this bead, its parent or its siblings', result.debriefs, (d) => `  ${d.bead}  ${dim(`${d.at}${d.staged ? ' (pending archive)' : ''}`)}\n    ${d.text.replace(/\n/g, '\n    ')}`);
+if (result.moreDebriefs) {
+  console.log(dim(`  ${result.moreDebriefs} further report(s) archived and not shown — \`beadcause-memory debriefs ${id}\``));
+}
+
+const empty = !result.bead.length && !result.files.length && !result.debriefs.length;
+process.exit(empty ? 1 : 0);

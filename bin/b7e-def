@@ -29,6 +29,8 @@
  * same tradeoff test/lockfile.mjs makes against a real `npm ci --dry-run`. Good
  * enough for the application code in this repo; not a substitute for reading the
  * file when the shape is unusual.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -126,14 +128,28 @@ function skipString(text, i) {
 }
 
 /**
- * From `fromIndex` (just past a definition's name), find where its body starts:
- * the first `{` seen at parenthesis/bracket depth 0 — which is what lets a
- * destructured default parameter (`function f({ a, b } = {}) {`) not get mistaken
- * for the body. Returns `{ type: 'brace', index }` for a block body, or
+ * From `fromIndex` (just past a definition's name), find where its body starts.
+ *
+ * Non-strict (the default — function/class/const heads, which a keyword anchor
+ * already disambiguates from a call): the first `{` seen at parenthesis/bracket
+ * depth 0, *however far away it is* — which is what lets a destructured default
+ * parameter (`function f({ a, b } = {}) {`) not get mistaken for the body.
+ *
+ * Strict (`{ strict: true }` — the two head shapes with no keyword anchor,
+ * property function and method: a bare `name(` at the start of a trimmed line is
+ * syntactically ambiguous between a method-shorthand definition and a call, and
+ * only the very next token *immediately* after the name's own `(...)` closes —
+ * not the first `{` found anywhere afterward at depth 0 — disambiguates it
+ * correctly. Without this, a call whose own closing `)` is followed by unrelated
+ * code that happens to contain a `{` (an object-literal argument to an
+ * *enclosing* call, a following `if`/block, ...) gets misread as a definition,
+ * with that unrelated code read as its body (bc-dgx7.36).
+ *
+ * Either way, returns `{ type: 'brace', index }` for a block body, or
  * `{ type: 'semi', index }` when a top-level `;` is hit first (a bare statement —
- * a call, not a definition), or null at EOF.
+ * a call, not a definition), or null when nothing qualifies.
  */
-function findBody(text, fromIndex) {
+function findBody(text, fromIndex, { strict = false } = {}) {
   let i = fromIndex;
   let depth = 0;
   while (i < text.length) {
@@ -162,11 +178,44 @@ function findBody(text, fromIndex) {
     if (c === ')' || c === ']') {
       depth -= 1;
       i += 1;
+      if (strict && depth === 0) return bodyImmediatelyAfter(text, i);
       continue;
     }
     if (c === '{' && depth === 0) return { type: 'brace', index: i };
     if (c === ';' && depth === 0) return { type: 'semi', index: i };
     i += 1;
+  }
+  return null;
+}
+
+/**
+ * text[i] is just past the point where a definition head's own `(...)` closed.
+ * Strict mode (see findBody) requires the very next non-whitespace,
+ * non-comment token to be `{` or `;` — anything else means the head matched a
+ * call, not a definition, however far away a `{` might appear later in the file.
+ */
+function bodyImmediatelyAfter(text, i) {
+  while (i < text.length) {
+    const c = text[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      i += 1;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i);
+      if (nl === -1) return null;
+      i = nl;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end === -1) return null;
+      i = end + 2;
+      continue;
+    }
+    if (c === '{') return { type: 'brace', index: i };
+    if (c === ';') return { type: 'semi', index: i };
+    return null;
   }
   return null;
 }
@@ -266,7 +315,7 @@ function definitionsFor(name, file, text) {
       const m = head.re.exec(trimmed);
       if (!m) continue;
       const afterHeadChar = charOffset + leadingWs + m[0].length - 1; // just past the head match
-      const body = findBody(text, afterHeadChar);
+      const body = findBody(text, afterHeadChar, { strict: Boolean(head.verifyBody) });
       if (!body) continue;
       if (head.verifyBody && body.type !== 'brace') continue; // it was a call, not a def
       const endIndex = body.type === 'brace' ? matchBrace(text, body.index) : body.index;

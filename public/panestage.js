@@ -64,7 +64,7 @@
   ## What a pane registers, and what happens if it does not
 
   `register` is called by a pane's own script as it loads, and it answers **whether the
-  stager took it**. A page with no panes — eleven of the twelve that draw the pill row —
+  stager took it**. A page with no panes — nine of the ten that draw the pill row —
   never loads this file at all, so the call is `window.beadcause?.stage?.register?.(…)`,
   comes back `undefined`, and the script builds itself the way it always did. That
   fallback is not a nicety: it is what keeps a phone holding a service-worker cache from
@@ -197,13 +197,22 @@
    *
    * The shape is `follow`'s own `onWake` argument — `{data, events, resync}` — so a pane
    * script converted from a page moves its handler across unchanged rather than learning
-   * a second vocabulary for the same event.
+   * a second vocabulary for the same event. `ended` is the one addition (bc-khoe.30.24):
+   * public/stream.js's own `tell` fires it when the standby (or whatever mount) this file
+   * rides just lost its last follower with nothing to replace it, so a pane with a
+   * fallback timer of its own — public/releases.js's `scheduleDeploys` is the one today —
+   * has something to react to instead of a poll that quietly stopped.
    *
    * Contained per pane: one pane throwing on an event is one pane's screen, and the
    * others are mid-fan-out behind it.
    */
   function fanout(events, extra) {
-    const wake = { data: extra?.data ?? null, events: events || [], resync: Boolean(extra?.resync) };
+    const wake = {
+      data: extra?.data ?? null,
+      events: events || [],
+      resync: Boolean(extra?.resync),
+      ended: Boolean(extra?.ended),
+    };
     for (const [id, spec] of following()) {
       try {
         spec.wake(wake);

@@ -41,6 +41,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { cleanupTmp } from './helpers/tmp.mjs';
 
@@ -67,7 +68,9 @@ delete process.env.BEADCAUSE_CONFLUENCE_TOKEN;
 // around is gone (bc-u4na moved the list into lib/toolbelt.js) and test/loadorder.mjs
 // is what guards that now, but importing the foundation first still costs nothing.
 const foundation = await import(LIB('foundation.js'));
-const { DEFAULT_TOOL_LIST } = await import(LIB('toolbelt.js'));
+// tooldecl.js since bc-wbrhi — toolbelt.js keeps the hand-written half, and the whole
+// list is that plus the b7e tools that declare themselves.
+const { DEFAULT_TOOL_LIST } = await import(LIB('tooldecl.js'));
 const conf = await import(LIB('confluence.js'));
 
 /* ------------------------------------------------------------ the fake Confluence */
@@ -103,6 +106,17 @@ pages.set('888', {
   version: { number: 3 },
   body: { storage: { value: '<p>Secret.</p>' } },
   _links: { webui: '/spaces/OPS/pages/888/Salary+bands' },
+});
+// A page big enough that its markdown, printed by the CLI, cannot fit in a 64KB pipe
+// buffer — see the "through a real pipe" section below (bc-dgx7.45).
+const BIG_MARKER = 'END-OF-BIG-PAGE-4f1c9a';
+pages.set('999', {
+  id: '999',
+  title: 'A very long runbook',
+  spaceId: '901',
+  version: { number: 1 },
+  body: { storage: { value: `<p>${'padding word '.repeat(8000)}${BIG_MARKER}</p>` } },
+  _links: { webui: '/spaces/ENG/pages/999/A+very+long+runbook' },
 });
 
 const SPACES = { ENG: '901', OPS: '902' };
@@ -257,6 +271,50 @@ check('and does not print the macro parameters as prose', !md.includes('TECH-1')
   await conf.readPage(cfgWith(['ENG']), '777', { read: readToken });
   const fetches = calls.filter((c) => /^\/pages\/777$/.test(c.path)).length;
   check('the page is fetched every time — nothing is cached', fetches === 2, `${fetches} fetches of the page`);
+}
+
+/* ------------------------------------------------------------ through a real pipe */
+
+section('Through a real pipe');
+
+{
+  // `process.exit(0)` right after printing the page used to drop whatever of it was
+  // still pending: stdout to a **pipe** is async in Node, so a big page — up to
+  // DEFAULT_MAX_CHARS, 200,000 characters — could cut at the 64KB pipe buffer with a
+  // success status and no signal at all (bc-dgx7.45).
+  //
+  // `spawn`, not `spawnSync` — the fake Confluence above is served by *this* process,
+  // and `spawnSync` blocks this event loop until the child exits, which would starve
+  // the very server the child is trying to reach. See test/monitorwidth.mjs's own note
+  // on the same trap.
+  fs.writeFileSync(
+    path.join(process.env.BEADCAUSE_CONFIG_DIR, 'config.json'),
+    JSON.stringify({ confluence: { site, email: 'you@team.com', space: 'ENG', readSpaces: ['ENG'] } }, null, 2)
+  );
+  const BIN = path.join(ROOT, 'bin', 'beadcause-confluence');
+  const run = (args) =>
+    new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [BIN, ...args], {
+        env: { ...process.env, BEADCAUSE_CONFLUENCE_TOKEN: TOKEN },
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8').on('data', (d) => (stdout += d));
+      child.stderr.setEncoding('utf8').on('data', (d) => (stderr += d));
+      child.on('error', reject);
+      child.on('close', (status) => resolve({ status, stdout, stderr }));
+    });
+
+  const printed = await run(['999']);
+  check('printed status 0', printed.status === 0, `status ${printed.status}: ${printed.stderr}`);
+  check('printed payload too small to test the pipe buffer would be a bad test', printed.stdout.length > 65536, `${printed.stdout.length} bytes`);
+  check('the printed page is whole — ends with the page, not cut mid-write', printed.stdout.trimEnd().endsWith(BIG_MARKER), printed.stdout.slice(-80));
+
+  const jsoned = await run(['999', '--json']);
+  check('--json status 0', jsoned.status === 0, `status ${jsoned.status}: ${jsoned.stderr}`);
+  check('--json payload too small to test the pipe buffer would be a bad test', jsoned.stdout.length > 65536, `${jsoned.stdout.length} bytes`);
+  const parsed = JSON.parse(jsoned.stdout); // throws (failing the check below) if cut mid-JSON
+  check('--json is whole and parseable, and carries the whole page', parsed.markdown?.endsWith(BIG_MARKER), parsed.markdown?.slice(-80));
 }
 
 /* -------------------------------------------------------------------- what it is not */

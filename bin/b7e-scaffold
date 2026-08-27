@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+/**
+ * `b7e-scaffold` — the house skeleton for a new bin/ command, instead of reading three
+ * siblings to copy it.
+ *
+ *     b7e-scaffold b7e-thing > bin/b7e-thing
+ *     b7e-scaffold b7e-thing --workspace-arg > bin/b7e-thing
+ *     b7e-scaffold b7e-thing --json-mode --workspace-arg > bin/b7e-thing
+ *     b7e-scaffold b7e-thing --lib                     # bin file + lib/thing.js stub
+ *
+ * bc-dgx7.32: four sessions each built a new `b7e-*` command by reading two or three
+ * existing ones for their shape (`bc-zjab.7` read `bin/b7e-def` and `bin/b7e-census` in
+ * full, then `sed -n '40,219p' bin/b7e-call`; `bc-zjab.10` read `bin/b7e-worktree` and
+ * `bin/b7e-orient` in full plus `bin/b7e-siblings`), then disagreed with each other on
+ * nearly everything they had just copied — extensionless naming vs `.js`, one file vs a
+ * paired `lib/` module, exit code `1` vs `2` for a bad argv. `lib/scaffold.js` holds the
+ * shape they converged on; this is the argv parsing and the printing around it.
+ *
+ * This prints, it never writes — the caller redirects the bin-file case straight to a
+ * file, and splits the two sections themselves when `--lib` adds a second one. A name
+ * that collides with a file already in `bin/` is refused, so this cannot be used to
+ * clobber an existing command by accident.
+ *
+ * Exit codes: `0` printed. `2` refused — bad usage, a name that isn't `b7e-<word>`
+ * shaped, or a name that already exists in `bin/`.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { nameProblem, scaffold } from '../lib/scaffold.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..');
+
+const USAGE = `usage: b7e-scaffold <name> [--lib] [--workspace-arg] [--json-mode]
+
+  <name>            the command as it will be typed, e.g. b7e-thing (must start with
+                    "b7e-" — this only scaffolds that family)
+  --lib             also print the paired lib/<name-without-b7e->.js stub, after a
+                    marker line telling you where to split the two apart
+  --workspace-arg   include the -w/-b parsing and the loadConfig()/Bd lookup block
+                    every workspace-and-bead command needs
+  --json-mode       include a --json flag and the JSON_MODE branch
+  -h, --help        this text`;
+
+function fail(msg, code) {
+  console.error(`b7e-scaffold: ${msg}`);
+  process.exit(code);
+}
+
+const argvIn = process.argv.slice(2);
+if (argvIn.includes('-h') || argvIn.includes('--help')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let name = null;
+let lib = false;
+let workspaceArg = false;
+let jsonMode = false;
+
+for (const a of argvIn) {
+  if (a === '--lib') lib = true;
+  else if (a === '--workspace-arg') workspaceArg = true;
+  else if (a === '--json-mode') jsonMode = true;
+  else if (a.startsWith('-') && a !== '-') fail(`unrecognised flag: ${a}\n${USAGE}`, 2);
+  else if (name !== null) fail(`only one command name at a time, got both "${name}" and "${a}"\n${USAGE}`, 2);
+  else name = a;
+}
+
+const problem = nameProblem(name);
+if (problem) fail(`${problem}\n${USAGE}`, 2);
+
+const existing = path.join(ROOT, 'bin', name);
+if (fs.existsSync(existing)) {
+  fail(`bin/${name} already exists — b7e-scaffold only prints a skeleton for a NEW command, it does not overwrite one`, 2);
+}
+
+process.stdout.write(scaffold(name, { lib, workspaceArg, jsonMode }));
+process.exit(0);

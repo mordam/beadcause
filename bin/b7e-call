@@ -26,6 +26,8 @@
  * one calls whatever export the argument names — including a write. See the comment in
  * lib/toolbelt.js next to the other write-shaped exclusions (b7e-apply, b7e-gate,
  * b7e-worktree) for the same argument made about those.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -138,6 +140,12 @@ function printForHuman(value) {
 
 /* --------------------------------------------------------------------------- --over mode */
 
+// `process.exit(N)` right after a caller-sized write (many rows in `--over`, or a large
+// value from `--json`) used to drop whatever of it was still pending: stdout to a
+// **pipe** is async, so it could cut at the 64KB pipe buffer with a success status and
+// no signal at all (bc-dgx7.45, bc-dgx7.53). The if/else below is what stands in for the
+// early return `process.exit` used to give; falling off the end with `process.exitCode`
+// set instead flushes.
 if (overRaw != null) {
   const colonAt = overRaw.indexOf(':');
   const wsName = colonAt < 0 ? overRaw : overRaw.slice(0, colonAt);
@@ -194,26 +202,26 @@ if (overRaw != null) {
   const names = [...tally.keys()].sort();
   for (const name of names) console.log(`${tally.get(name)}\t${name}`);
   console.log(`${rows.length} bead${rows.length === 1 ? '' : 's'} called`);
-  process.exit(0);
+  process.exitCode = 0;
+} else {
+  /* --------------------------------------------------------------------------- --json mode */
+
+  if (jsonArgsRaw == null) fail(`need --json '<args-array>' or --over <workspace>[:mode]\n${USAGE}`);
+
+  let args;
+  try {
+    const parsed = JSON.parse(jsonArgsRaw);
+    if (!Array.isArray(parsed)) throw new Error('--json must be a JSON array');
+    args = parsed;
+  } catch (err) {
+    fail(`--json is not valid JSON: ${err.message}`);
+  }
+
+  const result = await callFn(args);
+  if (!result.ok) {
+    console.error(`b7e-call: ${modArg}#${exportName} threw: ${result.message}`);
+    process.exit(1);
+  }
+  printForHuman(result.value);
+  process.exitCode = 0;
 }
-
-/* --------------------------------------------------------------------------- --json mode */
-
-if (jsonArgsRaw == null) fail(`need --json '<args-array>' or --over <workspace>[:mode]\n${USAGE}`);
-
-let args;
-try {
-  const parsed = JSON.parse(jsonArgsRaw);
-  if (!Array.isArray(parsed)) throw new Error('--json must be a JSON array');
-  args = parsed;
-} catch (err) {
-  fail(`--json is not valid JSON: ${err.message}`);
-}
-
-const result = await callFn(args);
-if (!result.ok) {
-  console.error(`b7e-call: ${modArg}#${exportName} threw: ${result.message}`);
-  process.exit(1);
-}
-printForHuman(result.value);
-process.exit(0);

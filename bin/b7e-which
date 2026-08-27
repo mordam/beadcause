@@ -1,0 +1,125 @@
+#!/usr/bin/env node
+/**
+ * `b7e-which` — which of these commands answers this question, the library has no index.
+ *
+ *   b7e-which                       the whole index, all commands, sorted by name
+ *   b7e-which "run the whole suite" ranked matches — b7e-gate above b7e-gates
+ *   b7e-which flaky                 a bare word works the same way as a phrase
+ *   b7e-which --json                one JSON object per line instead of the printed report
+ *   b7e-which --dir <root>          another tree's bin/ and README.md —
+ *                                   this is how it is tested
+ *
+ * Filed by the session audit (`lib/sessionaudit.js`) against five sessions that each
+ * needed one of the thirty-odd `b7e-*` commands and each went looking a different way —
+ * `ls bin/ | grep -i ...`, a memory lookup, opening files cold to learn what one did.
+ * Every command already carries the answer, in its own docblock's opening paragraph;
+ * `lib/which.js` reads it, along with whether the command is on `dispatch`'s
+ * `DEFAULT_TOOL_LIST` and where README.md documents it. This is the argv parsing and the
+ * printing around it, the same split every other `b7e-*` command uses.
+ *
+ * A bare query with no match is exit `0` — "nothing here answers that" is an ordinary
+ * result, not a failure this treats as bad usage. Exit codes: `0` ran to completion,
+ * whatever it found; `2` refused — bad usage, or `--dir` names something that is not a
+ * checkout with a bin/ of its own.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { repoRoot, fullIndex, queryTokens, search } from '../lib/which.js';
+
+const USAGE = `usage: b7e-which [<word or phrase>] [--json] [--dir <root>]
+
+Which of the bin/b7e-* commands answers a question — the library has no index, so this
+reads every command's own docblock, its DEFAULT_TOOL_LIST entry (or the comment saying
+why not) and its README.md section, and ranks them against what you ask.
+
+  <word or phrase>   ranked matches, most relevant first — e.g. "run the whole suite",
+                      "is this failure mine", flaky
+  (no argument)       the whole index, every command, sorted by name
+
+  --json             one JSON object per line instead of the printed report
+  --dir <root>        another tree's bin/ and README.md`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const JSON_MODE = argv.includes('--json');
+let dirGiven;
+const positional = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--dir') {
+    dirGiven = argv[i + 1];
+    i += 1;
+    continue;
+  }
+  if (a === '--json') continue;
+  if (a.startsWith('-') && a !== '-') {
+    console.error(`b7e-which: unrecognised flag: ${a}`);
+    console.error(USAGE);
+    process.exit(2);
+  }
+  positional.push(a);
+}
+
+if (positional.length > 1) {
+  console.error('b7e-which: one query, quoted, not several arguments — did you mean to quote the phrase?');
+  console.error(USAGE);
+  process.exit(2);
+}
+
+const ROOT = path.resolve(dirGiven || repoRoot());
+if (!fs.existsSync(path.join(ROOT, 'bin')) || !fs.existsSync(path.join(ROOT, 'package.json'))) {
+  console.error(`b7e-which: ${ROOT} does not look like this repo's checkout — no bin/ or package.json there`);
+  process.exit(2);
+}
+
+const query = positional[0];
+let entries;
+try {
+  entries = fullIndex(ROOT);
+} catch (err) {
+  console.error(`b7e-which: ${err.message}`);
+  process.exit(2);
+}
+
+const results = query != null ? search(entries, query) : [...entries].sort((a, b) => a.name.localeCompare(b.name));
+
+if (JSON_MODE) {
+  for (const r of results) console.log(JSON.stringify(r));
+  process.exitCode = 0;
+} else if (!results.length) {
+  const tokens = queryTokens(query);
+  console.log(
+    tokens.length
+      ? `nothing matches "${query}" — try fewer or different words`
+      : `nothing matches "${query}" — every word in it is too common to search on`
+  );
+  process.exitCode = 0;
+} else {
+  const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+  const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+  if (query == null) console.log(bold(`${results.length} b7e-* commands`));
+  else console.log(bold(`${results.length} match${results.length === 1 ? '' : 'es'} for "${query}"`));
+  console.log('');
+
+  for (const r of results) {
+    console.log(bold(r.name) + (r.score ? dim(`  (score ${r.score})`) : ''));
+    console.log(`  ${r.question || dim('(no docblock question to read)')}`);
+    for (const u of r.usage) console.log(dim(`    ${u}`));
+    const allow = r.allowlist.granted
+      ? 'on DEFAULT_TOOL_LIST'
+      : r.allowlist.decided
+        ? 'NOT on DEFAULT_TOOL_LIST (decided, with a comment)'
+        : 'NOT on DEFAULT_TOOL_LIST (undecided)';
+    console.log(dim(`  allowlist: ${allow}`));
+    console.log(dim(`  README: ${r.readme ? `#${r.readme.slug}` : '(no ### section names it)'}`));
+    console.log('');
+  }
+  process.exitCode = 0;
+}

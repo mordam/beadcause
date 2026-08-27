@@ -53,6 +53,8 @@
  * extensionless entry point. bc-dgx7.2 is the bead that is meant to decide this
  * convention properly and it is blocked behind bc-jlop; neither had landed when this
  * shipped, so this decided it the way the standing note on the question says to.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -78,6 +80,15 @@ const USAGE = [
   '',
   'a patch is a YAML or JSON list of { file, anchor, to }, or { edits: [...] }',
 ];
+
+// bc-dgx7.31: checked before readEdits() runs — that function falls through to
+// `fs.readFileSync(0, ...)` whenever no --file/--patch is given and stdin is not a
+// TTY, so `b7e-apply --help` with a closed or piped stdin used to read (or wait on)
+// stdin and then report "no patch given" as an error, exit 1, rather than answering.
+if (has('--help') || has('-h')) {
+  console.log(USAGE.join('\n'));
+  process.exit(0);
+}
 
 /* --------------------------------------------------------------- reading the patch */
 
@@ -174,8 +185,8 @@ function fail(code, msg) {
 }
 
 const parsed = readEdits();
-if (parsed.error || has('--help') || has('-h')) {
-  if (parsed.error) warn(parsed.error);
+if (parsed.error) {
+  warn(parsed.error);
   console.error(USAGE.join('\n'));
   process.exit(1);
 }

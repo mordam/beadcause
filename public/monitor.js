@@ -541,6 +541,17 @@
    * least visibly held. The tooltip names each bead and the windows it spent, which is
    * exactly what `Forget attempts` in the controls below has never been able to say.
    *
+   * `heldByDept` is the fourteenth (bc-ogicx.6), and the only one a *repo* asked for.
+   * Every other pill here is this program's own arithmetic, another machine's claim, or a
+   * button somebody pressed; this one is a `capacity:` in a `.beadcause/relays.yaml` that a
+   * branch can change. It is safe to draw it as an ordinary hold for one reason worth
+   * knowing while reading it: a capacity can only ever *subtract* from `maxWorkers`, never
+   * add to it, so a repo can slow its own department and can never take a window from
+   * anybody else's. `relayProblems` beside it is the opposite kind of row and must not read
+   * as a hold: a checkout whose definition would not load dispatched all of its beads
+   * anyway, without a relay. Nothing is waiting; what is wrong is that a repo believes it
+   * has departments and has none, which nothing else on this screen can say.
+   *
    * `heldByLease` is the seventh (bc-bllw), and the first that is not about this laptop:
    * a bead another engineer's Mac has claimed in the shared tracker. `stoodDown` is its
    * other half — a window *this* Mac gave up because the other machine's claim won the
@@ -564,7 +575,10 @@
     const orphans = (a && a.heldByNoRoot) || [];
     const paused = (a && a.heldByPause) || [];
     const undecided = (a && a.heldByUndecided) || [];
+    const owedRetry = (a && a.heldByOwed) || [];
     const gaveUp = (a && a.givenUp) || [];
+    const deptFull = (a && a.heldByDept) || [];
+    const relayBroken = (a && a.relayProblems) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -623,6 +637,17 @@
         ? `<span class="pill p1" title="${esc(
             undecided.map((h) => `${h.id} — ${h.why}`).join('\n')
           )}">${undecided.length} childless epic${undecided.length === 1 ? '' : 's'} nobody has decided the shape of</span>`
+        : '',
+      // `heldByOwed` is the thirteenth (bc-4r10.20), and the only one whose second party
+      // is a ledger entry rather than a window, a branch, a machine or a file: this bead's
+      // merge-bead already closed on a merge, and `lib/owed.js` is retrying the work
+      // bead's own close every poll. `muted` rather than `p1`, with the others that clear
+      // on their own — the ordinary life of one of these is a poll or two, not a wait
+      // anybody has to act on.
+      owedRetry.length
+        ? `<span class="pill muted" title="${esc(
+            owedRetry.map((h) => `${h.id} — ${h.why}`).join('\n')
+          )}">${owedRetry.length} already merged, closing on retry</span>`
         : '',
       // The eleventh, and the only pill on this row naming a bead that is (usually) still
       // *in* the queue the pill beside it counts (bc-xl7n.111 — and bc-xl7n.117 for the
@@ -683,6 +708,31 @@
       // guess have helped?" can be answered from the screen rather than from a hunch.
       busyFiles.length
         ? `<span class="pill muted" title="${esc(busyFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${busyFiles.length} opened onto a busy file</span>`
+        : '',
+      // The fourteenth (bc-ogicx.6), and the only pill on this row that a *repo* asked
+      // for. Every other hold here is this program's arithmetic, another machine's claim
+      // or a button somebody pressed; this one is a `capacity:` written in a
+      // `.beadcause/relays.yaml` that a pull request can change. `muted`, with the holds
+      // that clear on their own — a department is full because its windows are working,
+      // and the next one to finish releases the bead with nothing to press. The tooltip
+      // names the department as well as the bead, because the department is where the
+      // number is, and the bead is not.
+      deptFull.length
+        ? `<span class="pill muted" title="${esc(deptFull.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${
+            deptFull.length
+          } waiting on a busy department</span>`
+        : '',
+      // And the one that is **not a hold**, which is the whole of what it has to say: a
+      // checkout whose own relay definition would not parse or would not validate. Its
+      // beads dispatched — without a relay, exactly as they did before anybody wrote the
+      // file — so nothing is waiting and nothing is owed. `p1` all the same, and it is the
+      // one place on this row where loudness is not about how long a wait is: a repo that
+      // believes it has departments and silently has none is a state nothing else here can
+      // report, and the file is one edit away.
+      relayBroken.length
+        ? `<span class="pill p1" title="${esc(relayBroken.map((p) => p.why).join('\n'))}">${
+            relayBroken.length === 1 ? 'a relay definition' : `${relayBroken.length} relay definitions`
+          } will not load</span>`
         : '',
       // Last, because it is the only pill on this row that is not work outstanding.
       // Everything above it is something still to do — open, ready, blocked, held one of
@@ -1957,7 +2007,7 @@
    * binds: every advocate card already quotes it, in its stepper's tooltip and in the
    * amber "Held by globalMaxWorkers" note the tick writes when it is what stopped a
    * launch. Until now it was also the one number on this page you could not change
-   * without editing ~/.beadcause/config.json and restarting the daemon — so the page
+   * without editing ~/.config/beadcause/config.json and restarting the daemon — so the page
    * could tell you exactly which number was holding your work up and offer you nothing
    * to do about it.
    *
@@ -2215,6 +2265,11 @@
       // With its sequence, so the inbox can tell whether the copy it is holding for this
       // page has been invalidated by anything since — see `MAINTAINED` in public/app.js.
       warm?.write?.('/api/work', work, Number(work?.seq) || 0);
+      // Whole and untrimmed — unlike `keep()` in public/app.js, which stores a named
+      // subset. Used to be able to erase a field a newer daemon had already stored, on a
+      // mixed fleet where this fetch's daemon predates it (bc-khoe.63); `write()` now
+      // merges onto the held entry for this one path, so an older payload here cannot
+      // undo what a fresher one elsewhere already wrote.
       if (questions.questions) warm?.write?.('/api/questions?scope=human', questions, questions.seq);
       adoptQuestions(questions);
       state.error = null;

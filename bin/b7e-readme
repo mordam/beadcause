@@ -19,6 +19,8 @@
  * Exit codes: `0` something was found. `1` nothing matched — a real answer, not an
  * error (an anchor that resolves to no heading, terms that appear nowhere). `2` refused
  * — bad usage.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { analyze, findByAnchor, readReadme, searchSections } from '../lib/readme.js';
@@ -93,65 +95,68 @@ const printSection = (s) => {
   console.log(s.path.map(render).join(' → '));
 };
 
+// `process.exit(N)` right after a `--json` write here used to drop whatever of a
+// caller-sized payload was still pending: stdout to a **pipe** is async, so it could cut
+// at the 64KB pipe buffer with a success status and no signal at all (bc-dgx7.45,
+// bc-dgx7.53). The if/else chains below are what stand in for the early returns
+// `process.exit` used to give; falling off the end with `process.exitCode` set instead
+// flushes.
 if (ANCHOR) {
   const hits = findByAnchor(analysis, ANCHOR);
   if (JSON_MODE) {
     console.log(
       JSON.stringify(hits.map((s) => ({ startLine: s.startLine, endLine: s.endLine, slug: s.slug, path: s.path })))
     );
-    process.exit(hits.length ? 0 : 1);
-  }
-  if (!hits.length) {
+    process.exitCode = hits.length ? 0 : 1;
+  } else if (!hits.length) {
     console.log(`no heading slugs to '#${ANCHOR.replace(/^#/, '')}'`);
-    process.exit(1);
+    process.exitCode = 1;
+  } else {
+    if (hits.length > 1) {
+      console.log(
+        `${hits.length} headings share this slug — GitHub resolves an ambiguous link to the first one, below:\n`
+      );
+    }
+    hits.forEach((s, i) => {
+      if (i) console.log('');
+      printSection(s);
+    });
+    process.exitCode = 0;
   }
-  if (hits.length > 1) {
+} else {
+  const queryTerms = FOR ? [FOR] : terms;
+  const { mode, sections } = searchSections(analysis, queryTerms, { sketchOnly: SKETCH_ONLY });
+
+  if (JSON_MODE) {
     console.log(
-      `${hits.length} headings share this slug — GitHub resolves an ambiguous link to the first one, below:\n`
+      JSON.stringify({
+        mode,
+        terms: queryTerms,
+        sections: sections.map((s) => ({
+          startLine: s.startLine,
+          endLine: s.endLine,
+          slug: s.slug,
+          kinds: s.kinds,
+          path: s.path.map((h) => ({ level: h.level, title: h.title, slug: h.slug })),
+        })),
+      })
     );
+    process.exitCode = sections.length ? 0 : 1;
+  } else if (!sections.length) {
+    console.log(
+      `nothing in README.md mentions ${queryTerms.map((t) => `'${t}'`).join(' and ')}${
+        SKETCH_ONLY ? ' inside a fenced sketch' : ''
+      }`
+    );
+    process.exitCode = 1;
+  } else {
+    if (mode === 'each' && queryTerms.length > 1) {
+      console.log(`no single section mentions every term — nearest section per hit, in document order:\n`);
+    }
+    sections.forEach((s, i) => {
+      if (i) console.log('');
+      printSection(s);
+    });
+    process.exitCode = 0;
   }
-  hits.forEach((s, i) => {
-    if (i) console.log('');
-    printSection(s);
-  });
-  process.exit(0);
 }
-
-const queryTerms = FOR ? [FOR] : terms;
-const { mode, sections } = searchSections(analysis, queryTerms, { sketchOnly: SKETCH_ONLY });
-
-if (JSON_MODE) {
-  console.log(
-    JSON.stringify({
-      mode,
-      terms: queryTerms,
-      sections: sections.map((s) => ({
-        startLine: s.startLine,
-        endLine: s.endLine,
-        slug: s.slug,
-        kinds: s.kinds,
-        path: s.path.map((h) => ({ level: h.level, title: h.title, slug: h.slug })),
-      })),
-    })
-  );
-  process.exit(sections.length ? 0 : 1);
-}
-
-if (!sections.length) {
-  console.log(
-    `nothing in README.md mentions ${queryTerms.map((t) => `'${t}'`).join(' and ')}${
-      SKETCH_ONLY ? ' inside a fenced sketch' : ''
-    }`
-  );
-  process.exit(1);
-}
-
-if (mode === 'each' && queryTerms.length > 1) {
-  console.log(`no single section mentions every term — nearest section per hit, in document order:\n`);
-}
-
-sections.forEach((s, i) => {
-  if (i) console.log('');
-  printSection(s);
-});
-process.exit(0);

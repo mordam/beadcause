@@ -29,6 +29,10 @@
  *    halves have to be held apart from each other *and* from a window that really did die
  *    (bc-xl7n.98). Getting this wrong is not visible either: it is an unattended window
  *    opened on a bead nothing was wrong with.
+ * 5. **And a child epic's `in_progress` is not a worker's claim at all.** It is what
+ *    pressing Start on the root board writes, or what an advocate of its own leaves while
+ *    it runs — so reporting it as a stall points the brief's prescription (`--status open
+ *    --assignee ""`) points it straight at the root board (bc-xl7n.118).
  *
  * The tick half injects `openAdvocate`, so a case that would have opened an iTerm window
  * pushes a record onto an array instead. No iTerm, no `bd`, no agent, and nothing written
@@ -55,9 +59,16 @@ const REPO = path.join(tmp, 'projects', 'alpha');
 fs.mkdirSync(SESSIONS, { recursive: true });
 fs.mkdirSync(REPO, { recursive: true });
 
-const { advocatedRoots, handedBack, reentryFor, waitingOnMerge, waitingOnMergeCard, REENTER_DEFAULTS } = await import(
-  LIB('reenter.js')
-);
+const {
+  advocatedRoots,
+  handedBack,
+  workerHolds,
+  reentryFor,
+  supervised,
+  waitingOnMerge,
+  waitingOnMergeCard,
+  REENTER_DEFAULTS,
+} = await import(LIB('reenter.js'));
 const { pairKey } = await import(LIB('ancestry.js'));
 const { ADVOCATE_LABEL, WAITING_OPEN, WAITING_CLOSE, forgetAdvocateOpened } = await import(LIB('epicadvocate.js'));
 const { leaseLabel } = await import(LIB('lease.js'));
@@ -393,6 +404,39 @@ await check('a delivered child is not a stall — its pull request is waiting on
     /`x-1\.2` has been in progress for over 1h/,
     'an answered delivery holds nothing'
   );
+});
+
+await check('a child epic with an advocate of its own is not a stall — bc-xl7n.118', () => {
+  // The third shape, and the only one where reporting it does damage rather than costing
+  // a window. `in_progress` on a **root** is not a worker's claim: `boardMove` writes it
+  // when Adam presses Start, deliberately in the tracker so the board is the same fact on
+  // every device, and nothing takes it off but a close or a second Start. So a
+  // board-started sub-epic has no worker, no lease, no `human` label and no delivery — the
+  // three exclusions above all miss it — and the brief's prescription for a stall,
+  // `bd update <id> --status open --assignee ""`, is that write's exact inverse.
+  //
+  // Measured on bc-xl7n.113, started from the board 2026-08-21T11:14:24Z and reported in
+  // every `bc-xl7n` re-entry reason from 16:27:37Z on, four sweeps and counting, while its
+  // own advocate ran it correctly the whole time.
+  const supervisedKid = () =>
+    subtree({ 'x-1.2': { status: 'in_progress', issue_type: 'epic', labels: [OWNER, ADVOCATE_LABEL] } });
+  assert.equal(twoSweeps(supervisedKid).reason, null, 'somebody else is looking after it');
+  assert.deepEqual(twoSweeps(supervisedKid).record.stalls, {}, 'and it is not on the clock either');
+
+  // Free off the same row the sweep already holds, exactly like `handedBack`: one label,
+  // no read. The label is what every route stamps — the board start, the sweep's own
+  // launch and `POST /api/bead/advocate` all leave it behind — which is why the wider
+  // class (any supervised sub-epic, however it got there) is the one excluded rather than
+  // "is it on the board", a fact the tracker records nowhere but the status.
+  assert.equal(supervised({ labels: [ADVOCATE_LABEL] }), true);
+  assert.equal(supervised({ labels: [OWNER] }), false);
+  assert.equal(supervised({}), false);
+
+  // And the asymmetry that keeps the sweep honest: take the advocate off and nobody is
+  // watching it but this epic, so the clock starts again.
+  const unassigned = () =>
+    subtree({ 'x-1.2': { status: 'in_progress', issue_type: 'epic', labels: [OWNER] } });
+  assert.match(twoSweeps(unassigned).reason, /`x-1\.2` has been in progress for over 1h/);
 });
 
 await check('a dead window with no pull request and no question is still reported', () => {
@@ -837,6 +881,59 @@ await check('a stalled child is not stalled while this advocate holds a worker o
   const loose = await tick({ graph: stalling, advocated: { 'x-1': seen } });
   assert.equal(loose.opened.length, 1, 'and with nobody on it, an hour old, it is a stall');
   assert.match(loose.opened[0].reason, /in progress for over 1h/);
+});
+
+await check('the three ways one window stands for a bead — bc-2uj4.9', () => {
+  // The pure half of `busy`'s first arm. A window is briefed on beads that are not its
+  // `id` in two different ways, and until bc-2uj4.9 only one of them was written down.
+  const plain = { id: 'x-1.1', batch: [] };
+  const head = { id: 'x-1.1', batch: ['x-1.2', 'x-1.3'] };
+  const lead = { id: 'x-1.1', batch: [], group: { epic: 'x-1', name: 'the board', beads: ['x-1.2'] } };
+
+  assert.equal(workerHolds([plain], 'x-1.1'), true, 'its own bead');
+  assert.equal(workerHolds([plain], 'x-1.2'), false, 'and nobody else’s');
+  assert.equal(workerHolds([head], 'x-1.3'), true, 'a batch head is briefed on every id in it');
+  assert.equal(workerHolds([lead], 'x-1.2'), true, "a group's lead is briefed on the group's other beads");
+  assert.equal(workerHolds([lead], 'x-1.3'), false, 'a group is a slice of the subtree, not the subtree');
+
+  // The two shapes a record can have from before this landed, and neither may throw: a
+  // daemon reads `advocates.json` back across its own restart, so every worker open when
+  // this merged comes back with a `group` that has no `beads` — or none at all.
+  assert.equal(workerHolds([{ id: 'x-1.1', group: { epic: 'x-1', name: 'the board' } }], 'x-1.2'), false);
+  assert.equal(workerHolds([{ id: 'x-1.1' }], 'x-1.2'), false);
+  assert.equal(workerHolds([null, undefined], 'x-1.2'), false);
+  assert.equal(workerHolds(null, 'x-1.2'), false, 'and an advocate with no workers holds nothing');
+});
+
+await check("a plan group's other bead is not a stall while the group's window is live", async () => {
+  // The bug itself, through the tick. One window carries the whole group and marks every
+  // bead of it `in_progress`, but only the **lead** is `w.id`, only the lead is named in
+  // the session, and only the lead gets the fresh lease — so before bc-2uj4.9 all three of
+  // `busy`'s arms missed `x-1.2` and an hour later the sweep reported it stalled and
+  // re-opened a P0 advocate over a bead that was mid-delivery. Measured on bc-rfnr.9.
+  const stalling = subtree({ 'x-1.2': { status: 'in_progress' } });
+  const seen = { kids: { 'x-1.1': 'open', 'x-1.2': 'in_progress', 'x-1.3': 'open' }, stalls: { 'x-1.2': 1 }, at: LONG_AGO };
+  // `at` is now, or reconcile reaps the worker before the sweep runs — see the
+  // advocate-fixture-live-sessions note.
+  const worker = (group) => [{ id: 'x-1.1', title: 'x-1.1', at: new Date().toISOString(), batch: [], attempt: 1, group }];
+
+  const held = await tick({
+    graph: stalling,
+    advocated: { 'x-1': seen },
+    workers: worker({ epic: 'x-1', name: 'the board', beads: ['x-1.2'] }),
+  });
+  assert.deepEqual(held.opened, [], 'the lead’s window is working x-1.2 as well, so nobody is missing');
+
+  // And the ids are what answer it, not the group's mere presence: a record written before
+  // bc-2uj4.9 landed carries `group` without them, and that bead is still a stall — which
+  // is the correct reading, because nothing on it can say the window covers x-1.2.
+  const legacy = await tick({
+    graph: stalling,
+    advocated: { 'x-1': seen },
+    workers: worker({ epic: 'x-1', name: 'the board' }),
+  });
+  assert.equal(legacy.opened.length, 1);
+  assert.match(legacy.opened[0].reason, /in progress for over 1h/);
 });
 
 await check('a live lease on a *child* holds the stall too — that window is on another Mac', async () => {

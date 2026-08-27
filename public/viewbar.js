@@ -51,7 +51,7 @@
     shell landed, `/` holds one `[data-pane]` container per view and moving between them
     is a `display: none` swapped for a `display: flex` — see public/panes.js. So the pill
     writes the hash and the panes answer it, and no second document is asked for. The row
-    finds out by asking `panes.has(...)`; on the eleven pages that have no panes the
+    finds out by asking `panes.has(...)`; on the nine pages that have no panes the
     answer is no and the pill is the link it always was.
   * **A kind pill is a `<button>` wherever Home is reachable without a load**
     (bc-khoe.2). Five of the six kinds *are* Home under a different narrowing, so a link
@@ -67,7 +67,7 @@
 
   The hash names one of three views and public/panes.js shows it; that view's pill is the
   lit one, and this file asks rather than deriving it — `panes.showing()` on the shell,
-  and `viewOfPath` on the eleven pages that are still documents, which is the same answer
+  and `viewOfPath` on the nine pages that are still documents, which is the same answer
   read off the other half of the URL.
 
   Home is where it stops being a fact about the URL, and that is not a wrinkle in the
@@ -75,7 +75,7 @@
   (empty) hash, because they are not places — they are narrowings of a list already in
   hand, and a narrowing is not something the back button should walk. So within Home the
   *filter* is the answer, pushed in through `mark()` by inboxfilter.js's `paint`. Pushed
-  rather than pulled because this file is on twelve pages and that one is on Home alone:
+  rather than pulled because this file is on ten pages and that one is on Home alone:
   a row that read the selection itself would have to know the storage key, which is a
   second place that knows what a kind is — the exact thing bc-khoe.2 exists to remove.
 
@@ -91,7 +91,7 @@
   Advocates say nothing. This is the deliberate reversal of what this header used to
   say — *"no counts and no badges, on any of them"* — and the objection it was written
   against is real and still stands as written: a badge is only ever live on the one page
-  whose poll happens to fetch it, and stale on the other eleven. The bar's own count (the
+  whose poll happens to fetch it, and stale on the other nine. The bar's own count (the
   proposals waiting, hung off Advocates) was exactly that, and deleting it was right.
 
   What answers the objection is *where* the number is drawn rather than what it counts.
@@ -179,10 +179,10 @@
     is why it is the only kind here carrying an `href` at all: the other five get theirs
     from `hrefOf`, and only off Home. It was a page and nothing but a page when that was
     written; since bc-khoe.30.5 it is *also* a pane of the shell, and the `href` is what
-    the eleven documents that have no panes still follow.
+    the nine documents that have no panes still follow.
 
     `kind` is the id of the row in that table, and the two lists are held to the same six
-    ids, labels and icons by test/inboxkinds.mjs — this file is loaded on twelve pages
+    ids, labels and icons by test/inboxkinds.mjs — this file is loaded on ten pages
     and inboxfilter.js on one, so the row cannot read the table at paint time and a copy
     is the only shape available. A checked copy is not a second place that knows; an
     unchecked one is. What is deliberately *not* copied is the URL: the table knows what
@@ -271,9 +271,10 @@
     // bc-khoe.50 put it in the table. Nothing here changed to make that work, which is
     // the point of asking rather than knowing.
     //
-    // Its pane in index.html is still `data-pending` (bc-khoe.60), so `panes?.has` says
-    // no on the shell and this stays the `<a>` it has always been there — the same
-    // two-step History, Advocates and Releases each went through.
+    // Its pane in index.html was `data-pending` until bc-khoe.60 filled it — the same
+    // two-step History, Advocates and Releases each went through, and nothing here
+    // changed to make that work either: `panes?.has` answers yes on the shell now, and
+    // this pill draws as the row's control rather than this `<a>` the moment it does.
     { id: 'config', href: '/config', icon: '🎛', label: 'Config' },
   ];
 
@@ -289,12 +290,12 @@
    * Both shapes of the absence are one message here, because which of the two you get is
    * an accident of the page. `window.beadcause` is created by whichever of
    * public/hashroute.js, public/presence.js and public/stream.js runs first — so on
-   * /console, /monitor, /endorse, /config, /releases, /admin and the shell, where one of
+   * /console, /monitor, /endorse, /config, /admin and the shell, where one of
    * the other two is above this file, a `/hashroute.js` that did not arrive leaves the
    * namespace behind and only `route` missing: `Cannot read properties of undefined
    * (reading 'viewOfPath')`, thrown on a line of this file that does not mention
-   * hashroute.js at all. On /flow, /skills, /sounds, /requirements and /history, which
-   * load neither, the same cause reads `(reading 'route')` instead. One bug, two
+   * hashroute.js at all. On /flow, /skills, /sounds and /requirements, which load
+   * neither, the same cause reads `(reading 'route')` instead. One bug, two
    * fingerprints, neither naming the file.
    *
    * It arrives over the network, so "did not arrive" is an ordinary event rather than a
@@ -325,8 +326,8 @@
    * the namespace — and then they part company: every page needs the grammar, so a
    * missing `route` is a page that cannot say where it is and should fail loudly, which
    * is why there is a `throw` under it (bc-l8ub). Panes are a fact about the shell alone
-   * — this row is drawn on twelve pages and eleven of them have nothing to show and hide
-   * — so a missing `panes` is the ordinary case, and every question below is asked with
+   * — this row is drawn on ten pages and nine of them have nothing to show and hide —
+   * so a missing `panes` is the ordinary case, and every question below is asked with
    * that answer as its default. See public/panes.js.
    */
   const panes = window.beadcause?.panes || null;
@@ -370,7 +371,7 @@
    * Which pill is lit. Two answers, and which one applies is a fact about the hash.
    *
    * Away from Home it is the view showing — the pane on the shell, the address on the
-   * eleven pages that are still documents, both of them read through `here()`. On Home
+   * nine pages that are still documents, both of them read through `here()`. On Home
    * five pills share one address *and* one empty hash, so neither can tell them apart and
    * the filter is the answer instead.
    */
@@ -494,22 +495,66 @@
 
   /* The pane moved under the row, so the row is over a different view than it was — a
      different pill is lit and a different set of them are links. Registered rather than
-     polled, and a no-op on the eleven pages that have no panes to move. */
+     polled, and a no-op on the nine pages that have no panes to move. */
   panes?.onShow(() => {
     draw();
     reveal();
   });
 
+  /**
+   * Append a pill for a view a **repo** declared about itself.
+   *
+   * The nine above are what this app is, and they are argued for one at a time in the
+   * block comments beside them — position included, because position is the argument. A
+   * repo view has no such argument available to it here: this file cannot know whether
+   * deluvia's studio board is read more often than the ledger. So every one of them goes
+   * to the **end of the row**, after Config, in the order `/api/views` answered — which is
+   * the order of the configured workspaces, so it is stable across restarts.
+   *
+   * That is not a placeholder for a better rule. The row scrolls sideways and the current
+   * pill is scrolled into view on load, so "at the end" costs a repo view nothing it would
+   * gain from being third; and the alternative — a `position` field in the manifest — is a
+   * repo asserting a claim about a row it shares with every other repo, which is the one
+   * thing a plug-in must not get to do.
+   *
+   * Redraws, because the row is already on screen by the time `/api/views` answers. It is
+   * the same `draw()` the pane switch calls, so the lit pill and the three shapes are
+   * decided exactly as they always are and nothing here is a second opinion about them.
+   */
+  function add(pill) {
+    const id = String(pill?.id || '');
+    if (!id || PILLS.some((p) => p.id === id)) return false;
+    PILLS.push({
+      id,
+      icon: String(pill?.icon || '🧩'),
+      label: String(pill?.label || id),
+      // The address for the nine pages that have no panes, and for a home-screen
+      // shortcut. `hrefOf` reads it; on the shell `panes.has(id)` is true and the pill is
+      // a button before the href is ever consulted.
+      // Defaulted to the view's own hash on Home rather than left empty, because `hrefOf`
+      // falls back to `/?kind=<id>` for a pill with no href — right for the five that *are*
+      // narrowings of Home, and a link to nothing for one that is not. A caller that gives
+      // no address gets the one address that is always true.
+      href: String(pill?.href || `/${route.hashFor(id) || ''}`),
+      repo: true,
+    });
+    draw();
+    reveal();
+    return true;
+  }
+
   window.beadcause = window.beadcause || {};
   window.beadcause.views = {
     /** The row's own list, for anything that has to agree with it. */
     pills: PILLS,
+    /** Append a pill for a repo's own view, at the end of the row. See `add` above. */
+    add,
     /** Which pill is lit right now. */
     lit,
     /**
      * Light a different pill, from the filter that actually knows.
      *
-     * A no-op for an id the row does not draw: the row is on twelve pages and only one of
+     * A no-op for an id the row does not draw: the row is on ten pages and only one of
      * them has a filter behind it, so this has to be safe to call into thin air. Redraws
      * only when the answer moved — the inbox repaints every 25 seconds and `paint` rides
      * along with it, and rebuilding seven nodes on a timer would drop the focus ring off
@@ -538,7 +583,7 @@
      * read out of it; the rest of the map is somebody else's business, and a kind the
      * row draws no badge for cannot grow one by appearing in it.
      *
-     * A no-op off Home, like `mark()`, and for the same reason: this file is on twelve
+     * A no-op off Home, like `mark()`, and for the same reason: this file is on ten
      * pages and the one that counts is on Home alone.
      *
      * **In place, never through `draw()`.** The inbox repaints every 25 seconds and this

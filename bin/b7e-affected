@@ -24,6 +24,8 @@
  *
  * Exit codes: `0` every changed file matched at least one suite. `1` at least one did
  * not (stdout is empty in this case — see above). `2` refused — bad usage.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import {
@@ -41,6 +43,22 @@ const value = (f, fallback) => {
   const at = argv.indexOf(f);
   return at === -1 ? fallback : (argv[at + 1] ?? fallback);
 };
+
+// bc-dgx7.31: this used to fall into the "unrecognised flag" branch further down —
+// `--help` reads as bad usage rather than as a request for it, so it exited 2 with an
+// error rather than answering. Checked first, before anything else touches argv.
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-affected                          # the diff since origin/main, plus anything uncommitted',
+      'b7e-affected lib/advocate.js public/spacebar.js',
+      'b7e-affected --why lib/advocate.js    # one line per suite, with the reason it matched',
+      'b7e-affected --json lib/advocate.js   # one object per changed file, then a summary',
+      'b7e-affected --dir <root>             # another tree — this is how it is tested',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
 
 const DIR_GIVEN = value('--dir', null);
 const ROOT = path.resolve(DIR_GIVEN || REPO_ROOT);
@@ -83,7 +101,13 @@ if (!changedFiles.length) {
   await leave(0);
 }
 
-const { results, unmatched, suites } = findAffected(ROOT, changedFiles);
+const { results, unmatched, suites, manifests } = findAffected(ROOT, changedFiles);
+
+// Said out loud, on stderr, every time — a narrowed list is only trustworthy if the
+// reason it is short is visible at the point it is read. bc-xlz32.7.
+for (const file of manifests) {
+  console.error(dim(`${file} is a @manifest — suites that merely import it are not selected, only ones that name it`));
+}
 
 if (JSON_MODE) {
   for (const file of changedFiles) {

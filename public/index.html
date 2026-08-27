@@ -33,9 +33,9 @@
 
            It is also the way into the app's menu now (bc-khoe.5). What wraps it in a
            gear and makes it the trigger is accountbar.js, at runtime, on every page —
-           this markup is the mark and nothing else on purpose, because eleven other
+           this markup is the mark and nothing else on purpose, because nine other
            pages draw a title here instead and the button has to be the same control on
-           all twelve. -->
+           all ten. -->
       <h1 class="mark"><img src="/icon.svg" alt="Beadcause" width="26" height="26" decoding="async"></h1>
       <!-- An "N waiting" pill used to sit beside the mark, counting the beads asking
            you something. It is gone (bc-ka5y.1): the list under it is that number, so
@@ -344,13 +344,12 @@
     The ledger — every bead this space has ever had, most recently touched first, and a
     pane of this document rather than the separate `/history` it used to be (bc-khoe.30.5).
 
-    The markup is history.html's, unchanged, minus the top bar and the pill row that page
-    drew for itself: the shell above already has both, which is most of the point. What
-    fills it is public/history.js, the same file that page loads, which registers with the
-    stager and builds this container when asked. `/history` is still a document and still
-    answers — a home-screen shortcut to it must keep working until bc-khoe.30.7 lands it
-    here — so that file has to run in either, and it decides which by asking whether this
-    document has panes.
+    The markup was history.html's, minus the top bar and the pill row that page drew for
+    itself: the shell above already has both, which is most of the point. What fills it is
+    public/history.js, which registers with the stager and builds this container when
+    asked. `/history` still answers — a home-screen shortcut, an old notification — but as
+    a redirect into `#history` now (bc-khoe.30.7), not a document; history.html itself and
+    the query-string half of history.js it went with are gone (bc-khoe.30.15).
 
     `id="hist-list"` rather than the `id="history"` it was, and the rename is not
     cosmetic: the hash that names this view is `#history`, and an element of that id in
@@ -383,10 +382,11 @@
 
   <!--
     The advocate console — who is arguing for work in this space, what is shipping, and
-    what another device is looking at. The last of the four containers that held a place
-    in the grammar with nothing in it, and bc-khoe.4 is the bead that filled it. It was
-    the last `data-pending` pane in this document for two days; Config took the part back
-    (bc-khoe.50), at the bottom of this file, and the mechanism is the same one.
+    what another device is looking at. One of the four containers that held a place in
+    the grammar with nothing in it, and bc-khoe.4 is the bead that filled it. It was the
+    last `data-pending` pane in this document for two days; Config took the part back
+    (bc-khoe.50) and gave it up in turn (bc-khoe.60), at the bottom of this file, and the
+    mechanism is the same one.
 
     **It is the only pane with a row of its own inside it, and that was decided rather
     than inherited** (bc-khoe.30.6). This bead used to say Advocates and Mirror became
@@ -458,19 +458,20 @@
   </div>
 
   <!--
-    Releases — where everything in flight actually is, as cards off the two queues.
+    Releases — where everything in flight actually is, as cards off the two queues, and a
+    pane of this document rather than the separate `/releases` it used to be (bc-khoe.30.14).
 
     An empty `data-pending` container until bc-khoe.30.14, for a plainer reason than
     Advocates': bc-khoe.7 built it as its own page while the shell was still a document per
     view, and it merged after the shell landed. Nothing was leaving it and nothing was
     waiting on a sibling, so the fold is only the fold.
 
-    The markup is releases.html's, unchanged, minus the top bar and the pill row that page
-    drew for itself: the shell above already has both. What fills it is releases.js, the
-    same file that page loads, which registers with the stager and builds this container
-    when asked. `/releases` and `/deploys` are still documents and still answer — either
-    can be on a home screen — so that file has to run in both, and it decides which by
-    asking whether this document has panes.
+    The markup was releases.html's, minus the top bar and the pill row that page drew for
+    itself: the shell above already has both, which is most of the point. What fills it is
+    public/releases.js, which registers with the stager and builds this container when
+    asked. `/releases` and `/deploys` still answer — either can be on a home screen — but
+    as a redirect into `#releases` now (bc-khoe.30.7), not a document; releases.html itself
+    is gone (bc-khoe.30.22).
 
     `id="rel-list"` rather than the `id="releases"` that page had, for the reason the
     ledger's `hist-list` is not `history`: the hash naming this view is `#releases`, and an
@@ -478,7 +479,7 @@
     view on arrival — throwing away the scroll position panes.js has just restored.
 
     The `⦿ observing` chip is inside the pane rather than up in the brand, where that page
-    keeps it. The top bar belongs to every view now and this is a fact about the deploys
+    kept it. The top bar belongs to every view now and this is a fact about the deploys
     *this* view is drawing; putting it beside the mark would leave it on screen over the
     inbox. It is renamed with the list for a second reason as well — monitor.html carries an
     `id="observing"` too, and bc-khoe.4 folded it into this same document, which is where it
@@ -496,26 +497,45 @@
   </div>
 
   <!--
-    Config — every setting the selected space has, and the newest empty container.
+    Config — every setting the selected space has, and the last of the five to fill.
 
-    `data-pending` again, and **bc-khoe.60** is the bead that fills it. It is here for a
-    reason none of the other four had: bc-khoe.10 gave the row a Config pill pointing at
-    /config while the pill paths still lived in public/viewbar.js, bc-khoe.30.2 moved that
-    table into `VIEWS` in public/hashroute.js, and Config was not in it — so the row asked
-    `viewOfPath('/config')`, got `null`, and drew itself on the one screen that pill
-    reaches with **nothing current** and the Config pill a live `<a href="/config">` back
-    to the page you were already on. bc-khoe.50 put the row in `VIEWS`, which is what
-    lights the pill and what `scripts/space-check.mjs` asserts; the grammar knowing the
-    view is what obliges this container, because a view with nowhere to go is a pill
-    leading to a blank screen (test/panes.mjs holds every view to one).
+    It joined the grammar for a reason none of the other four had: bc-khoe.10 gave the row
+    a Config pill pointing at /config while the pill paths still lived in
+    public/viewbar.js, bc-khoe.30.2 moved that table into `VIEWS` in public/hashroute.js,
+    and Config was not in it — so the row asked `viewOfPath('/config')`, got `null`, and
+    drew itself on the one screen that pill reaches with **nothing current** and the
+    Config pill a live `<a href="/config">` back to the page you were already on.
+    bc-khoe.50 put the row in `VIEWS`, which is what lights the pill and what
+    `scripts/space-check.mjs` asserts, and left this container `data-pending` — a view
+    with nowhere to go is a pill leading to a blank screen (test/panes.mjs holds every
+    view to one), so the grammar knowing it had to come before the pane did.
 
-    Empty until the fold, and deliberately so — the three addresses go on serving
-    public/config.html while it is, because `panes.js` answers a hash naming a pending pane
-    by showing Home and a 302 here would land a home-screen shortcut on the inbox.
-    test/pagealias.mjs enforces both halves of that, so the flip is bc-khoe.60's commit and
-    cannot happen early: `data-pending` off, three `viewHop`s on, in one go.
+    **bc-khoe.60** is the fold, and the markup is public/config.html's, unchanged, minus
+    the top bar and the pill row the shell already draws. What fills it is
+    public/config.js, the same file that page loads, which registers with the stager and
+    builds this container when asked. `/config`, `/settings` and `/config.html` are still
+    documents and still answer — any of the three can be on a home screen — so that file
+    has to run in both, and it decides which by asking whether this document has panes.
+
+    `id="cfg-observing"` rather than the bare name config.html has always called this
+    chip: the Advocates pane above already holds it (bc-khoe.4), and the reason it was
+    free for that pane and is not free for this one is the same reason `rel-observing`
+    exists — a shared id across sibling panes is a collision waiting to be noticed by
+    whichever one lands second. Renamed in both documents, the way `rel-list` and
+    `rel-observing` were, so config.html and this pane read the same element by the same
+    name. The chip moves inside the pane for the reason the Releases one did: the top bar
+    belongs to every view now, and which group is observing is a fact about this one.
   -->
-  <div class="pane" data-pane="config" data-pending="bc-khoe.60" hidden></div>
+  <div class="pane" data-pane="config" hidden>
+    <main class="work pagescroll">
+      <span class="observing" id="cfg-observing" hidden>⦿ observing</span>
+      <!-- Everything below is replaced on every repaint, so nothing that has to survive
+           one may live in here. -->
+      <div id="space">
+        <div class="empty">Reading this group…</div>
+      </div>
+    </main>
+  </div>
 
   <div id="toast" class="toast" role="status" hidden></div>
 
@@ -574,7 +594,7 @@
        hashroute.js, whose answer it acts on, and **before** viewbar.js, which asks it
        whether a pill's view is a pane of this document before deciding whether that pill
        is a link or a control. This is the one page that loads it: the row is drawn on
-       twelve and only this one has panes to swap, which is why the row reaches for it
+       ten and only this one has panes to swap, which is why the row reaches for it
        with `?.` and for the grammar flat. See panes.js. -->
   <script src="/panes.js"></script>
   <!-- What goes *in* those panes, and when (bc-khoe.30.4). After panes.js, whose `onShow`
@@ -599,6 +619,7 @@
        and it is what the two chip rows that used to be in #filters became, so the list
        below is filtered by the bar above it rather than by a row of its own. -->
   <script src="/spacebar.js"></script>
+  <script src="/addspace.js"></script>
   <!-- One pull request, drawn once, for the two screens that draw them — this list and
        the board at /prs. Before the filter, which reads the status ladder off it to
        build the sub-filter's chips, and therefore before app.js too. -->
@@ -626,6 +647,15 @@
        carry them; everything else here waits to be woken by the one poll the stager
        holds. See public/releases.js. -->
   <script src="/releases.js"></script>
+  <!-- The Config pane (bc-khoe.60) — the selected space's own settings. After
+       spacebar.js and addspace.js, whose picker it reads rather than fetches a filter
+       over: `spaceName()` is the whole of what decides its one request. Like the ledger
+       and Releases above, it registers with the stager and builds when asked, so a load
+       that lands on Home costs a script parse and no request. It follows no event
+       stream — nothing but a press on this card or the picker moving ever changes what
+       it draws — so it is the one pane with neither a `wake` nor a clock. See
+       public/config.js. -->
+  <script src="/config.js"></script>
   <!-- The Advocates pane's chip row, and which of its three sections is up (bc-khoe.4).
        Before the three below, because each of them registers on it as it loads — and it is
        the pane's one registration with the stager above, so it is what decides when the
@@ -691,5 +721,11 @@
   <!-- Graph and doc links open over this tab instead of navigating away from it.
        Last, and needing nothing from app.js: it works on the anchors, not the app. -->
   <script src="/drawer.js"></script>
+  <!-- The views the repos declare about themselves — one pill, one pane and one script
+       each, discovered from /api/views after this document is already on screen. Last,
+       after every pane script above it, because it adopts panes into the same column and
+       appends pills to the same row: everything it extends has to exist first. See the
+       header of public/viewhost.js. -->
+  <script src="/viewhost.js"></script>
 </body>
 </html>

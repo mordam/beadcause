@@ -30,6 +30,12 @@
  * 5. **A refusal.** `toast(msg, 'refused')` is red because the app declined what you
  *    typed. "Give it a name" is not a bug.
  * 6. **A loop.** A render that throws on every frame, capped rather than uncapped.
+ * 7. **A moment's failure of the long poll.** `/api/poll` is parked almost all of the
+ *    time, so every momentary loss of the connection lands on it and nothing else — and
+ *    the app recovers on its own while the staleness banner says so. That is bc-y8wf. A
+ *    poll that has been failing for half a minute with nothing answering in between is
+ *    still filed, because that one never came back. The span and not the count: one blip
+ *    fails every mount on the page at once, standbys included.
  *
  * The last two checks are static reads of the pages, because the wiring is not something
  * a stub can see: that every page loads the file at all, and that each of the four copied
@@ -82,7 +88,7 @@ async function check(name, fn) {
  * both: it is the only way to prove the report's own request does not go back through
  * the wrapper.
  */
-function load({ pathname = '/', respond = null, throwOnFetch = false } = {}) {
+function load({ pathname = '/', respond = null, throwOnFetch = false, now = null } = {}) {
   const listeners = new Map();
   const calls = [];
   const window = {
@@ -105,6 +111,12 @@ function load({ pathname = '/', respond = null, throwOnFetch = false } = {}) {
     },
   };
   const ctx = vm.createContext({ window, URL, setTimeout, clearTimeout, console });
+  // A clock the check can move, for the one rule in the file that is about a span of time
+  // rather than a sequence of events. Patched as a static in the context — the same line
+  // test/freshness.mjs uses against this shape — rather than shadowing the constructor,
+  // because report.js's one `Date.parse` is on a real ISO string from the daemon and has
+  // to keep parsing it.
+  if (now) vm.runInContext('Date.now = () => __now();', Object.assign(ctx, { __now: now }));
   vm.runInContext(SOURCE, ctx, { filename: 'report.js' });
   const fire = (type, event) => {
     const fn = listeners.get(type);
@@ -143,6 +155,47 @@ await check('an uncaught exception arrives at the endpoint', () => {
   assert.match(r.body.stack, /at render/);
   assert.match(r.body.at, /^\d{4}-\d\d-\d\dT/);
   assert.equal(r.body.userAgent, 'test-agent/1');
+});
+
+await check('a rethrow trampoline is not attributed as the origin — bc-jjdar.2', () => {
+  // public/viewhost.js and public/panestage.js both catch a view's build() throwing and
+  // rethrow it out of a setTimeout, on purpose. `Error.stack` is captured where the error
+  // was actually constructed and does not move — so a rethrown error's stack names the
+  // real site while event.filename/event.lineno name only the trampoline that rethrew it.
+  // Every repo view that fails to draw, in every workspace, used to collapse onto that one
+  // trampoline location: errat:a96ab0d6aa08.
+  const app = load();
+  app.fire('error', {
+    message: "Cannot access 'section' before initialization",
+    filename: 'http://127.0.0.1:4317/viewhost.js',
+    lineno: 427,
+    colno: 11,
+    error: err(
+      "Cannot access 'section' before initialization",
+      'ReferenceError: x\n    at build (http://127.0.0.1:4317/v/deluvia/x/asset/briefs.js:306:5)'
+    ),
+  });
+  const [r] = app.reports();
+  assert.ok(r, 'nothing was posted');
+  assert.equal(r.body.source, undefined, 'the rethrow site was attributed as the origin');
+  assert.equal(r.body.line, undefined, 'the rethrow site was attributed as the origin');
+  assert.equal(r.body.column, undefined, 'the rethrow site was attributed as the origin');
+  assert.match(r.body.stack, /at build/, 'the real site is still on the stack for frameFromStack to find');
+});
+
+await check('a cache-busted script URL still confirms an ordinary throw', () => {
+  // The query string is part of the loaded URL but does not always survive into a stack
+  // frame — the bare path must still be enough to confirm filename/lineno are real.
+  const app = load();
+  app.fire('error', {
+    message: 'boom',
+    filename: 'http://127.0.0.1:4317/app.js?v=9',
+    lineno: 100,
+    error: err('boom', 'TypeError: boom\n    at go (http://127.0.0.1:4317/app.js:100:4)'),
+  });
+  const [r] = app.reports();
+  assert.equal(r.body.source, 'http://127.0.0.1:4317/app.js?v=9');
+  assert.equal(r.body.line, 100);
 });
 
 await check('a rejected promise arrives at the endpoint', () => {
@@ -226,7 +279,10 @@ await check('no token reaches the body of a report', () => {
 await check('a fetch abandoned by a navigation is not reported', async () => {
   const app = load({ respond: () => Promise.reject(err('Failed to fetch')) });
   app.fire('pagehide', {});
-  await app.window.fetch('/api/poll').catch(() => {});
+  // An ordinary path on purpose. `/api/poll` would be silent here whether or not the
+  // shutter worked, because the parked rule below swallows a first failure of it — and a
+  // check that passes for a reason other than the one it names is no check at all.
+  await app.window.fetch('/api/questions').catch(() => {});
   assert.deepEqual(app.reports(), [], 'a tab tap filed a bead');
   // And nothing else gets through either, for as long as the page is leaving.
   app.fire('error', { message: 'boom on the way out' });
@@ -235,6 +291,10 @@ await check('a fetch abandoned by a navigation is not reported', async () => {
 
 await check('an aborted fetch is not reported', async () => {
   const app = load({ respond: () => Promise.reject(Object.assign(err('The operation was aborted'), { name: 'AbortError' })) });
+  // Twice, because a first failure of the long poll is dropped by the parked rule too —
+  // and once the second one would file, only the abort guard can still be keeping this
+  // quiet. Same reason in the check below.
+  await app.window.fetch('/api/poll').catch(() => {});
   await app.window.fetch('/api/poll').catch(() => {});
   assert.deepEqual(app.reports(), [], 'tearing down the long poll filed a bead');
 });
@@ -242,6 +302,7 @@ await check('an aborted fetch is not reported', async () => {
 await check('an aborted fetch is not reported when the error forgot to say so', async () => {
   const controller = { aborted: true };
   const app = load({ respond: () => Promise.reject(err('Failed to fetch')) });
+  await app.window.fetch('/api/poll', { signal: controller }).catch(() => {});
   await app.window.fetch('/api/poll', { signal: controller }).catch(() => {});
   assert.deepEqual(app.reports(), []);
 });
@@ -252,6 +313,60 @@ await check('a 4xx is not reported', async () => {
     await app.window.fetch('/api/answer', { method: 'POST' });
     assert.deepEqual(app.reports(), [], `HTTP ${status} filed a bead`);
   }
+});
+
+await check('a 503 the router marks as a swap-drain kill is not reported — bc-xl7n.134', async () => {
+  // bin/router.js answers this way when the socket it lost belonged to a backend it had
+  // already retired for a swap: a new backend was already serving, so this was never the
+  // daemon failing, and the plain 502 it used to send was exactly what filed the P0. The
+  // header is what tells the two apart — see the `headers` fake below, which is the
+  // minimum a Fetch `Response` promises and more than every other stub in this file
+  // bothers to build, because this is the one case that has to read one.
+  const app = load({
+    respond: () => Promise.resolve({ status: 503, ok: false, headers: { get: (k) => (k === 'x-beadcause-swap-drain' ? '1' : null) } }),
+  });
+  const res = await app.window.fetch('/api/queues');
+  assert.equal(res.status, 503, 'the wrapper must be transparent');
+  assert.deepEqual(app.reports(), [], 'a swap-drain 503 filed a bead');
+});
+
+await check('a 502 the daemon marks as a view generator failure is not reported — bc-3wf1r', async () => {
+  // lib/server.js answers this way for `/api/views/<ws>/<id>/data` when the repo's own
+  // generator failed and there is nothing held to fall back on. What failed is a script
+  // spawned on another repo's behalf, public/viewhost.js has already drawn the reason in
+  // the pane, and the sev2 P0 it used to file said a function of the daemon had stopped
+  // working when nothing of the sort had happened.
+  const app = load({
+    respond: () =>
+      Promise.resolve({
+        status: 502,
+        ok: false,
+        headers: { get: (k) => (k === 'x-beadcause-view-generator' ? '1' : null) },
+      }),
+  });
+  const res = await app.window.fetch('/api/views/deluvia/studio/data');
+  assert.equal(res.status, 502, 'the wrapper must be transparent');
+  assert.deepEqual(app.reports(), [], 'a view-generator 502 filed a bead');
+});
+
+await check('an ordinary 502 on the same path with no such header is still reported', async () => {
+  // The header is the whole of the exemption. A 502 from the router — the backend really
+  // is unreachable — arrives on this same path and must still file.
+  const app = load({ respond: () => Promise.resolve({ status: 502, ok: false, headers: { get: () => null } }) });
+  await app.window.fetch('/api/views/deluvia/studio/data');
+  const [r] = app.reports();
+  assert.ok(r, 'a bare 502 did not file a bead');
+  assert.equal(r.body.message, 'GET /api/views/deluvia/studio/data failed — HTTP 502');
+});
+
+await check('an ordinary 503 with no swap-drain header is reported', async () => {
+  // The header is the whole of what makes the case above safe to skip — a 503 with none
+  // is an ordinary failure (the app has nothing behind the port, say) and must still file.
+  const app = load({ respond: () => Promise.resolve({ status: 503, ok: false, headers: { get: () => null } }) });
+  await app.window.fetch('/api/queues');
+  const [r] = app.reports();
+  assert.ok(r, 'a bare 503 did not file a bead');
+  assert.equal(r.body.message, 'GET /api/queues failed — HTTP 503');
 });
 
 await check('the report request does not go back through the wrapper', async () => {
@@ -267,6 +382,162 @@ await check('a cross-origin fetch is not reported', async () => {
   const app = load({ respond: () => Promise.reject(err('Failed to fetch')) });
   await app.window.fetch('https://api.github.com/repos/x/y').catch(() => {});
   assert.deepEqual(app.reports(), [], "somebody else's URL reached a bead");
+});
+
+/* ------------------------------------------------- the poll, which is always out */
+
+/**
+ * A stub whose long poll is broken and whose every other endpoint — the report endpoint
+ * included — answers. `down` is read per call so a check can bring the poll back, and the
+ * clock is the check's own, because what the parked rule counts is a *span* of failure
+ * and a suite that cannot move time can only ever pin the sequence.
+ */
+const polling = () => {
+  const state = { down: true, now: 0 };
+  const app = load({
+    now: () => state.now,
+    respond: (input) => {
+      if (!String(input).startsWith('/api/poll')) return Promise.resolve({ status: 200, ok: true });
+      return state.down ? Promise.reject(err('Failed to fetch')) : Promise.resolve({ status: 200, ok: true });
+    },
+  });
+  return {
+    app,
+    state,
+    poll: () => app.window.fetch('/api/poll?since=12&wait=25').catch(() => {}),
+    /** Move the clock to this many milliseconds after the first failure. */
+    at: (ms) => {
+      state.now = ms;
+    },
+  };
+};
+
+await check('one failure of the long poll is a blip, and files nothing', async () => {
+  const { app, poll } = polling();
+  await poll();
+  assert.deepEqual(app.reports(), [], 'bc-y8wf: a phone waking up filed a P0');
+});
+
+await check('one blip failing two mounts at once is still one blip', async () => {
+  // The case the reviewer of #688 found, and the reason this rule counts a span rather
+  // than occurrences. A failing ordinary mount runs `arbitrate` in public/stream.js's
+  // `finally`; nothing is following by then, so every standby is started on the spot and
+  // issues its own /api/poll into the same dead connection milliseconds later.
+  // public/index.html is such a page — public/panestage.js mounts the standby — and it is
+  // the page bc-y8wf was filed from.
+  const { app, poll, at } = polling();
+  await poll();
+  at(3);
+  await poll();
+  assert.deepEqual(app.reports(), [], 'the standby mount landing in the same blip filed the bead');
+});
+
+await check('a long poll still failing half a minute later is reported', async () => {
+  const { app, poll, at } = polling();
+  await poll();
+  at(30 * 1000);
+  await poll();
+  const [r] = app.reports();
+  assert.ok(r, 'a poll that never came back must still file');
+  assert.equal(r.body.kind, 'fetch');
+  assert.equal(r.body.message, 'GET /api/poll failed — Failed to fetch');
+  assert.equal(r.body.source, '/api/poll');
+});
+
+await check('a long poll that has not been failing that long yet is not reported', async () => {
+  // The other side of the same bound. Without this, half a minute could be any number at
+  // all and nothing in the suite would notice.
+  const { app, poll, at } = polling();
+  await poll();
+  at(30 * 1000 - 1);
+  await poll();
+  assert.deepEqual(app.reports(), [], 'a stretch shorter than the bound was reported');
+});
+
+await check('an answered poll between two failures is two blips, not an incident', async () => {
+  // The clock is moved well past the bound on purpose: with the failures a moment apart
+  // this check would pass whether or not an answer clears anything.
+  const { app, state, poll, at } = polling();
+  await poll();
+  at(20 * 1000);
+  state.down = false;
+  await poll();
+  at(45 * 1000);
+  state.down = true;
+  await poll();
+  assert.deepEqual(app.reports(), [], 'the connection came back in between, so neither failure stood');
+});
+
+await check('a 500 from the poll is an answer, and is filed at once', async () => {
+  // The parked rule counts reachability, not health: a 500 is the daemon failing and is
+  // worth a bead the first time, and it also proves the connection is there.
+  const app = load({ respond: (input) => Promise.resolve(String(input).startsWith('/api/poll') ? { status: 500, ok: false } : { status: 200, ok: true }) });
+  await app.window.fetch('/api/poll?since=12');
+  const [r] = app.reports();
+  assert.ok(r, 'a 500 on the poll was swallowed');
+  assert.equal(r.body.message, 'GET /api/poll failed — HTTP 500');
+});
+
+await check('a 500 in the middle of a stretch clears it, because something answered', async () => {
+  // The half of "any response at all" that the check above cannot see: it starts from
+  // nothing standing, so it proves the 500 is not swallowed and nothing more. Here the
+  // 500 has to *clear* a failure already standing, which is what pins `answered` to its
+  // side of the `res.status >= 500` branch.
+  const state = { down: true, now: 0 };
+  const app = load({
+    now: () => state.now,
+    respond: (input) => {
+      if (!String(input).startsWith('/api/poll')) return Promise.resolve({ status: 200, ok: true });
+      return state.down ? Promise.reject(err('Failed to fetch')) : Promise.resolve({ status: 500, ok: false });
+    },
+  });
+  const poll = () => app.window.fetch('/api/poll?since=12&wait=25').catch(() => {});
+  await poll();
+  state.now = 10 * 1000;
+  state.down = false;
+  await poll();
+  state.now = 45 * 1000;
+  state.down = true;
+  await poll();
+  assert.deepEqual(
+    app.reports().map((r) => r.body.message),
+    ['GET /api/poll failed — HTTP 500'],
+    'the 500 was the only thing worth a bead here',
+  );
+});
+
+await check('a failure long after the last one starts the stretch again', async () => {
+  // A poll that is not being made cannot be answered, so a failure from before a
+  // stood-down mount or a tab left alone would otherwise still be standing when the next
+  // one lands, and "failing for half an hour" would be true of the clock rather than of
+  // the connection.
+  const { app, poll, at } = polling();
+  await poll();
+  at(4 * 60 * 1000);
+  await poll();
+  assert.deepEqual(app.reports(), [], 'a gap that long was counted as one stretch');
+  // …and the one that lands half a minute after *that* is a stretch of its own.
+  at(4 * 60 * 1000 + 30 * 1000);
+  await poll();
+  assert.equal(app.reports().length, 1, 'the clock did not start again');
+});
+
+await check('a stretch does not survive the page being hidden', async () => {
+  // The phone in a pocket, by name: the poll is not running while the screen is off, so
+  // nothing can answer, so nothing would otherwise clear what was standing when it went
+  // dark. Both edges of the event clear, because both mean the same thing.
+  const { app, poll, at } = polling();
+  await poll();
+  app.fire('visibilitychange', {});
+  at(40 * 1000);
+  await poll();
+  assert.deepEqual(app.reports(), [], 'a failure from before the screen went off was still standing');
+});
+
+await check('an ordinary path still files the first time it fails', async () => {
+  const app = load({ respond: (input) => (String(input) === '/api/error' ? Promise.resolve({ status: 200, ok: true }) : Promise.reject(err('Failed to fetch'))) });
+  await app.window.fetch('/api/questions').catch(() => {});
+  assert.equal(app.reports().length, 1, 'the parked rule widened past the poll');
 });
 
 await check('the same error twice in a row is reported once', () => {

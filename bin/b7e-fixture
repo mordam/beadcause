@@ -1,0 +1,159 @@
+#!/usr/bin/env node
+/**
+ * `b7e-fixture` — a disposable git tree with a history and a suite, to point --dir at.
+ *
+ *   DIR=$(b7e-fixture --name cp-smoke \
+ *     --file lib/foo.js="module.exports = () => 1;" \
+ *     --file test/foo.mjs="import assert from 'node:assert/strict'; ..." \
+ *     --commit "initial" \
+ *     --file lib/foo.js="module.exports = () => 2;")
+ *   b7e-counterproof --dir "$DIR" ...
+ *
+ * bc-dgx7.41, filed by the session audit against five sessions (bc-68ou.14,
+ * bc-khoe.30.17, bc-khoe.30.18, bc-4r10.22, bc-68ou.15) that each hand-built a throwaway
+ * git repo to point some other `b7e-*` command's `--dir` at, five different ways: a
+ * shell script regenerated between every run because the command under test mutated the
+ * tree it was given; a fixture built three times over with three different tools before
+ * one of them behaved the way this repo does; a fake `bd` and teardowns rewritten
+ * because a house rule about scratch trees applied to them and nothing told them so;
+ * line numbers hand-counted separately from the file contents an assertion described.
+ * lib/fixture.js is the one builder now; this is the argv around it, same split as
+ * bin/b7e-siblings and lib/siblings.js.
+ *
+ * Every tree lives under `os.tmpdir()/beadcause-fixture/<--name>` — never in this repo,
+ * never under a real workspace. A second call with the same `--name` tears the first
+ * down and rebuilds it fresh — the regeneration bc-68ou.14 did by hand between every
+ * run — unless the first call passed `--keep`, which makes a later same-name call
+ * refuse rather than delete it. Every commit carries this command's own identity
+ * (`b7e-fixture <b7e-fixture@localhost>`), never the machine's ambient git config, and
+ * the tree always gets a bare remote alongside it (`origin`, printed as `remote` in
+ * `--json`) — ready for whatever wants to push a branch at it, without the second
+ * hand-rolled bare repo bc-68ou.15 needed.
+ *
+ * `--file <path>=<literal|@file|->` is repeatable and applied in argument order:
+ * `<path>` is relative to the tree root; the value after `=` is taken as a literal
+ * string, or `@<path>` reads the content from that file (resolved against the directory
+ * this command was run from, not the fixture), or a bare `-` reads it from stdin. A path
+ * under `test/` ending in `.mjs` is collected as a "suite path" in `--json` output.
+ *
+ * `--commit "<message>"` stages everything written since the tree was created (or since
+ * the last `--commit`) and commits it under the identity above, then starts the next
+ * commit — repeatable, so a history is written in argument order. Anything written
+ * *after* the last `--commit` is left uncommitted in the working tree on purpose: that
+ * is what reproduces bc-68ou.14's cp-smoke fixture (`lib/foo.js`, `test/foo.mjs`, one
+ * commit, an uncommitted fix on top of it).
+ *
+ * Prints the absolute path of the tree on stdout and nothing else — everything else
+ * goes to stderr — so `DIR=$(b7e-fixture ...)` is the whole workflow. `--json` prints
+ * one object instead: `dir`, `commits` (`{ sha, message }`, in order), `branches`,
+ * `remote` and `suites` — so a later `--at <sha>` or `--only <suite>` argument to
+ * whatever this fixture is built for can be quoted from here rather than derived by
+ * hand.
+ *
+ * Exit codes: `0` built (or rebuilt) the tree. `1` bad usage — an unrecognised flag, a
+ * `--file` with no `=`, `--file`/`--commit` with no value. `2` the fixture itself could
+ * not be built (git failed, a path escaped the tree, or `--keep` from a previous run
+ * refuses this `--name`).
+ *
+ * @grant excluded
+ */
+import fs from 'node:fs';
+import { buildFixture } from '../lib/fixture.js';
+
+const USAGE = `usage: b7e-fixture [--name <slug>] [--file <path>=<literal|@file|->]... [--commit <message>]... [--keep] [--json]`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+function fail(message) {
+  console.error(`b7e-fixture: ${message}`);
+  console.error(USAGE);
+  process.exit(1);
+}
+
+function readFileValue(spec, filePath) {
+  if (spec === '-') return fs.readFileSync(0, 'utf8');
+  if (spec.startsWith('@')) {
+    const src = spec.slice(1);
+    try {
+      return fs.readFileSync(src, 'utf8');
+    } catch (err) {
+      fail(`--file ${filePath}: could not read ${src}: ${err.message}`);
+    }
+  }
+  return spec;
+}
+
+let name = 'default';
+let keep = false;
+let jsonMode = false;
+const steps = [];
+
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  const next = () => argv[(i += 1)];
+  switch (a) {
+    case '--name': {
+      const v = next();
+      if (v === undefined) fail('--name needs a value');
+      name = v;
+      break;
+    }
+    case '--file': {
+      const spec = next();
+      if (spec === undefined) fail('--file needs a value');
+      const eq = spec.indexOf('=');
+      if (eq === -1) fail(`--file needs "<path>=<literal|@file|->", got ${JSON.stringify(spec)}`);
+      const filePath = spec.slice(0, eq);
+      if (!filePath) fail(`--file ${JSON.stringify(spec)}: no path before "="`);
+      const content = readFileValue(spec.slice(eq + 1), filePath);
+      steps.push({ type: 'file', path: filePath, content });
+      break;
+    }
+    case '--commit': {
+      const message = next();
+      if (!message) fail('--commit needs a message');
+      steps.push({ type: 'commit', message });
+      break;
+    }
+    case '--keep':
+      keep = true;
+      break;
+    case '--json':
+      jsonMode = true;
+      break;
+    default:
+      fail(`unrecognised argument "${a}"`);
+  }
+}
+
+let result;
+try {
+  result = buildFixture({ name, steps, keep });
+} catch (err) {
+  console.error(`b7e-fixture: ${err.message}`);
+  process.exit(2);
+}
+
+if (jsonMode) {
+  console.log(
+    JSON.stringify({
+      dir: result.dir,
+      commits: result.commits,
+      branches: result.branches,
+      remote: result.remote,
+      suites: result.suites,
+    })
+  );
+} else {
+  console.log(result.dir);
+  console.error(
+    `b7e-fixture: ${result.commits.length} commit${result.commits.length === 1 ? '' : 's'}, ${result.suites.length} suite${
+      result.suites.length === 1 ? '' : 's'
+    }, at ${result.dir}`
+  );
+}
+process.exit(0);

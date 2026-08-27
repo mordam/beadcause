@@ -28,6 +28,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { cleanupTmp } from './helpers/tmp.mjs';
+import { provisionBdWorkspace } from './helpers/bdtemplate.mjs';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -59,14 +60,16 @@ if (!bdOnPath) {
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-promoterunbin-'));
 const beadsDir = path.join(tmp, '.beads');
-fs.mkdirSync(beadsDir, { recursive: true });
 
 // Never through a shell — same reason test/closegatereal.mjs gives: ~/.zshenv rewrites
 // BEADS_DIR from the shell's cwd, and this file both closes beads and spawns the real CLI.
 const bdEnv = { ...process.env, BEADS_DIR: beadsDir };
-const init = spawnSync('bd', ['init', '--skip-agents', '--prefix', 'pr'], { env: bdEnv, cwd: tmp, encoding: 'utf8', timeout: 120_000 });
-if (init.status !== 0) {
-  console.error(`  FAIL a temp workspace can be made to ask in — ${(init.stderr || init.stdout || '').split('\n')[0]}`);
+
+// A cached template stands in for `bd init --skip-agents --prefix pr` — see
+// test/helpers/bdtemplate.mjs.
+const init = provisionBdWorkspace({ prefix: 'pr', destRoot: tmp });
+if (!init.ok) {
+  console.error(`  FAIL a temp workspace can be made to ask in — ${init.reason}`);
   await cleanupTmp(tmp);
   console.log('\n1/1 failed\n');
   process.exit(1);

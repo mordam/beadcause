@@ -1,0 +1,136 @@
+#!/usr/bin/env node
+/**
+ * `b7e-gates` — which gate runners are on this Mac, whose worktree each one is, and
+ * ending only mine.
+ *
+ *     b7e-gates                   every runner: pid, kind, worktree, MINE or whose it is
+ *     b7e-gates --mine            only runners in this worktree
+ *     b7e-gates --others          only runners NOT in this worktree
+ *     b7e-gates --end-mine        end every runner in this worktree, verified
+ *     b7e-gates --end-mine --stale   more than one mine: spare the newest, end the rest
+ *     b7e-gates --match <re>      also match this against a process's whole command line
+ *     b7e-gates --dir <path>      "this worktree" is <path>, not the caller's own cwd
+ *     b7e-gates --json            one object per runner instead of the printed report
+ *
+ * bc-khoe.55 names four sessions that each worked this out by hand, unaided, differently
+ * — two got it wrong first. `lib/gates.js` carries the one answer; this file is the argv
+ * parsing and the printing around it, the same split every other `b7e-*` command uses.
+ *
+ * Exit codes: `0` a clean report, or every ended runner verified gone. `1` more than one
+ * runner is mine (a real hazard — see `lib/gates.js`'s `hazardLine`), or `--end-mine`
+ * left a survivor. `2` refused — bad usage.
+ *
+ * @grant excluded
+ */
+import path from 'node:path';
+import {
+  REPO_ROOT,
+  discover,
+  endRunner,
+  exitCodeFor,
+  formatRunner,
+  hazardLine,
+  mineCount,
+  newestMine,
+} from '../lib/gates.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-gates                      every runner: pid, kind, worktree, MINE or whose it is',
+      'b7e-gates --mine                only runners in this worktree',
+      'b7e-gates --others              only runners NOT in this worktree',
+      'b7e-gates --end-mine            end every runner in this worktree, verified',
+      'b7e-gates --end-mine --stale    more than one mine: spare the newest, end the rest',
+      'b7e-gates --match <re>          also match this against a process\'s whole command line',
+      'b7e-gates --dir <path>          "this worktree" is <path>, not the caller\'s own cwd',
+      'b7e-gates --json                one object per runner instead of the printed report',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const DIR = path.resolve(value('--dir', process.cwd()));
+const MATCH = value('--match', null);
+const JSON_MODE = has('--json');
+const MINE_ONLY = has('--mine');
+const OTHERS_ONLY = has('--others');
+const END_MINE = has('--end-mine');
+const STALE = has('--stale');
+
+if (MINE_ONLY && OTHERS_ONLY) {
+  console.error('--mine and --others are opposites — pick one');
+  process.exit(2);
+}
+if (STALE && !END_MINE) {
+  console.error('--stale only means anything with --end-mine');
+  process.exit(2);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+const { runners } = await discover({ dir: DIR, match: MATCH });
+
+let shown = runners;
+if (MINE_ONLY) shown = shown.filter((r) => r.mine);
+if (OTHERS_ONLY) shown = shown.filter((r) => !r.mine);
+
+if (END_MINE) {
+  let toEnd = runners.filter((r) => r.mine);
+  const spared = STALE ? newestMine(runners) : null;
+  if (spared) toEnd = toEnd.filter((r) => r.pid !== spared.pid);
+
+  if (!toEnd.length) {
+    console.log(JSON_MODE ? JSON.stringify({ ended: [] }) : dim('nothing of mine to end'));
+    process.exit(0);
+  }
+
+  const results = [];
+  for (const r of toEnd) {
+    results.push({ runner: r, result: await endRunner(r) });
+  }
+  const anySurvivor = results.some((x) => !x.result.ok);
+
+  if (JSON_MODE) {
+    for (const { runner, result } of results) console.log(JSON.stringify({ pid: runner.pid, runner: runner.runner, ...result }));
+  } else {
+    for (const { runner, result } of results) {
+      const line = `pid ${runner.pid}  ${runner.runner}  ${result.targets.length} process(es) — ${result.ok ? green('ended') : red(`${result.survivors.length} survived: ${result.survivors.join(', ')}`)}`;
+      console.log(line);
+      if (result.refused.length) console.log(dim(`  refused: ${result.refused.map((f) => `${f.pid} (${f.why})`).join(', ')}`));
+    }
+    if (spared) console.log(dim(`spared pid ${spared.pid} (newest)`));
+  }
+  process.exit(anySurvivor ? 1 : 0);
+}
+
+if (JSON_MODE) {
+  for (const r of shown) console.log(JSON.stringify(r));
+  const hazard = hazardLine(runners);
+  console.log(JSON.stringify({ summary: true, total: shown.length, mine: mineCount(runners), hazard }));
+} else {
+  if (!shown.length) {
+    console.log(dim('no gate runners found'));
+  } else {
+    for (const r of shown) {
+      const line = formatRunner(r);
+      console.log(r.mine ? amber(line) : line);
+    }
+  }
+  const hazard = hazardLine(runners);
+  if (hazard) console.log(red(hazard));
+}
+
+process.exit(exitCodeFor(runners));

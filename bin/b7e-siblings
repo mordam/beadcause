@@ -22,6 +22,8 @@
  * Exit codes: `0` ran to completion, whether or not anything collided — an empty answer is
  * the ordinary "nothing holds this", not a failure (see lib/siblings.js). `2` bad usage.
  * `4` `--bead` or `-w` named something this checkout's tracker does not have.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';
@@ -116,29 +118,32 @@ if (beadId) {
 
 const rows = await siblingsFor(ROOT, files, { cfg });
 
+// `process.exit(0)` right after either write below used to drop whatever of it was still
+// pending: stdout to a **pipe** is async, so a `--json` run over many colliding worktrees
+// could cut at the 64KB pipe buffer with a success status and no signal at all
+// (bc-dgx7.45). Falling off the end with `process.exitCode` set instead flushes.
 if (JSON_MODE) {
   for (const row of rows) console.log(JSON.stringify(row));
-  process.exit(0);
-}
+} else {
+  const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+  const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
 
-const dim = (s) => `\x1b[2m${s}\x1b[0m`;
-const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
-
-for (const row of rows) {
-  const who = row.bead
-    ? `${row.bead}${row.session ? `, pid ${row.session.pid}` : ''}`
-    : row.session
-      ? `pid ${row.session.pid}, no bead in its name`
-      : 'no live session found';
-  const lock = row.locked ? (row.lockLive ? ', locked (live)' : ', locked (stale — no live session in it)') : '';
-  const state = row.state === 'pruned' ? yellow(' [pruned — directory is gone]') : '';
-  console.log(`${row.branch} (${who})${lock}${state}`);
-  for (const f of row.files) console.log(`  ${f.file}: ${f.ranges}`);
-  if (row.commits.length) {
-    const more = row.commitsOverflow ? `, +${row.commitsOverflow} more` : '';
-    console.log(dim(`  ${row.commits.length} commit${row.commits.length === 1 ? '' : 's'} ahead of ${BASE_REF} touching these files${more}:`));
-    for (const c of row.commits) console.log(dim(`    ${c.sha} ${c.subject}`));
+  for (const row of rows) {
+    const who = row.bead
+      ? `${row.bead}${row.session ? `, pid ${row.session.pid}` : ''}`
+      : row.session
+        ? `pid ${row.session.pid}, no bead in its name`
+        : 'no live session found';
+    const lock = row.locked ? (row.lockLive ? ', locked (live)' : ', locked (stale — no live session in it)') : '';
+    const state = row.state === 'pruned' ? yellow(' [pruned — directory is gone]') : '';
+    console.log(`${row.branch} (${who})${lock}${state}`);
+    for (const f of row.files) console.log(`  ${f.file}: ${f.ranges}`);
+    if (row.commits.length) {
+      const more = row.commitsOverflow ? `, +${row.commitsOverflow} more` : '';
+      console.log(dim(`  ${row.commits.length} commit${row.commits.length === 1 ? '' : 's'} ahead of ${BASE_REF} touching these files${more}:`));
+      for (const c of row.commits) console.log(dim(`    ${c.sha} ${c.subject}`));
+    }
   }
 }
 
-process.exit(0);
+process.exitCode = 0;

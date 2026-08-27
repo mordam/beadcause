@@ -1,0 +1,213 @@
+#!/usr/bin/env node
+/**
+ * `b7e-deliverbase` — which ref a workspace actually delivers into, before anyone
+ * reads a file.
+ *
+ *     b7e-deliverbase -w deluvia
+ *     b7e-deliverbase -w deluvia --show scripts/check_saga_audit.py
+ *     b7e-deliverbase -w deluvia --json
+ *
+ * bc-dgx7.58. Six sessions in the deluvia workspace (dv-90i, dv-i5v, dv-5f3, dv-2v3,
+ * dv-6cn, dv-3rn.3) each worked out by hand, in six different ways, that the checkout's
+ * own branch is not a superset of the ref beadcause actually delivers its work into —
+ * one found it by a failing `grep` and a wrong guess before recalling a memory note,
+ * one read `git show <base>:<path>` "on purpose" without saying how it knew to, one
+ * called it "the thing that mattered most" only after wasting a worktree based on the
+ * wrong branch, and the last found the source of truth itself (`pr.basePerWorkspace`)
+ * and reported it. See the bead for the full roster.
+ *
+ * **The base is resolved exactly the way a real delivery would resolve it** —
+ * `baseFor` (`lib/prbase.js`), the same call `bin/deliver.js` makes before opening a
+ * pull request — so this never has its own opinion that could drift from what
+ * `deliver.js` actually does. For a single-repo workspace that is `pr.basePerWorkspace`
+ * (falling back to the install-wide `pr.base`, then `main`); for a multi-repo one it is
+ * the repo's own default branch on GitHub, the same as a real delivery would ask for.
+ *
+ * **The checkout is `resolveSessionDir`, never `ws.dir`.** `ws.dir` is the *tracker's*
+ * directory — `~/beads/<name>/.beads` for a personal workspace — and matching it
+ * against a git checkout path only coincidentally works; `resolveSessionDir`
+ * (`lib/session.js`) is the one call already used ~25 places over for "which directory
+ * is this workspace's checkout", including the multi-repo case. See
+ * `beadcause-memory notes a-checkout-dir-is-not-a-workspaces-dir` for the incident that
+ * pins this down.
+ *
+ * **Always the fetched remote, never a stale local branch** — same argument `b7e-base`
+ * makes, and the same reason: a local branch can carry commits nobody has pushed, or
+ * miss ones somebody else has, and only fetching first tells the two apart.
+ *
+ * Reports: the base ref this workspace delivers into and its sha; the checkout's
+ * current branch and whether it is an ancestor of, equal to, or diverged from that
+ * base, with ahead/behind counts; and a loud line naming the top-level paths the base's
+ * tree carries that the checkout's does not — the exact thing none of the six sessions
+ * above could see just by looking at their own `ls`. `--show <path>` cats a file as it
+ * exists *at the base*, which works even where a plain `Read` of the same path in the
+ * checkout fails, because the checkout never had it.
+ *
+ * Refuses with exit `2` rather than guessing: an unknown `-w`, a workspace whose
+ * checkout does not exist on this Mac, `pr.enabled: false` (nothing is delivered
+ * anywhere, so there is no base to report), or a configured base that names no
+ * `origin/<base>` and no local `<base>` at all.
+ *
+ * Exit codes: `0` equal (or `--show` printed the file), `1` ancestor/diverged, `2` bad
+ * usage / nothing to report / the base does not exist / the file is not at the base.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { baseFor } from '../lib/prbase.js';
+import { git, gitCode, ok } from '../lib/gitref.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const name of names) {
+    const at = argv.indexOf(name);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-deliverbase -w <workspace> [--show <path>] [--json]
+
+Which ref this workspace actually delivers into — resolved the same way a real
+\`bin/deliver.js\` delivery would resolve it — and how the checkout compares against it.
+
+  -w, --workspace <name>   required
+  --show <path>            print the file at that base, instead of the comparison
+  --json                   one object on stdout instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const showPath = value('--show');
+const jsonMode = has('--json');
+
+const die = (msg, code = 2) => {
+  console.error(`b7e-deliverbase: ${msg}`);
+  process.exit(code);
+};
+
+if (!wsName) die('-w/--workspace is required\n' + USAGE);
+
+const cfg = loadConfig();
+
+const ws = (cfg.workspaces || []).find((w) => w.name === wsName);
+if (!ws) die(`no workspace named "${wsName}"\nconfigured workspaces: ${(cfg.workspaces || []).map((w) => w.name).join(', ') || 'none'}`);
+
+// `pr.enabled: false` means nothing is delivered anywhere for this install — reporting
+// a base anyway would be exactly the guess this command exists to replace.
+if (cfg.pr?.enabled === false) die(`pr delivery is disabled (pr.enabled: false) — there is nothing for "${wsName}" to deliver into`);
+
+let dir;
+try {
+  dir = resolveSessionDir(cfg, ws);
+} catch (err) {
+  die(err.message);
+}
+if (!fs.existsSync(dir)) die(`no checkout at ${dir} for workspace "${wsName}"`);
+
+const base = await baseFor(cfg, wsName, dir);
+
+const { code: fetchCode } = await gitCode(dir, ['fetch', 'origin', base, '--quiet']);
+const fetched = fetchCode === 0;
+// Not fatal either way — offline, or the base is a local-only branch nobody has ever
+// pushed — the comparison below just runs against whatever origin/<base> already was.
+
+const hasOriginBase = (await ok(git(dir, ['rev-parse', '--verify', '--quiet', `origin/${base}`]))) !== null;
+const hasLocalBase = (await ok(git(dir, ['rev-parse', '--verify', '--quiet', base]))) !== null;
+const upstream = hasOriginBase ? `origin/${base}` : hasLocalBase ? base : null;
+if (!upstream) die(`"${wsName}" is configured to deliver into "${base}", but ${dir} has neither origin/${base} nor a local ${base}`);
+
+const upstreamSha = (await git(dir, ['rev-parse', upstream])).trim();
+const short = (sha) => sha.slice(0, 8);
+
+if (showPath !== undefined) {
+  const content = await ok(git(dir, ['show', `${upstream}:${showPath}`]));
+  if (content === null) die(`${showPath} does not exist at ${upstream} (${short(upstreamSha)})`);
+  process.stdout.write(content);
+  process.exit(0);
+}
+
+const headBranch = (await ok(git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])))?.trim() || '(detached)';
+const head = (await git(dir, ['rev-parse', 'HEAD'])).trim();
+
+const count = async (range) => Number((await git(dir, ['rev-list', '--count', range])).trim());
+const ahead = head === upstreamSha ? 0 : await count(`${upstream}..${head}`);
+const behind = head === upstreamSha ? 0 : await count(`${head}..${upstream}`);
+const state = ahead === 0 && behind === 0 ? 'equal' : ahead === 0 || behind === 0 ? 'ancestor' : 'diverged';
+
+/** A ref's full tree, flat. */
+const listTree = async (sha) => {
+  const out = await ok(git(dir, ['ls-tree', '-r', '--name-only', sha]));
+  return out ? out.trim().split('\n').filter(Boolean) : [];
+};
+
+/** The first path segment — a top-level directory name, or a bare root filename. */
+const topOf = (p) => {
+  const i = p.indexOf('/');
+  return i === -1 ? p : p.slice(0, i);
+};
+
+const baseFiles = await listTree(upstreamSha);
+const headFiles = await listTree(head);
+const headTops = new Set(headFiles.map(topOf));
+const baseFileSet = new Set(baseFiles);
+
+const countByTop = new Map();
+for (const f of baseFiles) {
+  const t = topOf(f);
+  countByTop.set(t, (countByTop.get(t) || 0) + 1);
+}
+// Only a top-level name with *zero* representation in the checkout — a partial overlap
+// (some files under a shared directory name, others not) is not "absent here" and would
+// be noise; the loud line is for what genuinely does not exist in this checkout at all.
+// A top is a bare root file, not a directory, exactly when the tree carries an entry
+// equal to the top segment itself (no further slash) — never guessed from its name.
+const missingHere = [...countByTop.entries()]
+  .filter(([top]) => !headTops.has(top))
+  .map(([path, files]) => ({ path, files, isDir: !baseFileSet.has(path) }))
+  .sort((a, b) => a.path.localeCompare(b.path));
+
+if (jsonMode) {
+  console.log(
+    JSON.stringify({
+      workspace: wsName,
+      dir,
+      base,
+      upstream,
+      fetched,
+      upstreamSha,
+      headBranch,
+      head,
+      state,
+      ahead,
+      behind,
+      missingHere,
+    })
+  );
+} else {
+  const fetchNote = fetched ? '' : '(fetch failed — offline?)';
+  console.log(`[b7e-deliverbase] ${wsName} delivers into ${upstream} (${short(upstreamSha)}) ${fetchNote}`.trim());
+  const stateLabel =
+    state === 'equal'
+      ? `"${headBranch}" is equal to it`
+      : state === 'ancestor'
+        ? ahead === 0
+          ? `"${headBranch}" is an ancestor of it — behind by ${behind} commit${behind === 1 ? '' : 's'}`
+          : `it is an ancestor of "${headBranch}" — ahead by ${ahead} commit${ahead === 1 ? '' : 's'}`
+        : `"${headBranch}" has diverged from it — ${ahead} ahead, ${behind} behind`;
+  console.log(`[b7e-deliverbase] checkout in ${dir}: ${stateLabel}`);
+  if (missingHere.length) {
+    console.log(`[b7e-deliverbase] ${upstream} carries paths this checkout does not have at all:`);
+    for (const { path, files, isDir } of missingHere) {
+      console.log(`  ${path}${isDir ? '/' : ''} (${files} file${files === 1 ? '' : 's'})`);
+    }
+  }
+}
+
+process.exit(state === 'equal' ? 0 : 1);

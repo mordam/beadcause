@@ -40,6 +40,7 @@ process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
 const {
+  ADVOCATE_LABEL,
   EPIC_ADVOCATE,
   WAITING_OPEN,
   WAITING_CLOSE,
@@ -338,6 +339,32 @@ check('`human` wins over a delivery card if somehow both fire', () => {
   assert.ok(!text.includes('delivered, waiting on'), 'one annotation per row, not two');
 });
 
+check('a supervised child epic reads as supervised, and the brief forbids releasing it', () => {
+  // bc-xl7n.118. On a root, `in_progress` is not a worker's claim — `boardMove` writes it
+  // when Adam presses Start, deliberately into the tracker so the board is the same fact
+  // on every device. The stall prescription two sections up (`--status open --assignee ""`)
+  // is that write's exact inverse, so it would silently take the epic off the board.
+  // `reentryFor` already drops such a row from the stall clock; the row is still drawn,
+  // because it is still a child of this epic, and it now says which kind of `in_progress`
+  // it is.
+  const kids = [
+    { id: 'zz-p0.4', title: 'a sub-epic', status: 'in_progress', priority: 0, issue_type: 'epic', labels: [ADVOCATE_LABEL] },
+  ];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam');
+  assert.match(text, /`zz-p0\.4` P0 in_progress — supervised by an advocate of its own, not stalled — a sub-epic/);
+  assert.match(text, /Never run that on a child that is an epic with an advocate of its own/);
+  // The cost, not just the prohibition — and the owner is named off the epic, the same
+  // source the filing bullet above uses, rather than hardcoded.
+  assert.match(text, /takes the epic off \S+'s board/);
+
+  // And the same child with nobody on it is an ordinary row again: the annotation follows
+  // the enrolment, not the type. Asserted on the *row* rather than on the whole brief,
+  // because the caveat prose quotes the annotation — a whole-brief `!includes` here would
+  // be a test that can never fail.
+  const alone = epicAdvocatePrompt('beadcause', p0(), [{ ...kids[0], labels: [] }], null, 'Adam');
+  assert.match(alone, /`zz-p0\.4` P0 in_progress — a sub-epic/, 'an unsupervised sub-epic is just in_progress');
+});
+
 /* --------------------- and what the child list cannot see (bc-khoe.33)
 
    A plan reaches the whole subtree — `unplanned` counts a ready bead at any depth as work
@@ -444,8 +471,11 @@ check('THE DEFAULT IS TO DO IT WHOLE, AND IT SAYS SO', () => {
   // And it is not left as a conclusion in a conversation nobody keeps: the label is what
   // the queue reads, so a decision that does not write it is an epic that stays held.
   assert.ok(text.includes(WHOLE_LABEL), 'the label the queue reads is not named');
-  assert.ok(text.includes(WHOLE_OPEN) && text.includes(WHOLE_CLOSE), 'the block it has to write is not quoted');
-  assert.match(text, new RegExp(`"epic": "${p0().id}"`), 'the block it is handed does not name its own epic');
+  // bc-jvt0.6: it is handed a command to run, not a block to retype by hand — the door
+  // that validates before anything is written, rather than markers it cannot check itself.
+  assert.match(text, new RegExp(`beadcause-epicplan -w beadcause -b ${p0().id}`), 'the validated door is not named');
+  assert.ok(!text.includes(WHOLE_OPEN) && !text.includes(WHOLE_CLOSE), 'it is still quoting the raw markers to retype');
+  assert.match(text, /whole:\s*\n\s*why: \|/, 'the YAML shape it is handed does not match what beadcause-epicplan reads');
   assert.match(text, new RegExp(`floor of\\s+${MIN_WHY_CHARS} characters`), 'the reason has no stated floor');
 });
 

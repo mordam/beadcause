@@ -56,7 +56,10 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 const { Bd } = await import(LIB('bd.js'));
 const { UNENDORSED } = await import(LIB('endorse.js'));
 const { FILED_LABEL, DISCOVERED_FROM } = await import(LIB('filing.js'));
-const { endorsementQueue, forget, sourceOf, toRow, newestFirst, QUEUE_MAX } = await import(LIB('endorsequeue.js'));
+const { endorsementQueue, forget, sourceOf, toRow, newestFirst, latestOf, QUEUE_MAX, COMMENT_PREVIEW } =
+  await import(LIB('endorsequeue.js'));
+
+const cache = await import(LIB('cache.js'));
 
 /* ------------------------------------------------------------------- the stub bd */
 
@@ -93,7 +96,17 @@ const all = () => Object.values(w.issues || {});
 if (args[0] === 'show') {
   const issue = (w.issues || {})[args[1]];
   if (!issue) die('Error fetching ' + args[1] + ': no issue found matching');
-  process.stdout.write(JSON.stringify([issue]));
+  // bd 1.2.1's flag, which is the whole reason the provenance pass costs no more than it
+  // did. Without it here the stub would answer a \`showWithComments\` with no thread and
+  // the suite would pass over a field that never arrives.
+  const withComments = args.includes('--include-comments');
+  const out = withComments ? { ...issue, comments: (w.comments || {})[args[1]] || [] } : issue;
+  process.stdout.write(JSON.stringify([out]));
+  process.exit(0);
+}
+if (args[0] === 'human' && args[1] === 'list') {
+  if (w.humanBroken) die('Error: dolt: could not read');
+  process.stdout.write(JSON.stringify(Object.values(w.questions || {})));
   process.exit(0);
 }
 if (args[0] === 'list') {
@@ -144,6 +157,25 @@ const held = (id, at, extra = {}) => ({
 /** The `dependencies[]` a `bd show` carries, in bd's own shape. */
 const edge = (id, type, title = `the ${type} bead`) => ({ id, title, status: 'open', dependency_type: type });
 
+/** One `bd comments` row, in bd's own shape — oldest first is the order it hands them over. */
+const comment = (author, text, at) => ({ id: `${author}-${at}`, author, text, created_at: at });
+
+/** One open `human` bead, as `bd human list` hands it back. */
+const question = (id, extra = {}) => ({
+  id,
+  title: `Should we do something about it?`,
+  description: '',
+  notes: '',
+  design: '',
+  acceptance_criteria: '',
+  status: 'open',
+  issue_type: 'decision',
+  priority: 1,
+  labels: ['human'],
+  created_at: '2026-08-10T09:00:00Z',
+  ...extra,
+});
+
 function world(extra = {}) {
   return {
     [ALPHA.dir]: {
@@ -157,6 +189,39 @@ function world(extra = {}) {
         // Revoked: keeps the marker on purpose (lib/verdict.js) and must stay out of
         // the queue anyway — the history is not the list of what is waiting.
         'aa-gone': held('aa-gone', '2026-08-10T11:00:00Z', { status: 'closed' }),
+      },
+      /**
+       * The two things a *later* reader wrote, which is the whole of bc-xl7n.76.2.
+       *
+       * Every field of `held()` above is what the filing agent typed at the moment it
+       * found the work. These are what somebody concluded afterwards — an advocate's
+       * comment saying the work is already done, and open `human` beads naming beads by
+       * id. That is the pair bc-wi3s carried on the morning a bulk endorse of 56 took it
+       * anyway, and the row said nothing about either.
+       */
+      comments: {
+        'aa-old': [
+          comment('beadcause', 'Opened a window on it.', '2026-08-11T08:00:00Z'),
+          comment(
+            'bc-xl7n',
+            'I ran the suite on main and it is green — this is finished work.',
+            '2026-08-12T08:00:00Z'
+          ),
+        ],
+      },
+      questions: {
+        // Names a queued bead in its description, the way an advocate's own ask does.
+        'aa-ask': question('aa-ask', {
+          title: 'Close aa-old rather than endorsing it?',
+          description: 'aa-old is already finished work — the suite it names is green on main.',
+          priority: 1,
+        }),
+        // Names a *child* of a queued bead. The parent must not inherit it — see
+        // `namesIn`, and lib/beadref.js for the two ways this truncation has bitten.
+        'aa-child': question('aa-child', { description: 'What about aa-new.3, is that separable?', priority: 0 }),
+        // Names a bead that lives in another workspace. Questions are read per workspace
+        // and joined per workspace: a `bb-mid` written in alpha's tracker is not that bead.
+        'aa-cross': question('aa-cross', { description: 'And bb-mid?', priority: 2 }),
       },
     },
     [BETA.dir]: {
@@ -302,6 +367,102 @@ await check('over the cap, the queue draws what it can and says what it did not'
   writeWorld(world());
 });
 
+/* ------------------------------------------- what was learned after it was filed */
+
+await check('the newest comment rides on the row, bounded, and its absence is null', () => {
+  assert.equal(latestOf([]), null, 'a bead nobody has written on says nothing, rather than an empty quotation');
+  assert.equal(latestOf(null), null);
+  const one = latestOf([comment('a', 'first', '2026-08-01T00:00:00Z'), comment('b', 'last', '2026-08-02T00:00:00Z')]);
+  assert.equal(one.text, 'last', '`bd comments` is oldest first, so the newest is the last of them');
+  assert.equal(one.author, 'b');
+  assert.equal(one.truncated, false);
+  const long = latestOf([comment('a', 'x'.repeat(COMMENT_PREVIEW + 50), '2026-08-01T00:00:00Z')]);
+  assert.equal(long.text.length, COMMENT_PREVIEW, 'sixty full evidence dumps is the megabyte this screen refuses');
+  assert.equal(long.truncated, true, 'and it has to say it was cut, or the row quotes half a sentence as the whole');
+});
+
+await check('a bead with a thread carries what was last said on it — from the same spawn', async () => {
+  cache.clear();
+  const out = await endorsementQueue(bd, [ALPHA, BETA]);
+  const old = out.beads.find((b) => b.id === 'aa-old');
+  assert.equal(
+    old.latestComment.text,
+    'I ran the suite on main and it is green — this is finished work.',
+    'the advocate said this is finished work; a row that showed only a 💬 2 is what let bc-wi3s through'
+  );
+  assert.equal(old.latestComment.author, 'bc-xl7n');
+  assert.equal(old.from.id, 'aa-src', 'and the provenance edge still comes off that same one call');
+  assert.equal(
+    out.beads.find((b) => b.id === 'bb-mid').latestComment,
+    null,
+    'a bead nobody has said anything about draws nothing, not an empty quotation'
+  );
+});
+
+await check('an open human bead that names a queued bead is on its row', async () => {
+  cache.clear();
+  const out = await endorsementQueue(bd, [ALPHA, BETA]);
+  const old = out.beads.find((b) => b.id === 'aa-old');
+  assert.deepEqual(
+    old.questions.map((q) => q.id),
+    ['aa-ask'],
+    'somebody has an open question about this bead, and the row is the only place a bulk press can see it'
+  );
+  assert.equal(old.questions[0].title, 'Close aa-old rather than endorsing it?');
+  assert.equal(old.questions[0].priority, 1, 'how urgent whoever asked thought it was');
+  assert.equal(old.questions[0].key, 'alpha/aa-ask', 'keyed the way every client in this app keys a bead');
+});
+
+await check('a question about a child is not a question about its parent', async () => {
+  cache.clear();
+  const out = await endorsementQueue(bd, [ALPHA, BETA]);
+  assert.deepEqual(
+    out.beads.find((b) => b.id === 'aa-new').questions,
+    [],
+    '`aa-new.3` truncating to `aa-new` is bc-68ou twice over — a question about one child would flag the epic'
+  );
+});
+
+await check('and a question in one workspace never reaches an id in another', async () => {
+  cache.clear();
+  const out = await endorsementQueue(bd, [ALPHA, BETA]);
+  assert.deepEqual(
+    out.beads.find((b) => b.id === 'bb-mid').questions,
+    [],
+    'alpha asking about `bb-mid` is alpha asking about a bead of its own that happens to share a name'
+  );
+});
+
+await check('asked-and-nobody-has is [] and could-not-ask is null — and they are different sentences', async () => {
+  cache.clear();
+  const asked = await endorsementQueue(bd, [ALPHA, BETA]);
+  assert.deepEqual(asked.beads.find((b) => b.id === 'bb-mid').questions, [], 'beta was read, and nothing names it');
+
+  writeWorld({ ...world(), [BETA.dir]: { ...world()[BETA.dir], humanBroken: true } });
+  cache.clear();
+  const blind = await endorsementQueue(bd, [ALPHA, BETA]);
+  assert.equal(
+    blind.beads.find((b) => b.id === 'bb-mid').questions,
+    null,
+    '`[]` here would be the screen saying "nobody has asked" on the strength of a bd call that never came back'
+  );
+  assert.ok(
+    blind.beads.find((b) => b.id === 'aa-old').questions.length,
+    'and the workspace that did answer is unaffected — one broken repo must not blank the others'
+  );
+  writeWorld(world());
+});
+
+await check('the question list is shared with the inbox rather than swept twice', async () => {
+  cache.clear();
+  await endorsementQueue(bd, [ALPHA, BETA]);
+  assert.ok(
+    cache.peek('questions:alpha'),
+    'the key is `questions:<workspace>` — the one `allQuestions()` in lib/server.js already keeps warm, ' +
+      'so a running daemon spends no extra spawn on this at all'
+  );
+});
+
 /* --------------------------------------------------------------------- the cache */
 
 await check('a second sweep inside the window is served from memory, and refresh is not', async () => {
@@ -313,6 +474,115 @@ await check('a second sweep inside the window is served from memory, and refresh
   const fresh = await endorsementQueue(bd, [ALPHA, BETA], { refresh: true });
   assert.ok(!fresh.beads.some((b) => b.workspace === 'beta'), 'refresh really goes and looks');
   writeWorld(world());
+  forget();
+});
+
+/* -------------------------------------------- a queue sweep that ran out of ceiling */
+
+/* bc-774a2. `sweep` cannot throw for a tracker — it catches per workspace — but the wait on
+   a *cold* key can still hit lib/cache.js's ceiling, and this is the most expensive sweep in
+   the app bar one: a `bd list --label` per workspace plus up to forty `bd show`s. 37 child
+   processes and 232 seconds of `bd` work behind this key is how it happened on 2026-08-24.
+   That throw reached the route's catch-all as HTTP 500, which public/report.js reads as *the
+   daemon is failing* and files a P0 incident bead about. `errors[]` is the shape /endorse
+   already draws for a workspace that could not be read.
+
+   Seeded through the cache's own key rather than by slowing the sweep down: what is under
+   test is which of two failures `endorsementQueue` is looking at, and the real ceiling is
+   150s. */
+
+console.log('\nwhen the queue sweep does not come back in time\n');
+
+{
+  forget();
+  let release;
+  const held = cache.read('queue:alpha,beta', () => new Promise((resolve) => (release = resolve)), {
+    freshMs: 10_000,
+    ceilingMs: 5_000,
+  });
+  held.catch(() => {});
+
+  const was = console.error;
+  console.error = () => {};
+  let out;
+  try {
+    out = await endorsementQueue(bd, [ALPHA, BETA], { ceilingMs: 30 });
+  } finally {
+    console.error = was;
+  }
+
+  await check('a cold queue sweep past its ceiling answers rather than throwing', () => {
+    assert.deepEqual(out.beads, []);
+    assert.match(out.errors[0]?.error || '', /did not answer within/);
+  });
+  await check('  — with every workspace in errors[], because none of them was reached', () =>
+    assert.deepEqual(
+      out.errors.map((e) => e.workspace),
+      ['alpha', 'beta']
+    )
+  );
+  await check('  — and the counts say nothing is waiting rather than being absent', () =>
+    assert.deepEqual(out.counts, { total: 0, shown: 0, byWorkspace: {} })
+  );
+  await check('  — and no kept age, because nothing was kept to be old', () => assert.equal(out.kept, null));
+
+  release({ beads: [], errors: [], counts: { total: 0, shown: 0, byWorkspace: {} } });
+  await held.catch(() => {});
+  forget();
+}
+
+/* bc-19vt.1's split, on this caller. The block above shrinks `ceilingMs` alone, shrinking
+   the slot and this call's own wait together. `/api/unendorsed` shrinks neither — it passes
+   `waitMs` on its own and leaves `ceilingMs` at the real default, so the sweep the slot is
+   holding still gets the full 150 seconds while this one caller gives up in a few. */
+{
+  forget();
+  let release;
+  const held = cache.read('queue:alpha,beta', () => new Promise((resolve) => (release = resolve)), {
+    freshMs: 10_000,
+    ceilingMs: 5_000,
+  });
+  held.catch(() => {});
+
+  const was = console.error;
+  console.error = () => {};
+  let out;
+  try {
+    out = await endorsementQueue(bd, [ALPHA, BETA], { waitMs: 30 });
+  } finally {
+    console.error = was;
+  }
+
+  await check("a short `waitMs` alone gives up in seconds, with `ceilingMs` left at the real default", () => {
+    assert.deepEqual(out.beads, []);
+    assert.match(out.errors[0]?.error || '', /did not answer within/);
+  });
+
+  release({ beads: [], errors: [], counts: { total: 0, shown: 0, byWorkspace: {} } });
+  await held.catch(() => {});
+  forget();
+}
+
+/* And the other half of the flag: only the *ceiling* converts. Anything else is a real
+   failure and keeps its 500 — which is why lib/cache.js flags the ceiling error rather than
+   leaving callers to match on its message.
+
+   The clock stands in for that "anything else", and deliberately: `sweep` catches every
+   tracker failure it can have — per workspace for `bd list`, inside `pool` for the
+   provenance `bd show`s, inside lib/openquestion.js for the questions — so there is no
+   broken `bd` that reaches this branch, and the branch is a guard against the failures
+   nobody enumerated rather than against a tracker. A `now` that throws is one of those,
+   and it proves the discriminator is `cache.timedOut` and not a bare catch. */
+await check('anything that is not the ceiling comes back out, and still gets its 500', async () => {
+  forget();
+  await assert.rejects(
+    endorsementQueue(bd, [ALPHA, BETA], {
+      now: () => {
+        throw new Error('the clock is gone');
+      },
+    }),
+    /the clock is gone/
+  );
   forget();
 });
 

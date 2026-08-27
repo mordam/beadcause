@@ -6,7 +6,7 @@
  *     node test/swreport.mjs
  *
  * public/sw.js was the one piece of the app with nothing watching it (bc-u3g4): it runs
- * in its own global, so public/report.js — the reporter on all twelve pages — cannot see
+ * in its own global, so public/report.js — the reporter on all seventeen pages — cannot see
  * a single thing that happens inside it. `caches.addAll(SHELL)` rejecting on install
  * leaves the whole shell uncached and says nothing, and the symptom is an app that is a
  * bit slow offline, for as long as that worker lives.

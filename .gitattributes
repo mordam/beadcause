@@ -1,0 +1,75 @@
+# Four files that every branch appends to, and nothing else.
+#
+# Adding one b7e tool means a new bin/b7e-X, a new lib/X.js and a new test/b7eX.mjs —
+# none of which can conflict, because nothing else has ever seen them — plus one line
+# in each of the four registries below. Those four lines are where the whole conflict
+# load of this repo comes from.
+#
+# Measured 2026-08-26 (bc-8479e) by merging all 34 open pull request branches onto
+# origin/main in a scratch clone, in the order they would reach the head of the queue:
+# 13 of the 34 conflicted. lib/grants.js in 10 of them, lib/toolbelt.js in 5,
+# package.json and package-lock.json in 2, README.md in 3 — and lib/server.js in
+# exactly one, which is the only conflict in the whole set where the two sides had
+# anything to say to each other. Everything else was both sides adding a line.
+#
+# Ten of the fourteen open branches touching lib/grants.js insert at the same line, 333,
+# after the last b7e grant. So the moment any one of them lands the other nine conflict —
+# not by bad luck, but because there is only one place to put the line.
+#
+# `merge=union` is git's built-in driver for exactly this: where both sides added lines
+# in the same place, keep both, in that order, instead of stopping. Re-running the same
+# 34-branch simulation with these four lines took the conflicts from 13 to 4, and the
+# four survivors are all README.md.
+#
+# The tree it produced was right rather than merely parseable: 112 bin entries with no
+# duplicate key anywhere, `node --check` clean on both registries, and test/grants.mjs,
+# test/loadorder.mjs, test/lockfile.mjs and test/anchors.mjs all green over it.
+#
+# What union costs, and where the cost is paid: it keeps both sides even when the two
+# sides *edited* one line rather than appending to it. Two branches changing a grant from
+# read to write would leave the key twice and the last one winning, in silence. That is
+# what test/unionmerge.mjs is for — it fails the repo on a duplicate entry in any of the
+# four, so the one case union gets wrong is the one case that is now loud. Do not add a
+# file here without adding it there.
+#
+# See "Landing work — a branch, a pull request, and a merge queue" in README.md.
+
+package.json       merge=union
+package-lock.json  merge=union
+
+# lib/grants.js and lib/toolbelt.js came off this list in bc-wbrhi, and the reason is
+# worth more than the two lines.
+#
+# They were here because every new b7e tool appended to both. bc-wbrhi is what stopped
+# that: a tool declares `@grant read` in its own header now, and lib/tooldecl.js derives
+# both registries from bin/. Neither file has taken a per-tool line since. So the pressure
+# union was answering is gone from them — and what is left is union's cost.
+#
+# **Union does not just resolve appends. It refuses deletions.** Where one side removes a
+# block and the other edits it, keeping "both sides" means keeping the block. bc-wbrhi's
+# own downmerge proved it the expensive way: this branch had deleted the 34 b7e entries
+# from each file, `main` had added a 35th (b7e-deliverbase, bc-dgx7.58), and the merge
+# reported clean while silently restoring all 35 to `BASE_TOOL_LIST` — 54 entries where
+# there should have been 19, every derived grant then counted twice. Nothing in git said a
+# word. `test/tooldecl.mjs` caught it, which is the only reason this is a paragraph rather
+# than a bug on main.
+#
+# A file that is *appended to* wants union. A file that is *restructured* wants a conflict,
+# because a conflict is a question and union is an answer given without asking. These two
+# are now the second kind.
+
+# package.json and package-lock.json stay, and they are still the first kind: every new
+# bin/ entry is a line in the sorted map and a mirrored line in the lock, b7e or not, and
+# that is an append at a shared anchor exactly as it was. bc-wbrhi generates neither.
+
+# README.md is deliberately NOT here, and it is the file that conflicts most often.
+#
+# It is 2.6MB and 36,601 lines, and all of it is prose. Union's whole trade is that it
+# resolves an append silently — which is right for a list, where a duplicated entry is
+# visible to a scan and now fails a suite, and wrong for a paragraph, where a section
+# quietly appearing twice reads as writing and nothing anywhere would catch it. A
+# conflict in a document is a question worth stopping on.
+#
+# It also does not need it much. The b7e sections append at scattered anchors between
+# roughly lines 18,800 and 21,600 rather than at one shared line, so most of them merge
+# clean on their own — 3 of 34, against lib/grants.js's 10.

@@ -131,17 +131,33 @@ const PAGES = [
     marker: '/endorse.js',
     paths: ['/endorse', '/queue', '/endorsements', '/endorse.html'],
   },
-  // The selected space's settings (bc-khoe.10). Two paths for the same reason the queue
-  // has three: the screen has two honest names — it is the *config* of a space, which is
-  // the word the chip it used to be was labelled with, and it is where its *settings*
-  // are, which is what somebody types. Not `/space`: that reads as the picker rather than
-  // as the thing the picker selects.
-  { what: "the space's settings", marker: '/config.js', paths: ['/config', '/settings', '/config.html'] },
   // The skill library and whether anything uses it (bc-dgx7.5). Two paths, because the
   // page is reached both by what it holds and by what the programme calls the things
   // waiting to become one. No pill claims either, which is the recorded decision in
   // public/viewbar.js for a page you read when you are arguing about the system.
   { what: 'the skills view', marker: '/skills.js', paths: ['/skills', '/candidates', '/skills.html'] },
+  // The foundations register — the standing document behind the app's own design
+  // decisions. It carries no pill and loads no /viewbar.js at all, unlike the two
+  // entries below it: the `‹` anchor at the top of the page (id="back") is its only way
+  // back to the inbox, and it is deliberately the one place left in public/ that still
+  // has one — deleting it strands the page.
+  { what: 'the foundations page', marker: '/foundations.js', paths: ['/foundations', '/foundations.html'] },
+  // The map (bc-34i0). Not a pill on the row — a page you read when you are new to the
+  // system or arguing about it, not one you check. It draws the row anyway, with
+  // nothing on it current, because it is one of the eight pages the deleted bottom bar
+  // used to be the only way off (bc-khoe.1). `/map` as well as `/flow` because both
+  // are what somebody types.
+  { what: 'the map page', marker: '/flow.js', paths: ['/flow', '/map', '/flow.html'] },
+  // The requirement graph and its coverage (bc-fvmx.8). Two paths, because the page is
+  // reached both by what it holds — requirements — and by what a reader actually goes
+  // there to check, which is how much of the corpus is covered. No pill claims it
+  // either, for the same reason /skills has none — it draws the row anyway, with
+  // nothing on it current.
+  {
+    what: 'the requirements page',
+    marker: '/requirements.js',
+    paths: ['/requirements', '/coverage', '/requirements.html'],
+  },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },
@@ -237,6 +253,15 @@ const REDIRECTS = [
   { path: '/releases', to: '/#releases', what: 'the releases view, which is a pane of the shell now' },
   { path: '/deploys', to: '/#releases', what: 'the same, under the word somebody types' },
   { path: '/releases.html', to: '/#releases', what: 'the same, under the name the worker used' },
+  // The selected space's own settings (bc-khoe.10), a pane since bc-khoe.60. Three paths
+  // for the same reason the queue has three: the screen has two honest names — it is the
+  // *config* of a space, which is the word the chip it used to be was labelled with, and
+  // it is where its *settings* are, which is what somebody types — and `.html` is the
+  // name the service worker precached it under. Not `/space`: that reads as the picker
+  // rather than as the thing the picker selects.
+  { path: '/config', to: '/#config', what: 'the space’s settings, which is a pane of the shell now' },
+  { path: '/settings', to: '/#config', what: 'the same, under the word somebody types' },
+  { path: '/config.html', to: '/#config', what: 'the same, under the name the worker used' },
 ];
 
 /* The sessions view's own files. Deleted with it, and named here so a stray copy
@@ -264,6 +289,17 @@ const GONE = ['/work.js'];
 const NEVER_MADE = [
   { path: '/mirror', why: 'the mirror is a pane on /monitor, not a page (bc-3xb)' },
   { path: '/mirror.html', why: 'and there is no document behind it to serve' },
+  // The root of the repo-view family (bc-cft6f). `/v/<workspace>/<id>` is a real address
+  // — it hops to `#<workspace>.<id>` exactly as `/history` hops — but the bare prefix
+  // names no view and never will: there is no such thing as "all repo views", and a page
+  // listing them would be a second, worse Config screen. It 404s, and it is here so that
+  // the registry gate in bin/b7e-owes.js can see the family is accounted for.
+  //
+  // The addresses under it are asserted in test/repoviews.mjs rather than here, because
+  // they only exist for a workspace whose checkout declares a manifest — that suite builds
+  // one in a temporary directory and drives the real server against it, which is not
+  // something this file's fixture has or should grow.
+  { path: '/v', why: 'the repo-view prefix names no view; /v/<workspace>/<id> does (bc-cft6f)' },
 ];
 
 console.log('\npage paths\n');

@@ -1,0 +1,143 @@
+#!/usr/bin/env node
+/**
+ * Every external assertion about a file, before you change it.
+ *
+ *   b7e-claims <path|basename|section-id>   three grouped lists, printed
+ *   b7e-claims <target> --json              one object per line instead
+ *   b7e-claims <target> --dir <root>        another checkout — this is how it is tested,
+ *                                            and how it is meant to be run against a repo
+ *                                            other than this one (deluvia, say)
+ *
+ * bc-dgx7.60 is the audit: five sessions in the deluvia tracker (dv-6cn, dv-gsh, dv-nnk,
+ * dv-i5v, dv-ek4) each hand-derived this exact list before touching a file, because that
+ * repo's own gates assert the *broken* state positively — fixing a thing turns unrelated
+ * scripts red, far from the edit. `lib/corpus.js` is the walk, the target classification
+ * and the markdown-prose half; `lib/probes.js` is the python-gate half. This is the argv
+ * parsing and the printing around both.
+ *
+ * THREE GROUPS, always in this order:
+ *   1. PROSE CLAIMS       markdown lines naming the target, with the sentence
+ *   2. GATE PROBES        python lines naming the target by string literal, with the
+ *                          check id they belong to
+ *   3. NUMERIC LITERALS   module constants in those same gates that would move if the
+ *                          target's referencedness changed, even though nothing in the
+ *                          gate names the target directly (see lib/probes.js's
+ *                          numericLiteralsAtRisk docstring — this is the S5.2 trap)
+ *
+ * Exit codes: `0` ran to completion, whether or not anything was found — an empty
+ * answer means "nothing claims this", not a failure. `2` bad usage.
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { classifyTarget, markdownFiles, pythonFiles, claimsInProse } from '../lib/corpus.js';
+import { claimsInPython, numericLiteralsAtRisk } from '../lib/probes.js';
+
+const USAGE = `usage: b7e-claims <path|basename|section-id> [--dir <root>] [--json]
+
+Every external assertion about a file, before you change it: markdown prose that names
+it, gate probes (scripts/*.py-shaped) whose source literals name it, and numeric
+literals in those gates that would move if it changed — each grouped and, for the gate
+rows, tagged with the check id it belongs to.
+
+  <path>         a repo-relative path, e.g. reference/LORE_PROPOSAL_electric_universe.md
+  <basename>      a bare filename, matched wherever it is named
+  <section-id>    an audit section like S5.1 or B10, matched as a whole word
+
+  --dir <root>   run against another checkout instead of this one's own tree
+  --json         one object per line instead of the printed report`;
+
+function repoRoot(cwd = process.cwd()) {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return cwd;
+  }
+}
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const JSON_MODE = argv.includes('--json');
+let dirGiven;
+const positional = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--dir') {
+    dirGiven = argv[i + 1];
+    i += 1;
+    continue;
+  }
+  if (a === '--json') continue;
+  if (a.startsWith('-')) {
+    console.error(`b7e-claims: unrecognised flag: ${a}`);
+    console.error(USAGE);
+    process.exit(2);
+  }
+  positional.push(a);
+}
+
+if (positional.length !== 1) {
+  console.error(USAGE);
+  process.exit(2);
+}
+
+const target = classifyTarget(positional[0]);
+if (!target) {
+  console.error('b7e-claims: nothing to search for');
+  process.exit(2);
+}
+
+const ROOT = path.resolve(dirGiven || repoRoot());
+
+const mdFiles = markdownFiles(ROOT);
+const pyFiles = pythonFiles(ROOT);
+
+const prose = claimsInProse(ROOT, mdFiles, target);
+const gates = claimsInPython(ROOT, pyFiles, target);
+const numeric = numericLiteralsAtRisk(ROOT, pyFiles, target, mdFiles);
+
+if (JSON_MODE) {
+  for (const r of prose) console.log(JSON.stringify({ group: 'prose', ...r }));
+  for (const r of gates) console.log(JSON.stringify({ group: 'gate', ...r }));
+  for (const r of numeric) console.log(JSON.stringify({ group: 'numeric', ...r }));
+  process.exit(0);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+console.log(bold(`PROSE CLAIMS (${prose.length})`));
+if (!prose.length) console.log(dim('  none'));
+for (const r of prose) {
+  console.log(`  ${r.file}:${r.line}`);
+  console.log(dim(`    ${r.sentence}`));
+}
+
+console.log('');
+console.log(bold(`GATE PROBES (${gates.length})`));
+if (!gates.length) console.log(dim('  none'));
+for (const r of gates) {
+  const id = r.checkId ? ` [${r.checkId}]` : '';
+  console.log(`  ${r.file}:${r.line}${id}`);
+  console.log(dim(`    ${r.text}`));
+}
+
+console.log('');
+console.log(bold(`NUMERIC LITERALS AT RISK (${numeric.length})`));
+if (!numeric.length) console.log(dim('  none'));
+for (const r of numeric) {
+  const id = r.checkId ? ` [${r.checkId}]` : '';
+  console.log(`  ${r.file}:${r.line}${id} ${r.constName} = ${r.constValue}`);
+  console.log(dim(`    ${r.reason}`));
+}
+
+process.exit(0);
