@@ -20,6 +20,8 @@
  * Exit codes: `0` every pattern was counted — zero occurrences is still an answer.
  * `2` refused: bad usage, an unknown workspace, a ref that does not resolve, or a bad
  * `--regex`.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';

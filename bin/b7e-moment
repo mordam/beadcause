@@ -22,6 +22,8 @@
  * not a failure. `2` bad usage (neither a bead id nor `--at`, or both). `3` `--at` did
  * not parse, or the named bead does not exist. `4` `-w` named a workspace this Mac has
  * no config for, or a bead id was given and this checkout resolves to none.
+ *
+ * @grant read
  */
 import { loadConfig } from '../lib/config.js';
 import { workspaceFor } from '../lib/claude.js';

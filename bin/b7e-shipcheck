@@ -16,6 +16,12 @@
  * a detached HEAD, a branch that already is the base, or an uncommitted path anywhere
  * in the tree. `2` — the base could not be resolved at all (no such ref, locally or on
  * `origin`), which is a usage problem rather than a verdict.
+ *
+ * Read-only in the same sense as `b7e-def`/`b7e-owes`: every path through it is a
+ * `git fetch`/`diff`/`status`/`merge-base` read, and it never pushes, commits or talks
+ * to `gh`.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { shipcheck } from '../lib/shipcheck.js';

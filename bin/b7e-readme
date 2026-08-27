@@ -19,6 +19,8 @@
  * Exit codes: `0` something was found. `1` nothing matched — a real answer, not an
  * error (an anchor that resolves to no heading, terms that appear nowhere). `2` refused
  * — bad usage.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { analyze, findByAnchor, readReadme, searchSections } from '../lib/readme.js';

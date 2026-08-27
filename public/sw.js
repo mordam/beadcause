@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v102';
+const CACHE = 'beadcause-v103';
 const SHELL = [
   '/',
   '/index.html',
@@ -237,13 +237,15 @@ const SHELL = [
   // going: the document they used to name is `/`, which is the first line in this list,
   // and `VIEW_HOPS` below is what answers them when there is no daemon to ask.
   '/history.js',
-  // The selected space's own settings (bc-khoe.10). In the shell because it is a pill:
-  // every pill has to open instantly from the row whatever the link is doing. Its rows
-  // come from /api/space, which is never cached — so with no daemon it is an honest
-  // "can't reach the server" rather than a card of switches that would write nowhere.
-  '/config',
-  '/settings',
-  '/config.html',
+  // The selected space's own settings (bc-khoe.10) — a pane of the shell since
+  // bc-khoe.60, drawn by this script wherever that view is up. Its rows come from
+  // /api/space, which is never cached — so with no daemon it is an honest "can't reach
+  // the server" rather than a card of switches that would write nowhere.
+  //
+  // `/config`, `/settings` and `/config.html` are **gone from this list**, under the same
+  // rule the ledger's two obey above: they are a 302 to `/#config` now, and `Cache.put`
+  // refuses a redirected response. `VIEW_HOPS` below is what answers them when there is
+  // no daemon to ask.
   '/config.js',
   // And `/closed` and `/done` are **deliberately not here**, which is the one place in
   // this list where leaving a path out is a decision rather than an oversight.
@@ -505,6 +507,19 @@ self.addEventListener('fetch', (e) => {
  * by `viewAddress` below, on the same split `viewHop` makes in lib/server.js: what the
  * daemon reads stays in front of the `#`, what the view reads goes behind it.
  */
+/*
+  **A scoped address needs no row here, and must not be given one** (bc-xnj67).
+
+  `/bdcoz/personal/deluvia` is the shell at its own address — the space in the path, the
+  view still in the hash — so the `caches.match('/')` at the foot of `fallback` already
+  answers it correctly with no daemon to ask: the shell, served where it was asked for,
+  with the path intact for public/spacebar.js to read off `location.pathname`.
+
+  That is the whole difference between a scope and the entries below. Every one of these
+  exists because a *fragment* had to reach the address bar and only a redirect can put one
+  there. A scope is already in the path the browser asked for, so redirecting it would be
+  this worker rewriting an address that was right when it arrived.
+*/
 const VIEW_HOPS = {
   '/history': { view: 'history' },
   '/history.html': { view: 'history' },
@@ -528,6 +543,10 @@ const VIEW_HOPS = {
   '/releases': { view: 'releases' },
   '/deploys': { view: 'releases' },
   '/releases.html': { view: 'releases' },
+  // The selected space's own settings (bc-khoe.60).
+  '/config': { view: 'config' },
+  '/settings': { view: 'config' },
+  '/config.html': { view: 'config' },
   // The ledger under the name of the one question it is most often asked (bc-nib3.7).
   // Not in SHELL and never was; the difference is that the answer is now knowable here.
   '/closed': { view: 'history', narrow: [['status', 'closed']] },

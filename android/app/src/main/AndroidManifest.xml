@@ -32,6 +32,12 @@
       as an app with an agenda — and everything else here works without it.
     -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!--
+      /sounds' haptic row (bc-ka5y.15.18) — feeling the Decisions channel's own buzz
+      beside a single tick, both fired by the activity rather than by a channel. A
+      normal permission, granted at install with no runtime prompt.
+    -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
