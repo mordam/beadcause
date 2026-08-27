@@ -25,6 +25,7 @@
     "beadcause-endorse": "bin/endorse.js",
     "beadcause-checkin": "bin/checkin.js",
     "beadcause-plan": "bin/plan.js",
+    "beadcause-epicplan": "bin/beadcause-epicplan",
     "beadcause-relay": "bin/relaystep.js",
     "beadcause-promotework": "bin/promotework.js",
     "beadcause-promoterun": "bin/promoterun.js",

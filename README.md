@@ -14332,12 +14332,46 @@ either name beads under the epic or they do not. Here the reason *is* the decisi
 "one job" with nothing behind it is indistinguishable from a window that ran out of turn and
 reached for the cheapest exit. The worker opened on that epic reads it before the diff.
 
-lib/plan.js owns the format, `validateWhole` owns the refusals, and lib/epicadvocate.js
-quotes the block rather than spelling it out — an Epic Advocate writes it with `bd comment`
-and `bd label add`, exactly as it already writes the plan, so the two writers of one document
-cannot drift. `test/wholejob.mjs` drives the real `bin/plan.js` against a fake `bd` for the
-three writes and their order; `test/epicqueue.mjs` pins the hold and every way out of it;
-`test/epicadvocate.mjs` pins one case per answer.
+lib/plan.js owns the format and `validateWhole` owns the refusals. `test/wholejob.mjs` drives
+the real `bin/plan.js` against a fake `bd` for the three writes and their order;
+`test/epicqueue.mjs` pins the hold and every way out of it; `test/epicadvocate.mjs` pins one
+case per answer.
+
+### An Epic Advocate reaches that same door through `beadcause-epicplan`, not by hand-typing the markers
+
+The door above assumes whoever writes the document can run `beadcause-plan` — a real
+`node` process — which is true of a planning **worker** (`worker`'s `allowedTools` is the
+unrestricted CLI default) and was not true of the **Epic Advocate** (bc-jvt0.6). Its
+allowlist (lib/foundation.js's `epic-advocate` role) has no `Bash(node:*)` grant — far too
+wide to add just for this — and `beadcause-plan` is not on PATH regardless, being a
+package.json rename of `bin/plan.js` that only resolves after an `npm link` this install has
+never had (bc-jlop). So until this bead, the one agent that actually writes both of these
+documents wrote them by hand instead: a `bd comment` whose body it typed to match
+`WHOLE_OPEN`/`WHOLE_CLOSE` by eye, then a separate `bd label add`. Nothing checked that what
+it typed was the document it meant — a malformed block reads as no decision at all, and
+silently: the label still goes on, the epic still dispatches, and the reason nobody can
+parse the comment is the only record of why.
+
+`bin/beadcause-epicplan` is the fix, and it is deliberately thin: an extensionless,
+filename-is-the-command wrapper — the same shape `beadcause-get` and
+`beadcause-requirements` already use — that spawns `node bin/plan.js` with its own argv and
+stdin unchanged and exits with whatever that exits with, the same composition
+`b7e-shipgate` uses to spawn `b7e-gate` rather than reimplementing it. It is deliberately
+*not* named `b7e-plan`: lib/tooldecl.js turns any `bin/b7e-*` file's `@grant` header into an
+entry on `DEFAULT_TOOL_LIST`, the read-only surface every `dispatch` reply agent gets, and
+this is neither read-only nor for `dispatch` — it is a tracker write, scoped to the one
+agent that plans epics. It decides nothing of its own: `bin/plan.js` stays the one place
+either document's format, validation and the three-write order live, so a rename there
+cannot leave the wrapper out of step. `Bash(beadcause-epicplan:*)` is on the Epic
+Advocate's allowlist and nowhere else, classified in lib/grants.js as a tracker write held
+only by `epic-advocate` — hand-written there exactly as `beadcause-get` is, rather than
+through `lib/tooldecl.js`'s `@grant` mechanism, because writing a bead's plan is not
+something `dispatch` does at all. lib/epicadvocate.js's brief now tells the agent to pipe
+its YAML into `beadcause-epicplan` for either answer, rather than quoting the markers for
+it to retype. `test/epicplanwrite.mjs` drives the real `bin/beadcause-epicplan` against the
+same fake-`bd` fixture `test/wholejob.mjs` uses, and proves the wrapper is transparent: a
+valid decision reaches the tracker, a refused one is refused with `bin/plan.js`'s own exit
+code and writes nothing, and the flags and stdin survive the extra hop.
 
 **And what happens when that job lands** is the section below: an epic worked as one job is
 delivered by a pull request that merges, and the merge queue deliberately leaves an epic open.
