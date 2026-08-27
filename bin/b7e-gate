@@ -11,6 +11,7 @@
  *     b7e-gate --log /path/to/gate.log      # also write every line here (default: a tmp file, named at the end)
  *     b7e-gate --list                       # what would run, without running it
  *     b7e-gate --dir <root>                 # another tree — this is how it is tested
+ *     b7e-gate --dir <sophab worktree> -- tests.test_report   # the tools/partest.py arm
  *
  * bc-khoe.39: nine sessions each hand-wrote this exact runner into a scratchpad rather than
  * typing `npm test` — which stops dead at the first failing suite and says nothing about
@@ -34,6 +35,13 @@
  * two rather than running on top of them, saying what it is waiting for on stderr.
  * `BEADCAUSE_GATE_SLOTS=0` opts out; CI is exempt without asking.
  *
+ * **`ROOT` learns which repo it is — bc-khoe.61.** `--dir <root>` (or its default,
+ * `REPO_ROOT`) names a tree, and whether that tree is *this* repo's own `scripts/test.mjs`
+ * shape or `tools/partest.py`'s (`lib/pygate.js`'s `isPythonShaped`) decides which arm runs
+ * — a marker on the tree itself, never a name or a config lookup. The Node arm below is
+ * completely unchanged; the Python arm is one child process instead of a discovered suite
+ * list, sharing this same lock and machine-wide slot rather than a second copy of either.
+ *
  * Exit codes: `0` every suite passed, `1` at least one failed or timed out, `2` refused —
  * bad usage, or another `b7e-gate` on this same tree is already running. Waiting for a slot
  * is not a refusal and never exits: it is a queue.
@@ -43,6 +51,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   REPO_ROOT,
+  SLOW_TIMEOUT_MS,
   acquireLock,
   acquireSlot,
   chooseJobs,
@@ -55,6 +64,7 @@ import {
   toJsonRecord,
   waitingLine,
 } from '../lib/gate.js';
+import { PARTEST_REL, commandLine, findInterpreter, isPythonShaped, runPythonGate } from '../lib/pygate.js';
 import { appendResult, endRun, startRun } from '../lib/gaterun.js';
 import { onExit } from '../lib/teardown.js';
 
@@ -79,6 +89,11 @@ const value = (f, fallback) => {
 const ROOT = path.resolve(value('--dir', REPO_ROOT));
 const ONLY = multi('--only');
 const SKIP = multi('--skip');
+/** `PY_ARM`: the tree at `ROOT` is `tools/partest.py`'s shape, not `scripts/test.mjs`'s. */
+const PY_ARM = isPythonShaped(ROOT);
+/** Everything after a literal `--` — forwarded verbatim as `tools/partest.py`'s own argv. */
+const DASH_DASH_AT = argv.indexOf('--');
+const EXTRA_ARGS = DASH_DASH_AT === -1 ? [] : argv.slice(DASH_DASH_AT + 1);
 /**
  * `--jobs` given wins outright — an explicit ask from whoever is running the gate is a real
  * ask, the rule `--timeout` already follows. Given nothing, `chooseJobs` reads the machine
@@ -104,9 +119,34 @@ const leave = async (code) => {
   process.exit(code);
 };
 
+/**
+ * Resolved once, up front, for both `--list` and the real run — a fresh worktree has no
+ * `.venv` of its own (bc-khoe.61's whole reason for existing), so this walks up to the
+ * main checkout before giving up. `--only`/`--skip` are the Node arm's own selection
+ * mechanism (a suite-path glob) and do not mean anything against a single Python process;
+ * refusing rather than silently ignoring them is cheaper than a confused bug report later.
+ */
+let interpreter = null;
+if (PY_ARM) {
+  if (ONLY.length || SKIP.length) {
+    console.error(red('--only/--skip do not apply here — pass module names after -- instead, e.g. b7e-gate -- tests.test_report'));
+    await leave(2);
+  }
+  interpreter = findInterpreter(ROOT);
+  if (!interpreter) {
+    console.error(red(`no .venv/bin/python(3) found in ${ROOT} or its main checkout`));
+    console.error(dim('refusing rather than guessing at an interpreter'));
+    await leave(2);
+  }
+}
+
 if (has('--list')) {
-  const suites = selectSuites(discoverSuites(ROOT), { only: ONLY, skip: SKIP });
-  console.log(suites.join('\n'));
+  if (PY_ARM) {
+    console.log(commandLine(ROOT, { interpreter, extraArgs: EXTRA_ARGS }));
+  } else {
+    const suites = selectSuites(discoverSuites(ROOT), { only: ONLY, skip: SKIP });
+    console.log(suites.join('\n'));
+  }
   await leave(0);
 }
 
@@ -145,7 +185,7 @@ if (slot.waitedMs > 1000 && !JSON_MODE) {
  * every use below is guarded by that, so a run record failing to start never stops the
  * gate itself from running.
  */
-const SELECTED = selectSuites(discoverSuites(ROOT), { only: ONLY, skip: SKIP });
+const SELECTED = PY_ARM ? [PARTEST_REL] : selectSuites(discoverSuites(ROOT), { only: ONLY, skip: SKIP });
 const record = await startRun(ROOT, { suites: SELECTED }).catch(() => null);
 const wallStart = Date.now();
 
@@ -193,11 +233,15 @@ const onResult = (r, done, total) => {
 };
 
 if (!JSON_MODE) {
-  // Said out loud, because the number is no longer a constant anybody can assume: a gate
-  // that took twice as long as yesterday's should be explicable from its own first lines.
-  const limit = slotLimit();
-  const budget = limit ? `, ${limit} gate${limit === 1 ? '' : 's'} at a time on this Mac` : '';
-  console.log(dim(`${jobsLine({ jobs: JOBS, cores: CORES, load: LOAD, explicit: JOBS_EXPLICIT })}${budget}`));
+  if (PY_ARM) {
+    console.log(dim(commandLine(ROOT, { interpreter, extraArgs: EXTRA_ARGS })));
+  } else {
+    // Said out loud, because the number is no longer a constant anybody can assume: a gate
+    // that took twice as long as yesterday's should be explicable from its own first lines.
+    const limit = slotLimit();
+    const budget = limit ? `, ${limit} gate${limit === 1 ? '' : 's'} at a time on this Mac` : '';
+    console.log(dim(`${jobsLine({ jobs: JOBS, cores: CORES, load: LOAD, explicit: JOBS_EXPLICIT })}${budget}`));
+  }
   console.log(dim(`log: ${logPath}`));
   if (record) console.log(dim(`run: ${record.runId} — \`b7e-watch\` reports on it while this runs and after`));
   console.log('');
@@ -205,14 +249,59 @@ if (!JSON_MODE) {
 
 let result;
 try {
-  result = await runGate(ROOT, {
-    only: ONLY,
-    skip: SKIP,
-    jobs: JOBS,
-    timeoutOverrideMs: TIMEOUT_MS,
-    onResult,
-    signalAbort: onExit,
-  });
+  if (PY_ARM) {
+    // No suite list to pool over — one child, gated on its exit code alone (never on
+    // `out`, which the suite fills with `ERROR:` lines on a run that still passes).
+    const live = new Set();
+    const offAbort = onExit(() => {
+      for (const child of live) {
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          /* already gone */
+        }
+      }
+    });
+    const r = await runPythonGate(ROOT, {
+      interpreter,
+      timeoutMs: TIMEOUT_MS ?? SLOW_TIMEOUT_MS,
+      extraArgs: EXTRA_ARGS,
+      live,
+    });
+    offAbort();
+    if (record) {
+      const tail = !r.ok ? String(r.out || '').trim().split('\n').slice(-15).join('\n') : undefined;
+      appendResult(record.file, { suite: PARTEST_REL, status: r.ok ? 'ok' : 'fail', elapsed: r.ms / 1000, tail });
+    }
+    const secs = (r.ms / 1000).toFixed(1);
+    const status = r.timedOut ? 'TIMEOUT' : r.ok ? 'ok' : 'FAIL';
+    if (JSON_MODE) {
+      const line = { index: 1, total: 1, suite: PARTEST_REL, status, code: r.code, signal: r.signal, seconds: Number(secs) };
+      console.log(JSON.stringify(line));
+      logLine(JSON.stringify(line));
+    } else {
+      const mark = r.ok ? green('ok') : status === 'TIMEOUT' ? amber('TIMEOUT') : red('FAIL');
+      console.log(`${dim('[1/1]')} ${mark} ${PARTEST_REL} ${dim(`${secs}s`)}`);
+      logLine(`[1/1] ${status} ${PARTEST_REL} ${secs}s`);
+      if (!r.ok) {
+        const tail = String(r.out || '').trim().split('\n').slice(-15);
+        for (const line of tail) {
+          console.log(dim(`      ${line}`));
+          logLine(`      ${line}`);
+        }
+      }
+    }
+    result = { results: [r], passed: r.ok ? 1 : 0, failed: r.ok ? [] : [{ suite: PARTEST_REL }], total: 1, ok: r.ok };
+  } else {
+    result = await runGate(ROOT, {
+      only: ONLY,
+      skip: SKIP,
+      jobs: JOBS,
+      timeoutOverrideMs: TIMEOUT_MS,
+      onResult,
+      signalAbort: onExit,
+    });
+  }
 } finally {
   releaseLock();
   releaseSlot();
