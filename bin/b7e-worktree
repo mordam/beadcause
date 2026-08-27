@@ -31,6 +31,8 @@
  *
  * Exit codes: `0` clean and current, `1` this worktree is behind local `main`, `2`
  * refused — not run from inside a `.claude/worktrees/<name>` checkout, or bad usage.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';

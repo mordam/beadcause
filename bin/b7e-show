@@ -25,6 +25,8 @@
  * resolve to a real revision, or `--dir`/the cwd is not inside a git repository. A bad
  * `<ref>` is caught before anything is built, so it never leaves even an empty scratch
  * directory behind.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';

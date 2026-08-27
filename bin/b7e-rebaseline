@@ -30,6 +30,8 @@
  * a baseline is never the answer to it. `3` `--write` has had its go and the gate is still
  * red — either its edits were not enough, or no site named the check it belongs to and
  * there was nothing this command was willing to rewrite.
+ *
+ * @grant excluded
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';

@@ -1,0 +1,125 @@
+#!/usr/bin/env node
+/**
+ * `b7e-sheet` — render named sophab drawing sheets at named sizes, instead of
+ * rewriting the harness.
+ *
+ *   b7e-sheet E1 --size small
+ *   b7e-sheet all --size small,big,asbuilt,tall
+ *   b7e-sheet S7 --size 15x12x20 --text
+ *   b7e-sheet E1,E5 --size 22x20x8 --out /tmp/look
+ *
+ * bc-dgx7.13 — see `lib/sheet.js` for the fuller history (three sophab sessions each
+ * hand-built this) and why the actual rendering runs as a `tools/sheet_probe.py`
+ * subprocess in the sophab checkout rather than in this file. This is the argv
+ * parsing and the printing around `lib/sheet.js`'s `runSheetProbe`, the same split
+ * every other `b7e-*` command in this family already uses.
+ *
+ * Exit codes: `0` every requested sheet rendered. `1` sheet_probe.py ran but at least
+ * one sheet failed (still prints the paths that did render). `2` refused — bad usage,
+ * or the sophab checkout / its `.venv` / the companion script isn't there.
+ *
+ * @grant excluded
+ */
+import { defaultSophabRoot, sheetProbeProblem, runSheetProbe } from '../lib/sheet.js';
+
+const USAGE = `usage: b7e-sheet <E1..E9|S1..S10|all>[,...] --size <spec>[,...] [--out <dir>]
+                 [--text] [--json] [--dir <sophab-checkout>]
+
+  <sheets>     comma-separated sheet codes (E1-E9, S1-S10), or 'all' for every sheet
+  --size       comma-separated <run>x<rise>x<length> triples (feet) or named corners:
+                 small    the funnel's own minimum on all three sliders
+                 big      the funnel's own maximum on all three sliders
+                 tall     shortest length, deepest+tallest arch
+                 asbuilt  the as-built reference (solarium.DEFAULT), not a slider corner
+  --out        output directory (default: a fresh tempdir, never inside a checkout)
+  --text       also print every string each rendered sheet actually drew
+  --json       machine-readable {paths, failed, text} instead of the printed report
+  --dir        the sophab checkout to render from (default: ~/neadamthal.projects/sophab,
+               or $SOPHAB_DIR)
+
+Prints one absolute PNG path per line, then (with --text) every sheet's strings grouped
+under '=== <code> @ <size> ==='. A sheet that fails to render at a given size is reported
+on stderr and skipped rather than aborting the rest of the run.`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+function value(flag, i) {
+  const v = argv[i + 1];
+  if (v === undefined) {
+    console.error(`b7e-sheet: ${flag} needs a value`);
+    process.exit(2);
+  }
+  return v;
+}
+
+let size = null;
+let out = null;
+let text = false;
+let json = false;
+let dir = null;
+let sheets = null;
+
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  switch (a) {
+    case '--size':
+      size = value(a, i);
+      i += 1;
+      break;
+    case '--out':
+      out = value(a, i);
+      i += 1;
+      break;
+    case '--text':
+      text = true;
+      break;
+    case '--json':
+      json = true;
+      break;
+    case '--dir':
+      dir = value(a, i);
+      i += 1;
+      break;
+    default:
+      if (a.startsWith('--')) {
+        console.error(`b7e-sheet: unknown flag ${a}`);
+        process.exit(2);
+      }
+      if (sheets !== null) {
+        console.error(`b7e-sheet: only one <sheets> argument, got both '${sheets}' and '${a}'`);
+        process.exit(2);
+      }
+      sheets = a;
+  }
+}
+
+if (!sheets) {
+  console.error('b7e-sheet: needs <sheets>\n');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (!size) {
+  console.error('b7e-sheet: --size is required\n');
+  console.error(USAGE);
+  process.exit(2);
+}
+
+const sophabRoot = dir || defaultSophabRoot();
+const problem = sheetProbeProblem(sophabRoot);
+if (problem) {
+  console.error(`b7e-sheet: ${problem}`);
+  process.exit(2);
+}
+
+const result = runSheetProbe({ sheets, size, out, text, json, sophabRoot });
+if (result.error) {
+  console.error(`b7e-sheet: failed to run sheet_probe.py: ${result.error.message}`);
+  process.exit(2);
+}
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
+process.exit(result.status === null ? 2 : result.status);

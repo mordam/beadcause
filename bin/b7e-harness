@@ -25,6 +25,8 @@
  *
  * Exit codes: `0` printed something. `2` bad usage. `4` the tree has no `test/`, or `--like`
  * named a suite that is not there.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';
