@@ -53,6 +53,8 @@
  * extensionless entry point. bc-dgx7.2 is the bead that is meant to decide this
  * convention properly and it is blocked behind bc-jlop; neither had landed when this
  * shipped, so this decided it the way the standing note on the question says to.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';

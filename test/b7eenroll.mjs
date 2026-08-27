@@ -201,29 +201,43 @@ check('the name appearing outside a ### heading does not count', () => {
 
 console.log('\nthe DEFAULT_TOOL_LIST / lib/grants.js allowlist pair\n');
 
-const TOOLBELT_GRANTED = "export const DEFAULT_TOOL_LIST = [\n  'Bash(b7e-x:*)',\n];\n";
-const TOOLBELT_RECORDED_DECISION = [
-  'export const DEFAULT_TOOL_LIST = [',
-  "  // b7e-x is deliberately NOT on this list — it writes to the tree.",
-  '];',
-  '',
-].join('\n');
-const TOOLBELT_UNADDRESSED = "export const DEFAULT_TOOL_LIST = [\n  'Bash(b7e-other:*)',\n];\n";
+/*
+ * The four cases are bc-khoe.27.11's and they have not changed. What changed in bc-wbrhi
+ * is where the answer is read from: both registries now derive their b7e half from the
+ * tool's own `@grant` line, so the fixture is a tool's source rather than two registries'
+ * source text, and the classification is the map rather than a string to grep.
+ *
+ * The fourth case is the one worth reading twice. It used to be established by the bare
+ * name appearing *anywhere* in the array's comments, which could not tell a decision from
+ * a mention — a tool named in passing inside somebody else's paragraph read as settled.
+ * `@grant excluded` is a thing somebody had to write about this tool.
+ */
+const DECLARED_READ = '#!/usr/bin/env node\n/**\n * Does a thing.\n *\n * @grant read\n */\n';
+const DECLARED_EXCLUDED = '#!/usr/bin/env node\n/**\n * Does a thing.\n *\n * @grant excluded\n */\n';
+const DECLARED_NOTHING = '#!/usr/bin/env node\n/**\n * Does a thing, and nobody has decided about it.\n */\n';
+const CLASSIFIED = { 'Bash(b7e-x:*)': { kind: 'read' } };
 
 check("granted and classified — this is bc-khoe.27.11's acceptance case 3, silent", () => {
-  const p = enroll.allowlistProblem('b7e-x', TOOLBELT_GRANTED, "'Bash(b7e-x:*)': { kind: 'read' },\n");
-  assert.equal(p, null);
+  assert.equal(enroll.allowlistProblem('b7e-x', DECLARED_READ, CLASSIFIED), null);
 });
 check('granted and unclassified — exact wording from the bead', () => {
-  const p = enroll.allowlistProblem('b7e-x', TOOLBELT_GRANTED, "'Bash(b7e-other:*)': { kind: 'read' },\n");
+  const p = enroll.allowlistProblem('b7e-x', DECLARED_READ, { 'Bash(b7e-other:*)': { kind: 'read' } });
   assert.equal(p, 'lib/grants.js: Bash(b7e-x:*) is on DEFAULT_TOOL_LIST and unclassified (test/grants.mjs)');
 });
-check('not granted, but the array records why not — silent (acceptance case 3)', () => {
-  assert.equal(enroll.allowlistProblem('b7e-x', TOOLBELT_RECORDED_DECISION, ''), null);
+check('not granted, but the tool records why not — silent (acceptance case 3)', () => {
+  assert.equal(enroll.allowlistProblem('b7e-x', DECLARED_EXCLUDED, {}), null);
 });
 check('not granted, and nothing says why — named', () => {
-  const p = enroll.allowlistProblem('b7e-x', TOOLBELT_UNADDRESSED, '');
-  assert.match(p, /no Bash\(b7e-x:\*\) on DEFAULT_TOOL_LIST, and no comment/);
+  const p = enroll.allowlistProblem('b7e-x', DECLARED_NOTHING, {});
+  assert.match(p, /no @grant line in its header/);
+});
+check('and a mention of the marker in prose is not a declaration', () => {
+  // lib/tooldecl.js is 582 lines of the tools arguing about each other and it quotes the
+  // marker while doing it. A paragraph saying what to write must not read as having
+  // written it — which is the same class of mistake the old comment-scan made, and the
+  // reason this case is pinned rather than left to the parser's good sense.
+  const prose = '#!/usr/bin/env node\n/**\n * Say `@grant read` in the header, beside the reason.\n */\n';
+  assert.match(enroll.allowlistProblem('b7e-x', prose, {}), /no @grant line in its header/);
 });
 
 /* ===================================================================== *
@@ -240,8 +254,10 @@ console.log('\nproblemsFor scopes the five b7e-only checks correctly\n');
     pkg: { bin: {} },
     lock: { packages: { '': { bin: {} } } },
     readmeSrc: '',
-    toolbeltSrc: TOOLBELT_UNADDRESSED,
-    grantsSrc: '',
+    // No registry text any more — `grants` is the classification map, and the allowlist
+    // answer comes from the tool's own file, which for a name with nothing in `bin/`
+    // reads as no declaration at all. bc-wbrhi.
+    grants: {},
     testDir: fs.mkdtempSync(path.join(tmp, 'emptytest-')),
   };
 
@@ -259,7 +275,10 @@ console.log('\nproblemsFor scopes the five b7e-only checks correctly\n');
     assert.ok(problems.some((p) => p.startsWith('bin/b7e-z:')));
     assert.ok(problems.some((p) => p.startsWith('test/:')));
     assert.ok(problems.some((p) => p.startsWith('README.md:')));
-    assert.ok(problems.some((p) => p.startsWith('lib/toolbelt.js:')));
+    // Matched on what it says rather than on its prefix: since bc-wbrhi the allowlist
+    // finding names the tool's own file, which is the same prefix `binFileProblem` uses,
+    // so a `startsWith` here would be satisfied by that one and stop being a fifth claim.
+    assert.ok(problems.some((p) => /no @grant line in its header/.test(p)));
   });
   check('once package.json is registered too, package-lock.json is checked independently — the sixth', () => {
     const registeredCtx = { ...ctx, pkg: { bin: { 'b7e-z': 'bin/b7e-z' } } };
@@ -301,9 +320,14 @@ console.log('\nend to end, against this repo\n');
   // The acceptance criterion this bead was filed with: `b7e-say` is missing its
   // DEFAULT_TOOL_LIST/grants.js pair. If this goes red because that landed, delete it —
   // it means b7e-enroll did what it was for.
-  check("and it finds the known, filed b7e-say allowlist gap", () =>
+  check('and it finds the known, filed b7e-say allowlist gap', () =>
+    // Still the same gap and still the same tool — what moved in bc-wbrhi is where the
+    // answer is read from, so the finding now names b7e-say's own file rather than the
+    // registry it was absent from. Worth keeping pinned against the live repo: this and
+    // b7e-packet are the two tools nobody has decided about, and a migration that had
+    // quietly decided for them would show up here as silence.
     assert.ok(
-      lines.some((l) => l.startsWith('b7e-say: lib/toolbelt.js:')),
+      lines.some((l) => l.startsWith('b7e-say: ') && /no @grant line in its header/.test(l)),
       lines.join('\n')
     )
   );

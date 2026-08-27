@@ -677,7 +677,10 @@ check('lib/toolbelt.js selects the suites that name the tool list, not everythin
   const total = affected.candidateSuites(affected.REPO_ROOT).length;
   // 205 of 530 before bc-xlz32.7, 196 of those for no reason but the edge.
   assert.ok(suites.length < total / 10, `expected a short, named list; got ${suites.length} of ${total}`);
-  assert.ok(suites.includes(rel('test', 'allowlist.mjs')), 'names DEFAULT_TOOL_LIST');
+  // `BASE_TOOL_LIST` since bc-wbrhi — the `bd` verbs this suite is about are the
+  // hand-written half, which is what stayed in toolbelt.js when the b7e half became
+  // derived. test/allowlist.mjs names it for exactly this reason.
+  assert.ok(suites.includes(rel('test', 'allowlist.mjs')), 'names BASE_TOOL_LIST');
   assert.ok(suites.includes(rel('test', 'loadorder.mjs')), 'names the file — it is the cycle guard toolbelt.js exists for');
 });
 

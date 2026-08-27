@@ -25,6 +25,8 @@
  * Exit codes: `0` the worktree was found, whether or not it has touched anything named
  * — an empty answer is the ordinary "nothing pending", not a failure. `2` bad usage.
  * `4` the name (or `--bead`) named something this repo does not have.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';

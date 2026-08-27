@@ -98,23 +98,36 @@ check('an empty docblock (whitespace/asterisks only) also reports a null questio
 
 console.log('\nallowlistStatus');
 
-const FIXTURE_TOOLBELT = `
-export const DEFAULT_TOOL_LIST = [
-  'Bash(b7e-granted:*)',
-  // b7e-excluded is deliberately NOT on this list, because reasons.
-];
-`;
+/*
+ * Since bc-wbrhi the answer is the tool's own `@grant` line rather than a reading of
+ * lib/toolbelt.js's source text, so the fixture is a tool rather than a registry. The
+ * three states are the same three; what changed is that the middle one is now a sentence
+ * somebody wrote about *this* tool instead of its name turning up in a comment.
+ */
+const declaring = (kind) => `#!/usr/bin/env node\n/**\n * Does a thing.\n *\n * @grant ${kind}\n */\n`;
 
-check('a name whose Bash(name:*) is literally on the list is granted', () => {
-  assert.deepEqual(allowlistStatus('b7e-granted', FIXTURE_TOOLBELT), { granted: true, decided: true });
+check('a tool that declares itself granted is granted', () => {
+  assert.deepEqual(allowlistStatus('b7e-granted', declaring('read')), { granted: true, decided: true });
+  assert.deepEqual(allowlistStatus('b7e-granted', declaring('write')), { granted: true, decided: true });
 });
 
-check('a name mentioned only in a comment is decided-but-not-granted', () => {
-  assert.deepEqual(allowlistStatus('b7e-excluded', FIXTURE_TOOLBELT), { granted: false, decided: true });
+check('a tool that declares itself excluded is decided-but-not-granted', () => {
+  assert.deepEqual(allowlistStatus('b7e-excluded', declaring('excluded')), { granted: false, decided: true });
 });
 
-check('a name nowhere in the array text is undecided', () => {
-  assert.deepEqual(allowlistStatus('b7e-nevermentioned', FIXTURE_TOOLBELT), { granted: false, decided: false });
+check('a tool that declares nothing is undecided', () => {
+  assert.deepEqual(allowlistStatus('b7e-nevermentioned', '#!/usr/bin/env node\n/** Does a thing. */\n'), {
+    granted: false,
+    decided: false,
+  });
+});
+
+check('and being named in somebody else prose is not a decision about it', () => {
+  // The reading this replaced could not tell the two apart: a tool mentioned inside
+  // another tool's paragraph read as decided, which is a decision nobody made. That is
+  // why b7e-say showed as settled in some readings and unpaid in b7e-enroll's.
+  const mentions = '#!/usr/bin/env node\n/**\n * Like `b7e-excluded`, but not.\n */\n';
+  assert.deepEqual(allowlistStatus('b7e-excluded', mentions), { granted: false, decided: false });
 });
 
 /* ---------------------------------------------------------------- readmeAnchorFor */
@@ -190,13 +203,16 @@ const write = (rel, text) => {
   fs.chmodSync(abs, 0o755);
 };
 
+// The `@grant` lines are what `allowlistStatus` reads since bc-wbrhi — granted on one,
+// deliberately excluded on the other, and nothing at all on the third, which is the three
+// states the index has to be able to tell apart.
 write(
   'bin/b7e-foo',
-  "#!/usr/bin/env node\n/**\n * `b7e-foo` — say the foo of a thing.\n *\n *   b7e-foo <name>   the foo\n */\nconsole.log('foo');\n"
+  "#!/usr/bin/env node\n/**\n * `b7e-foo` — say the foo of a thing.\n *\n *   b7e-foo <name>   the foo\n *\n * @grant read\n */\nconsole.log('foo');\n"
 );
 write(
   'bin/b7e-bar',
-  "#!/usr/bin/env node\n/**\n * `b7e-bar` — say the bar of a thing, and whether it is foo-shaped.\n *\n *   b7e-bar <name>   the bar\n */\nconsole.log('bar');\n"
+  "#!/usr/bin/env node\n/**\n * `b7e-bar` — say the bar of a thing, and whether it is foo-shaped.\n *\n *   b7e-bar <name>   the bar\n *\n * @grant excluded\n */\nconsole.log('bar');\n"
 );
 // No docblock at all — the fixture's stand-in for "a command whose docblock does not
 // open with its own name and a question".
@@ -205,10 +221,6 @@ write('bin/b7e-nodoc', "#!/usr/bin/env node\nconsole.log('nodoc');\n");
 write(
   'package.json',
   JSON.stringify({ name: 'fixture', version: '0.0.0', bin: { 'b7e-foo': 'bin/b7e-foo', 'b7e-bar': 'bin/b7e-bar', 'b7e-nodoc': 'bin/b7e-nodoc' } })
-);
-write(
-  'lib/toolbelt.js',
-  "export const DEFAULT_TOOL_LIST = [\n  'Bash(b7e-foo:*)',\n  // b7e-bar is deliberately NOT on this list.\n];\n"
 );
 write('README.md', '# Fixture\n\n### Say the foo of a thing — `b7e-foo`\n\nprose\n');
 
@@ -375,12 +387,12 @@ check('no real command is malformed — every one opens with a readable question
   assert.deepEqual(bad.map((x) => x.name), [], 'a real command has no docblock question to read');
 });
 
-check('b7e-which is on its own DEFAULT_TOOL_LIST — it only ever reads bin/, README.md and lib/toolbelt.js off disk', () => {
+check('b7e-which is on its own DEFAULT_TOOL_LIST — it only ever reads bin/ and README.md off disk', () => {
   const r = run(['--json']);
   const rows = r.stdout.trim().split('\n').map((l) => JSON.parse(l));
   const self = rows.find((x) => x.name === 'b7e-which');
   assert.ok(self, 'b7e-which did not find itself in its own index');
-  assert.equal(self.allowlist.granted, true, 'b7e-which should be granted on DEFAULT_TOOL_LIST — see lib/toolbelt.js');
+  assert.equal(self.allowlist.granted, true, "b7e-which should be granted — see the @grant line in its own header");
 });
 
 /* --------------------------------------------------------------------------- done */

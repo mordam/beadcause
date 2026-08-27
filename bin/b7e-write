@@ -1,0 +1,380 @@
+#!/usr/bin/env node
+/**
+ * One `bd` write that survives contention, instead of a blind retry that double-posts.
+ *
+ *   b7e-write -w deluvia comment dv-vry <<'EOF'
+ *   Whatever happened, however many backticks or heredoc terminators it needs.
+ *   EOF
+ *   b7e-write -w deluvia claim dv-vry
+ *   b7e-write -w deluvia unclaim dv-vry
+ *   b7e-write -w deluvia close dv-vry --reason "duplicate"
+ *   b7e-write -w deluvia update dv-vry --status=open
+ *   b7e-write -w deluvia label add dv-vry human
+ *   b7e-write -w deluvia dep add dv-vry dv-abc
+ *
+ * **bc-dgx7.86, re-filed from dv-k4n.14 (the session audit, lib/sessionaudit.js).**
+ * `bin/b7e-ws` forwards read verbs through `Bd.run` and refuses to mutate anything "on
+ * purpose — this is a lookup, not a second door into bd". Every mutating call a session
+ * needs therefore went out as raw `bd` from a Bash tool call, against a workspace where
+ * embedded Dolt's single writer was contended all afternoon, under the harness's own
+ * 120s ceiling. Three sessions invented three different things, one of them destructive:
+ * dv-k4n.8's `bd comment` timed out, its own check read raced the still-queued write and
+ * answered "No comments", and the session retried — both writes landed, the same finding
+ * twice. dv-b5d.43 spent seven round-trips (`ps | grep`, hand-written `until ! kill -0`
+ * loops) confirming a backgrounded `--claim`. dv-gr6.65 abandoned per-bead reads
+ * entirely after one hung for 2 minutes and exited 143.
+ *
+ * The retry logic already exists and is already correct: `lib/bd.js`'s `run` never
+ * retries a timeout, whatever `retries` says — a timeout means the machine has just
+ * proved it is too busy, and asking again inside the same ceiling wastes the ceiling
+ * twice. What was missing is the step between "the write timed out" and "is it safe to
+ * ask again" — a verification read that can tell "the write is not there" apart from "I
+ * could not find out", because dv-k4n.8's read was exactly the second case dressed as
+ * the first.
+ *
+ * Only the mutating set `b7e-ws` itself refuses is accepted here — `comment`, `update`,
+ * `close`, `claim`, `unclaim`, `label`, `dep` — and anything else (a read verb, `create`,
+ * a typo) is refused before a workspace is even resolved. `claim` is not a real `bd`
+ * verb; it is shorthand for `bd update <id> --claim`, offered because that is the one
+ * shape this very brief tells every session to run first. Prose — a comment's text — is
+ * always `--file <path>` or stdin, never a positional argument: the `b7e-say` rule
+ * (bc-gdub.2) that a Bash tool call's own double-quoted argv re-parses backticks and
+ * `$(...)` before the command they are quoting ever runs. Once read into this process,
+ * the text goes to `execFile` as one argv element with no shell in between, so nothing
+ * about *that* hop needs escaping — see the constructor note in lib/bd.js.
+ *
+ * @grant excluded
+ */
+import fs from 'node:fs';
+import { loadConfig } from '../lib/config.js';
+import { Bd, BD_TIMEOUT } from '../lib/bd.js';
+
+const READ_VERBS = ['show', 'comments', 'list', 'ready', 'search'];
+const WRITE_VERBS = ['comment', 'update', 'close', 'claim', 'unclaim', 'label', 'dep'];
+const SUBVERBED = { label: ['add', 'remove'], dep: ['add', 'remove'] };
+
+/**
+ * The post-timeout verification read runs under the same ceiling as the write it is
+ * checking on — there is no separate number to argue about, and a workspace slow enough
+ * to time out the write is exactly the workspace a shorter ceiling would give up on too
+ * early. One retry only: a timeout is never retried at all (see lib/bd.js), so the only
+ * thing an extra retry here could ever fire on is a Dolt-lock refusal.
+ */
+const VERIFY_RETRIES = 1;
+const WRITE_RETRIES = 4;
+
+const USAGE = `usage: b7e-write -w <workspace> <verb> <id> [args...] [--timeout <ms>]
+
+verbs (mutating, run through Bd with a contention contract):
+  comment <id>                  text from --file <path> or stdin, never argv
+  update <id> [flags...]        forwarded to \`bd update\` verbatim
+  close <id> [flags...]         forwarded to \`bd close\` verbatim
+  claim <id>                    shorthand for \`bd update <id> --claim\`
+  unclaim <id> [flags...]       forwarded to \`bd unclaim\` verbatim
+  label add|remove <id> <label> forwarded to \`bd label add|remove\`
+  dep add|remove <id> <dep-id>  forwarded to \`bd dep add|remove\`
+
+Anything else (show, comments, list, ready, search, create, ...) is refused — use
+b7e-ws for a read, bin/file.js to create.
+
+--timeout <ms> overrides the write's own ceiling (default ${BD_TIMEOUT}ms).
+
+Prints what bd printed, plus one outcome line:
+  landed             wrote on the first attempt
+  already landed     the write timed out, but a verification read found it on the bead —
+                      nothing was retried
+  not landed         the write timed out and a verification read found no trace of it —
+                      safe to retry
+  unconfirmed         the write timed out and the verification read could not answer
+                      either — neither landed nor a retry; check the bead by hand
+  refused             bd's own refusal, verbatim
+
+Exit 0 for landed/already landed, non-zero for everything else.`;
+
+const rawArgv = process.argv.slice(2);
+if (rawArgv.includes('--help') || rawArgv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let wsName;
+let file;
+let timeoutMs = BD_TIMEOUT;
+const rest = [];
+for (let i = 0; i < rawArgv.length; i += 1) {
+  const a = rawArgv[i];
+  if (a === '-w' || a === '--workspace') {
+    wsName = rawArgv[i + 1];
+    i += 1;
+    continue;
+  }
+  if (a === '--file' || a === '-f') {
+    file = rawArgv[i + 1];
+    i += 1;
+    continue;
+  }
+  if (a === '--timeout') {
+    timeoutMs = Number(rawArgv[i + 1]);
+    i += 1;
+    continue;
+  }
+  rest.push(a);
+}
+
+const cfg = loadConfig();
+
+if (!wsName) {
+  console.error('b7e-write: -w/--workspace is required');
+  console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+  console.error(USAGE);
+  process.exit(1);
+}
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  console.error(`b7e-write: no workspace named "${wsName}"`);
+  console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+  process.exit(2);
+}
+
+const verb = rest[0];
+if (!verb) {
+  console.error('b7e-write: a mutating verb is required');
+  console.error(USAGE);
+  process.exit(1);
+}
+if (!WRITE_VERBS.includes(verb)) {
+  if (READ_VERBS.includes(verb)) {
+    console.error(`b7e-write: "${verb}" is a read — use b7e-ws -w ${wsName} ${verb} ..., not this door`);
+  } else {
+    console.error(`b7e-write: "${verb}" is not a mutating verb — only ${WRITE_VERBS.join(', ')} are accepted`);
+  }
+  process.exit(3);
+}
+
+let sub = null;
+let idIdx = 1;
+if (SUBVERBED[verb]) {
+  sub = rest[1];
+  if (!SUBVERBED[verb].includes(sub)) {
+    console.error(`b7e-write: "bd ${verb}" needs ${SUBVERBED[verb].join('|')}, got "${sub || ''}"`);
+    process.exit(1);
+  }
+  idIdx = 2;
+}
+const id = rest[idIdx];
+if (!id) {
+  console.error(`b7e-write: an issue id is required — ${USAGE.split('\n')[0]}`);
+  process.exit(1);
+}
+const tail = rest.slice(idIdx + 1);
+
+let body = null;
+if (verb === 'comment') {
+  if (tail.length) {
+    console.error(
+      'b7e-write: comment text is never a positional argument — pass --file <path> or pipe it on stdin ' +
+        '(the b7e-say rule, bc-gdub.2: a Bash tool call re-parses backticks in a quoted argv token before ' +
+        'the command it is quoting ever runs)'
+    );
+    process.exit(1);
+  }
+  const raw = file ? fs.readFileSync(file, 'utf8') : fs.readFileSync(0, 'utf8');
+  body = raw.trim();
+  if (!body) {
+    console.error(`b7e-write: nothing to say — pipe text in or pass --file, ${id} was not touched`);
+    process.exit(1);
+  }
+}
+
+function buildArgs() {
+  switch (verb) {
+    case 'comment':
+      return ['comment', id, body];
+    case 'claim':
+      return ['update', id, '--claim', ...tail];
+    case 'update':
+      return ['update', id, ...tail];
+    case 'close':
+      return ['close', id, ...tail];
+    case 'unclaim':
+      return ['unclaim', id, ...tail];
+    case 'label':
+      return ['label', sub, id, ...tail];
+    case 'dep':
+      return ['dep', sub, id, ...tail];
+    default:
+      throw new Error(`unreachable verb ${verb}`);
+  }
+}
+
+/**
+ * Turn `--flag value` / `--flag=value` / `-a value` into a map, so the generic `update`
+ * verifier can ask "did the field this flag names come back the way it was asked" without
+ * re-parsing bd's own flag grammar from scratch. Repeatable flags (`--add-label`) collect
+ * into an array; anything else keeps the last value, matching bd's own "last flag wins".
+ */
+function collectFlags(argv) {
+  const short = { a: 'assignee', s: 'status', d: 'description', p: 'priority' };
+  const out = {};
+  const put = (name, val) => {
+    if (out[name] === undefined) out[name] = val;
+    else if (Array.isArray(out[name])) out[name].push(val);
+    else out[name] = [out[name], val];
+  };
+  for (let i = 0; i < argv.length; i += 1) {
+    const t = argv[i];
+    if (t.startsWith('--')) {
+      const eq = t.indexOf('=');
+      if (eq > -1) {
+        put(t.slice(2, eq), t.slice(eq + 1));
+      } else {
+        const next = argv[i + 1];
+        if (next !== undefined && !next.startsWith('-')) {
+          put(t.slice(2), next);
+          i += 1;
+        } else {
+          put(t.slice(2), true);
+        }
+      }
+    } else if (t.startsWith('-') && t.length === 2 && short[t.slice(1)]) {
+      put(short[t.slice(1)], argv[i + 1]);
+      i += 1;
+    }
+  }
+  return out;
+}
+
+const UPDATE_FIELD_CHECK = {
+  claim: (_val, row) => row.status === 'in_progress' && Boolean(row.assignee),
+  status: (val, row) => row.status === val,
+  assignee: (val, row) => row.assignee === val,
+  title: (val, row) => row.title === val,
+  description: (val, row) => row.description === val,
+  notes: (val, row) => row.notes === val,
+  'append-notes': (val, row) => String(row.notes || '').includes(String(val)),
+  'add-label': (val, row) => [].concat(val).every((l) => (row.labels || []).includes(l)),
+  'remove-label': (val, row) => [].concat(val).every((l) => !(row.labels || []).includes(l)),
+  parent: (val, row) => row.parent === val,
+};
+
+/**
+ * One extra read, never through `Bd.comments`/`Bd.show` — those wrappers swallow a
+ * timeout into an empty answer, which is exactly the shape that caused dv-k4n.8's
+ * double-post: an answer that LOOKS like "nothing here" is indistinguishable from "I do
+ * not know". `bd.json` propagates a timeout as a rejection instead, which is what lets
+ * the caller tell "confirmed absent" apart from "could not confirm".
+ *
+ * Returns `true` (landed), `false` (confirmed not landed — safe to retry), or `null`
+ * (the read answered but this shape cannot be judged from it, e.g. an `update` with no
+ * recognised field). A read that itself throws (including a second timeout) is left to
+ * propagate — the caller reports that as "unconfirmed".
+ */
+async function verifyLanded(bd) {
+  switch (verb) {
+    case 'comment': {
+      const rows = await bd.json(ws, ['comments', id], { timeout: timeoutMs, retries: VERIFY_RETRIES });
+      return (rows || []).some((c) => String(c.text || '').trim() === body);
+    }
+    case 'claim': {
+      const rows = await bd.json(ws, ['show', id], { timeout: timeoutMs, retries: VERIFY_RETRIES });
+      const row = (rows || [])[0];
+      return Boolean(row && row.status === 'in_progress' && row.assignee);
+    }
+    case 'unclaim': {
+      const rows = await bd.json(ws, ['show', id], { timeout: timeoutMs, retries: VERIFY_RETRIES });
+      const row = (rows || [])[0];
+      return Boolean(row && row.status === 'open' && !row.assignee);
+    }
+    case 'close': {
+      const rows = await bd.json(ws, ['show', id], { timeout: timeoutMs, retries: VERIFY_RETRIES });
+      const row = (rows || [])[0];
+      return Boolean(row && row.status === 'closed');
+    }
+    case 'label': {
+      const rows = await bd.json(ws, ['show', id], { timeout: timeoutMs, retries: VERIFY_RETRIES });
+      const row = (rows || [])[0];
+      const labels = (row && row.labels) || [];
+      const wanted = String(tail[0] || '')
+        .split(',')
+        .filter(Boolean);
+      if (!wanted.length) return null;
+      return sub === 'add' ? wanted.every((l) => labels.includes(l)) : wanted.every((l) => !labels.includes(l));
+    }
+    case 'dep': {
+      const depId = tail[0];
+      if (!depId) return null;
+      const rows = await bd.json(ws, ['dep', 'list', id], { timeout: timeoutMs, retries: VERIFY_RETRIES });
+      const present = (rows || []).some((r) => String(r.id).toLowerCase() === String(depId).toLowerCase());
+      return sub === 'add' ? present : !present;
+    }
+    case 'update': {
+      const flags = collectFlags(tail);
+      const known = Object.keys(flags).filter((k) => k in UPDATE_FIELD_CHECK);
+      if (!known.length) return null;
+      const rows = await bd.json(ws, ['show', id], { timeout: timeoutMs, retries: VERIFY_RETRIES });
+      const row = (rows || [])[0];
+      if (!row) return false;
+      return known.every((k) => UPDATE_FIELD_CHECK[k](flags[k], row));
+    }
+    default:
+      return null;
+  }
+}
+
+async function main() {
+  const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+  const bdArgs = buildArgs();
+
+  let stdout;
+  try {
+    stdout = await bd.run(ws, bdArgs, { retries: WRITE_RETRIES, timeout: timeoutMs });
+  } catch (err) {
+    if (!err.timedOut) {
+      process.stdout.write(err.stdout || '');
+      console.error(`b7e-write: refused — ${err.message}`);
+      process.exitCode = 1;
+      return;
+    }
+    // The write's own ceiling (or an active quarantine) fired. Never retried blindly —
+    // one verification read decides what actually happened. A FRESH `Bd` — never the
+    // one the write just used — because `run`'s quarantine is keyed per-instance and is
+    // set the moment the write times out: reusing `bd` here would have the verification
+    // read refused before it ever spawned, on every single timeout, which is the one
+    // case this whole command exists to answer.
+    const verifyBd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+    let verdict;
+    try {
+      verdict = await verifyLanded(verifyBd);
+    } catch (verifyErr) {
+      console.error(`b7e-write: unconfirmed — ${err.message}`);
+      console.error(`  the verification read could not answer either: ${verifyErr.message}`);
+      console.error(`  neither landed nor a retry — check ${id} in ${ws.name} by hand before trying again`);
+      process.exitCode = 1;
+      return;
+    }
+    if (verdict === true) {
+      console.log(`b7e-write: already landed — ${err.message}`);
+      console.log('  a verification read found the write on the bead; nothing was retried');
+      process.exitCode = 0;
+      return;
+    }
+    if (verdict === false) {
+      console.error(`b7e-write: not landed — ${err.message}`);
+      console.error('  a verification read found no trace of it — safe to retry');
+      process.exitCode = 1;
+      return;
+    }
+    console.error(`b7e-write: unconfirmed — ${err.message}`);
+    console.error(`  the verification read answered but this write's shape cannot be judged from it`);
+    console.error(`  neither landed nor a retry — check ${id} in ${ws.name} by hand before trying again`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(stdout);
+  console.log('b7e-write: landed');
+}
+
+main().catch((err) => {
+  console.error(`b7e-write: ${err.message}`);
+  process.exit(1);
+});
