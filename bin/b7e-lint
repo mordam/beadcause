@@ -26,6 +26,8 @@
  *
  * Exit codes: `0` every file given was clean, or there was nothing to lint; `1` at least
  * one file has a finding; `2` refused — bad usage, or `--dir` does not resolve.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';
