@@ -6876,6 +6876,26 @@ have lied about:
   the first millisecond already knew. Fine while a refused edge was an accident; not fine
   on `/api/console/create`, which is a tap on a phone.
 
+**And the rule reaches two writers that are not in the daemon at all.** `Bd.addDep` is
+the funnel for every declared edge the daemon writes, and it is `async` all the way down
+because everything around it is. Two more run in a worker's terminal over a synchronous
+`(argv) => stdout` runner — `park`, which is what `beadcause-ask --blocks`,
+`beadcause-propose --kind conflict` and `beadcause-deliver` use to hold work behind a
+question, and `mark`, which puts a `superseded-by:` marker on a duplicate. Neither could
+reach the funnel, so neither carried the rule. `addDeclaredEdge` in `lib/mentions.js` is
+the synchronous half of it: the same `demoteRows` judgement, the same both-ends demotion,
+the same one retry and no loop, and a refusal over anything that is not a see-also is
+thrown back at the caller in bd's own words exactly as before.
+
+Worth doing before either path could actually collide, because the two failures are not
+the same size. `mark`'s fallback is a note — the `superseded-by:` label holds the bead
+whether or not the edge went in, so the collision costs the graph record. `park`'s
+fallback is to label the *work* bead `human`, which takes it out of every queue **and does
+not come off when the question is answered**. So there a collision does not lose an edge,
+it strands the bead until somebody goes back to it deliberately — and a bead whose
+description says why it is waiting on `bc-x`, which is the description doing its job, is
+exactly the bead a mention would have got to first.
+
 One thing it does not fix, deliberately: the `blocks N` pill at first paint is
 `dependent_count` straight from bd, which counts every edge pointing at a bead — children
 already, and now see-alsos too. It is replaced by the real rows the moment
@@ -6886,7 +6906,11 @@ argv, and the two client-side spellings in source) and by `test/graphwaits.mjs`,
 where the `relates-to` spelling is held to not blocking anything. The precedence rule has
 its own two: `test/declarededge.mjs` against a fake `bd` that remembers its own edges, and
 `test/declarededgereal.mjs`, which files a bead whose description names the bead it depends
-on against the real binary and asks bd what is left.
+on against the real binary and asks bd what is left. The synchronous half is pinned where
+each of its two callers already is — `test/park.mjs`, whose stub `bd` grew bd's
+one-row-per-ordered-pair rule so a park can be refused over a mention and go in anyway,
+and `test/superseded.mjs`, where the same collision is staged against a `bd` with a graph
+behind it.
 
 ### The glass in the middle
 
