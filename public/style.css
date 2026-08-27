@@ -6756,6 +6756,13 @@ a.pill { text-decoration: none; }
 .model-why.is-bad { color: var(--warn); font-style: normal; }
 .model-ran { margin-left: auto; color: var(--muted); }
 .model-ran.is-diverged { color: var(--warn); }
+/* And whether the hour fitted the window that model came with (bc-nc6o.8). Sits after the
+   run because it is a fact about it, and `.model-ran` already holds the `margin-left: auto`
+   that pushes the pair to the right of the row. `is-over` is a warning in the same sense
+   `is-diverged` is: the plan and the outcome came apart, and this is the more expensive of
+   the two ways that can happen — an unattended hour that spent part of itself compacting. */
+.model-ctx { color: var(--muted); }
+.model-ctx.is-over { color: var(--warn); }
 
 /* Where the ruling on this bead is — the approval row on the bead sheet (bc-bmry.5,
    `approvalRowHtml`). Shaped like `.model-row` and `.owner-row` above it because it sits

@@ -1,0 +1,218 @@
+#!/usr/bin/env node
+/**
+ * `b7e-field` — the exact bytes of one field of one bead, raw, and the readback that
+ * proves a write landed.
+ *
+ *   b7e-field -w beadcause -b bc-xyz notes
+ *   b7e-field -w beadcause -b bc-xyz description acceptance
+ *   b7e-field -w beadcause -b bc-xyz --all
+ *   b7e-field -w beadcause -b bc-xyz notes --len
+ *   b7e-field -w beadcause -b bc-xyz notes --verify /tmp/expected.txt
+ *
+ * `bc-dgx7.26`, filed by the session audit against five sessions that each needed one
+ * field's exact bytes and each wrote its own extractor: a `node -e` piped from
+ * `bd show --json`, a fistful of `python3 -c` one-offs (one session wrote five, another
+ * four), a scratchpad `extract.py` that got refused by the classifier and was redone
+ * inline. Two of them could not use `bd show` at all without a detour — it emitted
+ * 37.8 KB and 83.8 KB, both persisted to a tool-result file that then had to be read
+ * back and grepped. The other half of the same shape is verifying a write landed —
+ * `byte-identical: True 4147`, `before 6178 after 5772` — the same question asked three
+ * ways, none of them reusable. This is `Bd.show` (`lib/bd.js`) and `loadConfig`
+ * (`lib/config.js`), already imported by `bin/b7e-plancheck`, plus the argv and the
+ * printing around them.
+ *
+ * A field name is one of the fixed set below — never a raw `bd` JSON key, so `acceptance`
+ * (not `acceptance_criteria`) is what a caller types. `--len` prints byte counts instead
+ * of bodies, useful for the same reason two of the five sessions this replaces reached
+ * for it: to know whether a body is safe to print at all before printing it. `--verify
+ * <file>` is the write-landed half — read the field, diff it against a file byte for
+ * byte, print nothing and exit 0 if identical, or a `git diff --no-index` unified diff
+ * and exit 1 if not.
+ *
+ * Exit codes: `0` printed (or `--verify` found no difference). `1` `--verify` found a
+ * difference. `2` refused — bad usage, an unknown field name (naming the ones that do
+ * exist), an unconfigured workspace, or the bead does not exist.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+
+const USAGE = `usage: b7e-field -w <workspace> -b <bead> <field> [<field> ...] [--len]
+       b7e-field -w <workspace> -b <bead> --all [--len]
+       b7e-field -w <workspace> -b <bead> <field> --verify <file>
+
+  <field>...          one or more of: ${'description design notes acceptance labels status assignee priority title'}
+  -w, --workspace <n>  which tracker <bead> lives in (required)
+  -b, --bead <id>      the bead to read (required)
+  --all                every field that has a value, instead of naming them
+  --len                print "<field> <bytes>" instead of the body
+  --verify <file>      compare the one named field's live body against <file>, byte for
+                       byte; prints nothing and exits 0 if identical, a unified diff and
+                       exits 1 if not. Needs exactly one field (no --all, no --len).`;
+
+// Declared in the order the bead itself names them — also the order `--all` prints in.
+const FIELD_ORDER = ['description', 'design', 'notes', 'acceptance', 'labels', 'status', 'assignee', 'priority', 'title'];
+const FIELD_KEYS = {
+  description: 'description',
+  design: 'design',
+  notes: 'notes',
+  acceptance: 'acceptance_criteria',
+  labels: 'labels',
+  status: 'status',
+  assignee: 'assignee',
+  priority: 'priority',
+  title: 'title',
+};
+
+function fail(msg, code) {
+  console.error(`b7e-field: ${msg}`);
+  process.exit(code);
+}
+
+/** The raw printed body for one field — a string, never `undefined`/`null`. */
+function rawBody(bead, field) {
+  const v = bead[FIELD_KEYS[field]];
+  if (field === 'labels') return Array.isArray(v) ? v.join('\n') : '';
+  if (v === undefined || v === null) return '';
+  return String(v);
+}
+
+/** Whether a field carries something worth printing under `--all`. */
+function hasValue(bead, field) {
+  const v = bead[FIELD_KEYS[field]];
+  if (field === 'labels') return Array.isArray(v) && v.length > 0;
+  if (field === 'priority') return v !== undefined && v !== null;
+  return typeof v === 'string' && v.length > 0;
+}
+
+const argvIn = process.argv.slice(2);
+if (argvIn.includes('-h') || argvIn.includes('--help')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let wsName = null;
+let beadId = null;
+let allMode = false;
+let lenMode = false;
+let verifyFile = null;
+const fields = [];
+
+for (let i = 0; i < argvIn.length; i += 1) {
+  const a = argvIn[i];
+  if (a === '-w' || a === '--workspace') {
+    wsName = argvIn[i + 1];
+    i += 1;
+  } else if (a === '-b' || a === '--bead') {
+    beadId = argvIn[i + 1];
+    i += 1;
+  } else if (a === '--all') {
+    allMode = true;
+  } else if (a === '--len') {
+    lenMode = true;
+  } else if (a === '--verify') {
+    verifyFile = argvIn[i + 1];
+    i += 1;
+  } else if (a.startsWith('-') && a !== '-') {
+    fail(`unrecognised flag: ${a}\n${USAGE}`, 2);
+  } else {
+    fields.push(a);
+  }
+}
+
+if (!wsName || !beadId) fail(`-w/--workspace and -b/--bead are both required\n${USAGE}`, 2);
+if (allMode && fields.length) fail(`--all and named fields are mutually exclusive\n${USAGE}`, 2);
+if (!allMode && !fields.length) fail(`name at least one field, or pass --all\n${USAGE}`, 2);
+if (verifyFile !== null) {
+  if (lenMode) fail('--verify and --len are mutually exclusive', 2);
+  if (allMode || fields.length !== 1) fail('--verify needs exactly one field, not --all and not more than one', 2);
+}
+
+const unknown = fields.filter((f) => !(f in FIELD_KEYS));
+if (unknown.length) {
+  fail(`unrecognised field(s): ${unknown.join(', ')} — the fields are: ${FIELD_ORDER.join(', ')}`, 2);
+}
+
+const cfg = loadConfig();
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  console.error(`b7e-field: no such workspace "${wsName}"`);
+  console.error(`workspaces: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
+  process.exit(2);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+let bead;
+try {
+  bead = await bd.show(ws, beadId);
+} catch (err) {
+  fail(`could not read ${beadId} (${err.message.split('\n')[0]})`, 2);
+}
+if (!bead) fail(`${ws.name} has no bead ${beadId}`, 2);
+
+const wanted = allMode ? FIELD_ORDER.filter((f) => hasValue(bead, f)) : fields;
+
+if (verifyFile !== null) {
+  const field = wanted[0];
+  const live = rawBody(bead, field);
+  let target;
+  try {
+    target = fs.readFileSync(verifyFile);
+  } catch (err) {
+    fail(`could not read ${verifyFile} (${err.message.split('\n')[0]})`, 2);
+  }
+  const liveBuf = Buffer.from(live, 'utf8');
+  if (liveBuf.equals(target)) process.exit(0);
+
+  // `git diff --no-index` gives a real unified diff between two arbitrary files
+  // without needing either one to be inside a git repo — the same trick lib/show.js
+  // uses for a ref, applied here to a scratch copy of the live field.
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-b7efield-'));
+  const liveFile = path.join(scratch, `live-${field}`);
+  fs.writeFileSync(liveFile, liveBuf);
+  try {
+    const out = execFileSync('git', ['diff', '--no-index', '--', liveFile, verifyFile], {
+      encoding: 'utf8',
+      cwd: scratch,
+    });
+    process.stdout.write(out);
+  } catch (err) {
+    // git diff --no-index exits 1 (and writes the diff to stdout) when the files
+    // differ, which execFileSync treats as a thrown error rather than a return value.
+    if (err.status === 1 && typeof err.stdout === 'string') process.stdout.write(err.stdout);
+    else fail(`git diff --no-index failed (${(err.stderr || err.message).toString().split('\n')[0]})`, 2);
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+  process.exit(1);
+}
+
+if (lenMode) {
+  for (const field of wanted) {
+    console.log(`${field} ${Buffer.byteLength(rawBody(bead, field), 'utf8')}`);
+  }
+  process.exit(0);
+}
+
+wanted.forEach((field, i) => {
+  const body = rawBody(bead, field);
+  if (wanted.length > 1) {
+    if (i > 0 && !body.endsWith('\n')) process.stdout.write('\n');
+    process.stdout.write(`── ${field}\n`);
+  }
+  process.stdout.write(body);
+});
+if (wanted.length === 1) {
+  // Single-field mode is the byte-for-byte case the acceptance criteria names — no
+  // added newline, so a caller diffing this output against a file sees exactly the
+  // field's own bytes and nothing this command appended.
+} else if (wanted.length && !rawBody(bead, wanted[wanted.length - 1]).endsWith('\n')) {
+  process.stdout.write('\n');
+}
+process.exit(0);

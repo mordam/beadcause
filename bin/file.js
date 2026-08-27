@@ -50,9 +50,17 @@
  * the session that ran this is the one that can still say "yes, that is the same
  * thing" while it has the context to know.
  *
+ * **A bead already on the graph is refused rather than filed.** Not on a title match — that
+ * is a flag and stays one — but on lib/samejob.js's reading of whether this is the same
+ * *job* as something already open, which is the only thing that catches the duplicates this
+ * path actually produces. What the session wrote goes onto the bead that covers it, so the
+ * observation survives the refusal, and `--force` files anyway for the session that
+ * disagrees.
+ *
  * Exit codes: 3 when the YAML names no beads (a session that piped the wrong thing
  * finds out rather than reporting success), 4 when at least one bead could not be
- * filed. A partial failure still prints the ids that did land.
+ * filed, 5 when at least one was refused as already filed. A partial failure still prints
+ * the ids that did land.
  */
 import fs from 'node:fs';
 import YAML from 'yaml';
@@ -60,6 +68,7 @@ import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
 import { parseProposal, dupeNote } from '../lib/proposal.js';
 import { annotateDuplicates, liveCandidates } from '../lib/dupe.js';
+import { sameJob, refusalComment } from '../lib/samejob.js';
 import { fileBeads, PRIORITY_FLOOR } from '../lib/filing.js';
 import { autoEndorseAllowed } from '../lib/spaces.js';
 
@@ -80,7 +89,7 @@ const file = arg('--file', '-f');
 
 const ws = cfg.workspaces.find((w) => w.name === wsName);
 if (!ws || has('--help') || has('-h')) {
-  console.error('usage: beadcause-file -w <workspace> [--from <bead>] [-f beads.yaml]');
+  console.error('usage: beadcause-file -w <workspace> [--from <bead>] [-f beads.yaml] [--force]');
   console.error(`workspaces: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
   process.exit(1);
 }
@@ -131,8 +140,9 @@ const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedSe
  * revoking is one tap.
  */
 let beads = parsed.beads;
+let live = [];
 try {
-  const live = (await bd.json(ws, ['list', '--status=open,in_progress,blocked', '--limit', '0'])) || [];
+  live = (await bd.json(ws, ['list', '--status=open,in_progress,blocked', '--limit', '0'])) || [];
   beads = annotateDuplicates(parsed.beads, liveCandidates(live, { ignore: [from] }));
   for (const b of beads) {
     if (b.duplicate) warn(`⚠︎ "${b.title}" is ${dupeNote(b.duplicate)} — flagged on the bead`);
@@ -141,6 +151,72 @@ try {
   // A lookup that fails must not lose the discovery: an unflagged bead is what every
   // bead was until bc-9frx, and it is still held, still read before anything runs.
   warn(`filing without a duplicate check — ${String(err.message).split('\n')[0]}`);
+}
+
+/**
+ * And is any of it the same *job* as something already open, in words that do not match?
+ *
+ * The flag above is a 0.9 word-set match, which is near-verbatim and catches only a bead
+ * typed twice. It caught none of the twelve duplicates beadcause has had to mark
+ * `superseded-by:` by hand — they score 0.07 to 0.64 against the beads they duplicate, and
+ * eleven of the twelve came through this very path. lib/samejob.js is the measurement and
+ * the net: a shortlist of what this could already be, then one read-only judge over it.
+ *
+ * **This one refuses, where the flag does not, and the difference is what a refusal costs
+ * here.** lib/dupe.js's rule is that refusing loses work nobody can send back — true of a
+ * crash the daemon files on itself at 04:00, and not true of this caller. A session ran
+ * this command and is still holding the context that produced it; it is told exactly which
+ * bead covers the work, its observation is written onto that bead rather than dropped, and
+ * `--force` files anyway in the same breath. That is a conversation, not a loss.
+ *
+ * Sequential on purpose. A batch is two or three beads and each judge is a `claude -p`;
+ * running them at once would put three models on one worker's critical path to save
+ * seconds nobody is waiting on.
+ */
+const refused = [];
+if (!has('--force') && beads.length) {
+  const keep = [];
+  for (const b of beads) {
+    let verdict = { duplicate: null };
+    try {
+      // `dirs` is the checkout, and it is not optional: `guessedFiles` returns nothing at
+      // all when it has no directory to test a path against, which would quietly reduce the
+      // surface signal to declared `files:` alone — the half most beads do not carry. The
+      // cwd is the right answer and needs no config: a worker runs this from inside the
+      // worktree it is working, which is the checkout every path in its discovery is about.
+      verdict = await sameJob(b, live, { dirs: [process.cwd()], ignore: [from], cfg, dir: process.cwd(), onWarn: warn });
+    } catch (err) {
+      // Belt and braces: `sameJob` already turns every failure into a pass, and a throw
+      // getting past it must still not be the thing that loses a discovery.
+      warn(`filing without the duplicate judge — ${String(err.message).split('\n')[0]}`);
+    }
+    if (!verdict.duplicate) {
+      keep.push(b);
+      continue;
+    }
+    refused.push({ ...b, covered: verdict.duplicate, why: verdict.why });
+  }
+  beads = keep;
+}
+
+/**
+ * What the covering bead is told, and what the session is told.
+ *
+ * The comment goes on first and a failure to write it does not un-refuse the filing: the
+ * refusal has already been decided and reported, and a bead that could not take a comment
+ * is a tracker problem rather than a reason to open a second bead on one job.
+ */
+for (const r of refused) {
+  try {
+    await bd.comment(ws, r.covered, refusalComment(r, { why: r.why, from }));
+  } catch (err) {
+    warn(`could not comment on ${r.covered} — ${String(err.message).split('\n')[0]}`);
+  }
+  warn(
+    `✗ NOT FILED: "${r.title}" — ${r.covered} already covers this${r.why ? `: ${r.why}` : ''}. ` +
+      `What you wrote is now a comment on ${r.covered}. If it is really different work, run this again ` +
+      'with --force and say on both what the difference is.'
+  );
 }
 
 /**
@@ -208,4 +284,10 @@ for (const b of filed) console.log(b.id);
 // Nothing filed at all is a failure whatever the reason; some of it filed is still a
 // failure, because the caller asked for beads it has not got and only it knows whether
 // to say so on the bead it is working.
-process.exit(failed.length ? 4 : 0);
+//
+// A refusal is its own code and it is not 4. Both mean "you did not get every bead you
+// asked for", and a session that cannot tell them apart cannot do the one thing that
+// differs: a bead that FAILED is worth filing again, and a bead that was REFUSED is
+// already on the graph and filing it again is the mistake. 4 wins a tie, because a
+// tracker that would not take a bead is the worse of the two problems.
+process.exit(failed.length ? 4 : refused.length ? 5 : 0);

@@ -1,0 +1,146 @@
+[
+  {
+    "filed": {
+      "id": "bc-b495",
+      "title": "test/superseded.mjs fails the gate on the same teardown ENOTEMPTY bc-5uy8 fixed for dedupe, and 62 other suites still can",
+      "description": "`node test/superseded.mjs` printed `22/22 passed` and then exited 1 from its own last line, on `ENOTEMPTY: rmdir '<tmp>/config/.git/hooks'`. It is exactly the failure bc-5uy8 diagnosed and fixed for test/dedupe.mjs twenty minutes earlier (merged as c29a3f4's parent, #138): a write schedules a `snapshot()` commit 2000ms out, `ensureRepo()` runs `git init` in CONFIG_DIR, and CONFIG_DIR under test is the scratch directo"
+    },
+    "covers": {
+      "id": "bc-r87b",
+      "title": "test/superseded.mjs fails the whole run intermittently on ENOTEMPTY tearing down its own temp .git",
+      "description": "Observed once in a full `npm test` on 2026-08-11: test/superseded.mjs printed `22/22 passed` and then died with exit 1 while removing its temp directory, which stopped the run at suite 73 of 81: Error: ENOTEMPTY: directory not empty, rmdir '/var/folders/.../T/beadcause-superseded-xKV1Si/config/.git' at Object.rmdirSync (node:fs:1201:11) at _rmdirSync (node:internal/fs/rimraf:261:21) Every assertion in the suite had a"
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-jjdar.2",
+      "title": "A repo view that throws is fingerprinted at viewhost.js:427 — every view crash in every workspace collapses onto one errat",
+      "description": "public/viewhost.js:426-428 rethrows a view's build failure out of a `setTimeout` so public/report.js files it. public/panestage.js:236-238 does the same for a staged pane. Both are deliberate and the comments say why. What neither anticipated: `window.addEventListener('error')` in public/report.js:372 takes `source` from `event.filename` and `line` from `event.lineno`, and for a rethrow those describe the **rethrow s"
+    },
+    "covers": {
+      "id": "bc-mwhkg.1",
+      "title": "Every repo-view build failure fingerprints as viewhost.js:427, so unrelated bugs in unrelated repos share one errat",
+      "description": "public/viewhost.js:419-429 catches a repo view's `build()` throwing and rethrows it out of a `setTimeout` so one bad view does not take the page down. That is the right shape — but it means `window.onerror` reports `event.filename = viewhost.js` and `event.lineno = 427`, the **rethrow site**, for every repo view that fails to draw, in every repo, for ever. `fingerprint()` in lib/errors.js:188-194 prefers `report.sour"
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-mrm77",
+      "title": "`main` is red in beadcause — the merge queue is holding",
+      "description": "`main` is failing its checks in **beadcause**, so **the beadcause merge queue is holding**: nothing else will land on this base until this is fixed. **Failing as of 2026-08-25T11:23:08.869Z:** test, shard 1 **Why the queue stopped rather than merging over it.** The gate normally merges over a check the base is already failing — a check red on the base is red on every branch cut from it and says nothing about the bran"
+    },
+    "covers": {
+      "id": "bc-xl7n.136",
+      "title": "test/chromeprofile.mjs — \"a profile it could not remove is reported, not thrown\" goes red under concurrent gate load",
+      "description": "A full `bin/b7e-gate` run on 2026-08-24 gave 445/446 with this the only red: [88/446] FAIL test/chromeprofile.mjs 3.0s ✗ a profile it could not remove is reported, not thrown Run alone immediately afterwards, the same suite passes 12/12 — including that exact check. Another session's `b7e-gate` was running concurrently at the time (`pgrep -f \"node bin/b7e-gate\"` returned three pids), so the machine was under real loa"
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-eqn1.3.2",
+      "title": "test/advswitch.mjs flakes solo, not only under gate load — its scratch config races the debounced common-repo snapshot",
+      "description": "`test/advswitch.mjs` is intermittently red **on `main`, run entirely on its own**. Measured 2026-08-24 from a scratch tree built with `git archive main`, six consecutive solo runs: 23, 19, 21, 23, 21, 20 of 23. Three solo runs from a worktree carrying an unrelated branch gave 21, 22, 23. The failure is always the same and never names a control-flow assertion: FAIL <whichever check happened to be running> ENOTEMPTY: d"
+    },
+    "covers": {
+      "id": "bc-beleq.1",
+      "title": "test/advswitch.mjs flakes on ENOTEMPTY removing its own config/.git",
+      "description": "`test/advswitch.mjs` intermittently fails one check — \"pressing on over an advocate that has one is a repaint, not an error\" — with: ENOTEMPTY: directory not empty, rmdir '/var/folders/.../beadcause-advswitch-XXXX/config/.git' Reproduced twice on 2026-08-24 while working bc-beleq: red in a full `bin/b7e-gate` run (437/438, this the only failure), red again on a solo re-run immediately after, then green on a second so"
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-beleq",
+      "title": "`main` is red in beadcause — the merge queue is holding",
+      "description": "`main` is failing its checks in **beadcause**, so **the beadcause merge queue is holding**: nothing else will land on this base until this is fixed. **Failing as of 2026-08-24T17:46:54.944Z:** test **Why the queue stopped rather than merging over it.** The gate normally merges over a check the base is already failing — a check red on the base is red on every branch cut from it and says nothing about the branch (bc-y7"
+    },
+    "covers": {
+      "id": "bc-ka5y.39",
+      "title": "test/finishedepic.mjs is red on main — the finished-epic sweep opens a session where it should ask",
+      "description": "`node test/finishedepic.mjs` is 24/25 on main (checked at 3669a204, and on a tree with another branch's changes reverted out to be sure it was not that branch's). The failing assertion is: FAIL with the sweep on (the default), the advocate asks instead of opening a session and the launcher was live — an ordinary bead was opened in the same tick The log lines just above it show the advocate opening sessions on `zz-cut"
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-xl7n.122",
+      "title": "The merge queue deadlocks on a CLEAN branch whose checks predate the base hold",
+      "description": "A pull request whose checks last finished BEFORE the queue lifted its base hold can never merge and never escalates, because the one path that would re-run its checks is unreachable in this repo. MEASURED ON #538 (bc-gqh7a, work bead bc-36xx.13) on 2026-08-22: checks last completed 2026-08-20T22:40:22Z heldUntil 2026-08-21T22:16:22.745Z main head 2026-08-22T11:35:34Z attempts 0 mergeStateStatus CLEAN The stale-checks"
+    },
+    "covers": {
+      "id": "bc-xl7n.121",
+      "title": "A pull request held for stale checks waits for a re-run that nothing performs — two green PRs are stuck, one already approved",
+      "description": "The merge queue refuses a pull request whose checks finished before a red-main hold lifted, on the grounds that the verdict is about a base that is no longer there — and says *\"nothing is counted against it until they have run again.\"* **Nothing ever runs them again.** Two green, mergeable pull requests are held by this right now, one of them already approved by Adam, and because the refusal deliberately costs no att"
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-7qo.19",
+      "title": "Three worker windows ran the same bead at once — a killed window's shell re-runs its claude command, invisibly to the dispatch limit",
+      "description": "On 2026-08-21 at ~10:56Z, three live `claude` processes were running the identical advocate brief for bc-7qo.11 (pids 84917, 85731, 2693 — sessions 8742ccdf, 1b85094a, b84578de), in three worktrees (`defer-option-7qo11`, `defer-option-7qo11b`, and the third session entering the first one), two of them editing `lib/server.js` at the same time. Two beads were affected at once: bc-khoe.21 had three windows in the same m"
+    },
+    "covers": {
+      "id": "bc-7qo.18",
+      "title": "Three worker windows were opened on one bead in 100 seconds, and the daemon only knows about one of them",
+      "description": "Measured on beadcause/bc-7qo.11, 2026-08-21 08:06 ADT (11:06Z). Three live `claude` processes carried the identical worker brief for that bead: pid 84917 started 07:56:43 ADT cwd .claude/worktrees/defer-option-7qo11 pid 85731 started 07:56:51 ADT cwd .claude/worktrees/defer-option-7qo11b pid 2693 started 07:58:23 ADT (the window that found this and stood down) The first two were both writing an implementation of the "
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-xl7n.115",
+      "title": "Filing a root-shaped bead with no parent reads as a refusal on the New bead sheet",
+      "description": "Refiled from the sophab tracker, where it could not be delivered — see \"Why it is here\" at the bottom. ## The bug On the New bead sheet, filing an **epic** (or any **P0**) with the Parent field blank succeeds but reads as a rejection. `/api/bead/create` in lib/server.js pushes the warning \"nothing to hang this under — filed with no parent, which means nothing will work it until you adopt it under an epic at any prior"
+    },
+    "covers": {
+      "id": "bc-htoy.1",
+      "title": "Filing an epic with no parent reads as a refusal",
+      "description": "Work happens in the beadcause repo (~/neadamthal.projects/beadcause), not in sophab — this chat can only propose into the sophab tracker, so move it to the bc- workspace if that matters. From the New bead sheet on Home, filing an epic with the Parent field blank does not read as success. Two candidate causes, both found in the code: 1. lib/homing.js finds no open root labelled `unsorted` in this workspace, so it retu"
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-7qo.16",
+      "title": "test/adoptsweepreal.mjs is red on main again — a leftover `relates-to` edge between two fixture beads makes the parent write refuse",
+      "description": "On a worktree whose only diff from origin/main (7556823f) is README.md, lib/promoterun.js and test/promoterun.mjs, `node test/adoptsweepreal.mjs` fails 2/12 — both solo and inside a 334-suite parallel sweep, so it is not the load flake bc-arj0.18 describes and it is not this branch's. The sweep's own `failed` array now prints the reason, which is the improvement bc-j52g landed, and it is not the stale-index shape at "
+    },
+    "covers": {
+      "id": "bc-arj0.18",
+      "title": "test/adoptsweepreal.mjs flakes under load — the last block sweeps a graph that predates its own fixtures",
+      "description": "Landed in bc-arj0.2 (PR #283) on 2026-08-14 and is red roughly one run in four under ordinary Mac load. Always the same two checks, always together: ✗ an epic whose list is all free has all of it applied in one pass children: (expected ['ar-awq'], got []) ✗ and the close gate then lets it go, which is the whole of the contract {\"kind\":\"adopts\",\"blockers\":[{\"id\":\"ar-awq\",...}],\"reason\":\"an epic with 1 unapplied `Adopt"
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-xl7n.84",
+      "title": "test/systemcard.mjs is red on main — review-advocate has no system card",
+      "description": "`node test/systemcard.mjs` fails 2 of its checks on main (measured at 0c6408c0, 2026-08-17), and the cause is one agent kind with no card: every system carries all five card fields review-advocate missing: intendedUse, foreseeableMisuse, affects, oversight, limitations The ReviewAdvocate exists everywhere else — `lib/reviewadvocate.js`, its foundation at `lib/foundation.js:915`, `lib/access.js:128`, a boundary row in"
+    },
+    "covers": {
+      "id": "bc-d1f0",
+      "title": "main is red: review-advocate has no system card, and selftest's 7 amendment checks fail",
+      "description": "`main` has failed every CI run since 08-17T13:49 UTC. Last green was 13:39 (bc-7cp1). Ten merges have landed on top of it, every one red, and every open PR inherits the same red so no branch's CI says anything about that branch. Two failures, and the first is a tripwire working correctly. 1. `test/systemcard.mjs` — 2 checks. bc-eqn1.4 added the AI system registry with a test asserting *every agent kind resolves to a "
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-ka5y",
+      "title": "The phone app is one coherent, correct UI — chrome that stays put and styles that do not collide",
+      "description": "Twenty-three beads, and roughly half are the same class of failure: a selector defined twice in public/style.css, with the later block silently winning. `.chip` twice, the whole drawer section duplicated ~200 lines apart, every pressed chip dark ink on a dark wash. The rest is chrome that drifts on scroll, controls that stay armed when they should disarm, composers that lose a selection to a repaint, and features alr"
+    },
+    "covers": {
+      "id": "bc-z4o4",
+      "title": "The `suggest` handler has the same missing disarm the `option` handler just got back",
+      "description": "Fixing bc-giuc (the dismiss staying armed while you tap a decision option) put an unconditional `disarm()` at the top of the `act === 'option'` branch in public/app.js. The `act === 'suggest'` branch, ~50 lines below it, is the same shape — it fills the answer box from a chip and repaints in place — and it never disarms anything. So on a card with suggested answers rather than decision options, arming the dismiss (\"T"
+    }
+  },
+  {
+    "filed": {
+      "id": "bc-36xx.31",
+      "title": "Nothing writes threadId and nothing resolves a review thread — three built functions still have no caller",
+      "description": "bc-36xx.22 landed (#616, 8b95fe08) and the review loop closes: a verdict comment is read back onto the merge-bead's review block by lib/reviewsync.js and the gate advances. Verified in production on #539 today. **This bead is the half of .22's brief that did not land.** Re-measured on origin/main at 4226ce2a with `git grep -n -F` (an ERE returns a false zero here — see the ugrep hazard in CLAUDE.md): - `reviewThreads"
+    },
+    "covers": {
+      "id": "bc-36xx.26",
+      "title": "reviewThreads and resolveThread swallow a transient GraphQL failure the same way the repo probe used to",
+      "description": "bc-36xx.14 fixed lib/pr.js's repo probe (seenBy/resolve/slugFor) so a 5xx or a network error retries with a short backoff and, if it still fails, is reported to bin/deliver.js as \"GitHub did not answer\" rather than \"no repo is visible\" — see probeTransient/noRepoMessage in lib/pr.js. reviewThreads(dir, number) and resolveThread(dir, threadId), added since (both speak gh api graphql, which is the same API that flapped"
+    }
+  }
+]

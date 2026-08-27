@@ -38,6 +38,21 @@ const value = (f) => {
   return at === -1 ? null : (argv[at + 1] ?? null);
 };
 
+// bc-dgx7.31: unrecognised-flag territory otherwise — checked before --dir or
+// anything else on argv is read.
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-notes <bead-id> [<path>...]',
+      'b7e-notes bc-xl7n.71 lib/superseded.js test/landcheck.mjs',
+      'b7e-notes bc-khoe.43                    # no paths given: uses what the bead names',
+      'b7e-notes bc-khoe.43 --json',
+      'b7e-notes bc-khoe.43 --dir <root>       # another tree — this is how it is tested',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
 const DIR_GIVEN = value('--dir');
 const ROOT = path.resolve(DIR_GIVEN || REPO_ROOT);
 const JSON_MODE = has('--json');
