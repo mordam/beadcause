@@ -67,8 +67,43 @@
 -- because per-window delays are how a ten-window sweep runs out of the caller's five
 -- seconds; the loop drops out the moment nothing is left pending, so the ordinary sweep
 -- costs a single 0.15s step, and a Mac thrashing hard enough to take longer gets up to
--- 1.2s before anything is called stuck. Both ends are far inside that five-second budget.
--- A window still present after the last step is genuinely not going: that is the finding.
+-- 1.2s before anything is called stuck. A window still present after the last step is
+-- genuinely not going: that is the finding.
+--
+-- ### And what it costs when nothing ever goes, which is the case this Mac is actually in
+--
+-- "One 0.15s step" is the *tidy* case and it is not the steady state. `pending` only empties
+-- when a window really leaves, so on a Mac with frames permanently stuck on it — the state
+-- this whole script exists because of, and the population bc-xl7n.110 was filed over was ten
+-- of them — every tick pays all eight steps and every one of the N re-queries in each of
+-- them, for as long as those frames sit on the desk. That is not a ceiling reached under
+-- load; it is the bill, on every tick, indefinitely. bc-xl7n.131.2.
+--
+-- Measured 2026-08-24 against iTerm 3.6.11, 22 windows on the desk, by seeding this script's
+-- own poll with ids that never go away — a stuck window and a live one are indistinguishable
+-- to `count of (every window whose id is wid)`, so the all-stuck cost is measurable without
+-- the one state that cannot be staged:
+--
+--   N=1   1.44s      N=3   1.43s      N=10  1.63s      N=15  1.66s
+--
+-- against the caller's five-second timeout. The fixed 1.2s of `delay` is ~75% of the call
+-- and the part that scales with N is ~15ms a window — so the eight-times-N re-queries, which
+-- look like the expensive half, are under 1% of it at N=10. It would take on the order of two
+-- hundred stuck frames to reach five seconds, and iTerm on this Mac holds twenty-odd windows
+-- in total. test/cards.mjs pins the 1.2s against that timeout so the two cannot drift apart.
+--
+-- **No early exit, and that is a decision rather than an omission.** The only thing left to
+-- save is the 1.05s between the first step and the eighth, and it can only be saved by
+-- calling a batch stuck before the eighth — which is guessing "stuck" from "slow", the exact
+-- guess the poll was written to remove. There is no signal that separates them: a window that
+-- refuses and a window that is taking its time both answer `1`, and getting it wrong is this
+-- script's own history with the sign reversed. Two safe savings were measured and both are
+-- too small to buy the complexity — asking `id of every window` once a step instead of once
+-- a window saves ~40ms at N=10 and trades a per-window failure for a whole-step one, and
+-- carrying the daemon's already-known stuck ids in so they skip the wait would save the full
+-- 1.05s but needs a state channel into a script that is deliberately stateless. If the cost
+-- ever matters, that second one is the design; at 1.6s inside a thirty-second tick it does
+-- not.
 --
 -- The later passes walk their list by index rather than as `repeat with x in doomed`,
 -- because that form binds a *reference* to the list item and the usual way to dereference

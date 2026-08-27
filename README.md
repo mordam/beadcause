@@ -1928,7 +1928,7 @@ Adam happens to merge that way:
 | door | what happens now |
 |---|---|
 | a tap on a delivery card (`lib/server.js`) | merges, notes the merge on the epic, leaves it open, owes nothing |
-| the PR board's Merge (`lib/server.js`) | the same — both go through `finishWorkBead` |
+| the PR board's **Queue to merge** (`lib/server.js`) | it does not close anything: since bc-02ldo the tap admits the pull request to the queue, and the queue's own close is the merge-queue row below |
 | a worker's own `beadcause-deliver` | merges, prints `landed #n`, comments, and says on stderr that the epic stays open |
 | the sweep that notices a merge on github.com (`lib/landed.js`) | reports the epic as a skip, and writes nothing to it |
 
@@ -2478,6 +2478,38 @@ makes it safe rather than rude is that every keystroke is already kept — see *
 box* below — so the sentence you were in the middle of is in its draft and its card is
 one tap away, still marked amber. The alternative is a write nobody knows did not
 happen, which is the failure this whole section exists to stop.
+
+**And it does not always get to say nothing was written.** An answer is several acts in a
+row — the merge behind a delivery card, an endorsement a sentence asked for, the beads a
+"yes" files — and the answer itself is written **last**, deliberately: a merge GitHub
+refuses has to leave the question answerable, and a question closed on a promise nobody
+kept is the ending this app exists to prevent. The cost of that ordering is a second in
+which the act has happened and the answer has not. bd goes away inside it — restarted,
+locked, a 500 — and the card said *nothing was written and nothing was lost* over a pull
+request that is merged, a branch that is gone and a work bead that closed. That reads as
+*try again*, and it is wrong in the direction that costs an afternoon. bc-s2d8 closed the
+one path that reached it in practice; this is the class.
+
+So the failure carries what happened. `performed` in lib/server.js collects the notes each
+act composed — the same sentences the thread would have carried, rather than a second
+vocabulary invented for the failure case, which would be two accounts of one act that can
+disagree — the handler's own catch puts them on the JSON body as `landed`, and
+`failedNoteHtml` draws them **in place of** the reassurance rather than beside it, because
+the two cannot both be true. Minus their markup, which is the same call `shipWhat` makes
+one screen up: an alert full of rendered markdown would stop being the shape `gateNoteHtml`
+is, and being that shape is the point of it. A refusal with nothing behind it still says
+nothing was written, because it is true — a note that hedged on every refusal would teach
+you to ignore the one that matters.
+
+One act does not wait for `performed`, because it can half-happen: a batch of creates is
+beads made one at a time, and it throws out of `createProposed` before the handler has
+composed anything at all. That catch already commented what it managed on the thread; it
+puts the same sentence on the failure now, so the thread and the card agree.
+
+`node test/landednote.mjs` drives a real `POST /api/respond` with a bd that dies mid-write,
+over a delivery card whose merge has already gone through, and lifts `failedNoteHtml` out
+of public/app.js into a vm for the sentence itself. The browser half is in
+`scripts/absorb-check.mjs`, whose fixture can now put a `landed` on its refusal.
 
 **It joins the close gate's family rather than being a second mechanism.** Same shape as
 `gateNoteHtml` — a sentence naming the bead and the reason, a paragraph saying what that
@@ -6876,6 +6908,26 @@ have lied about:
   the first millisecond already knew. Fine while a refused edge was an accident; not fine
   on `/api/console/create`, which is a tap on a phone.
 
+**And the rule reaches two writers that are not in the daemon at all.** `Bd.addDep` is
+the funnel for every declared edge the daemon writes, and it is `async` all the way down
+because everything around it is. Two more run in a worker's terminal over a synchronous
+`(argv) => stdout` runner — `park`, which is what `beadcause-ask --blocks`,
+`beadcause-propose --kind conflict` and `beadcause-deliver` use to hold work behind a
+question, and `mark`, which puts a `superseded-by:` marker on a duplicate. Neither could
+reach the funnel, so neither carried the rule. `addDeclaredEdge` in `lib/mentions.js` is
+the synchronous half of it: the same `demoteRows` judgement, the same both-ends demotion,
+the same one retry and no loop, and a refusal over anything that is not a see-also is
+thrown back at the caller in bd's own words exactly as before.
+
+Worth doing before either path could actually collide, because the two failures are not
+the same size. `mark`'s fallback is a note — the `superseded-by:` label holds the bead
+whether or not the edge went in, so the collision costs the graph record. `park`'s
+fallback is to label the *work* bead `human`, which takes it out of every queue **and does
+not come off when the question is answered**. So there a collision does not lose an edge,
+it strands the bead until somebody goes back to it deliberately — and a bead whose
+description says why it is waiting on `bc-x`, which is the description doing its job, is
+exactly the bead a mention would have got to first.
+
 One thing it does not fix, deliberately: the `blocks N` pill at first paint is
 `dependent_count` straight from bd, which counts every edge pointing at a bead — children
 already, and now see-alsos too. It is replaced by the real rows the moment
@@ -6886,7 +6938,11 @@ argv, and the two client-side spellings in source) and by `test/graphwaits.mjs`,
 where the `relates-to` spelling is held to not blocking anything. The precedence rule has
 its own two: `test/declarededge.mjs` against a fake `bd` that remembers its own edges, and
 `test/declarededgereal.mjs`, which files a bead whose description names the bead it depends
-on against the real binary and asks bd what is left.
+on against the real binary and asks bd what is left. The synchronous half is pinned where
+each of its two callers already is — `test/park.mjs`, whose stub `bd` grew bd's
+one-row-per-ordered-pair rule so a park can be refused over a mention and go in anyway,
+and `test/superseded.mjs`, where the same collision is staged against a `bd` with a graph
+behind it.
 
 ### The glass in the middle
 
@@ -9337,8 +9393,9 @@ none of them is that window's to merge.
 
 That is the whole of it, because the merge queue is the only
 [door into `main`](#landing-work--a-branch-a-pull-request-and-a-merge-queue) that nobody
-taps: the delivery card, the PR board's **Merge**, and a merge made on github.com are all
-already you. An in-app edit never reaches the queue at all — `bin/deliver.js` files the
+taps: the delivery card, the PR board's **Queue to merge** — which since bc-02ldo hands
+its pull request to that same queue rather than merging beside it — and a merge made on
+github.com are all already you. An in-app edit never reaches the queue at all — `bin/deliver.js` files the
 card instead, whatever the space says. The pull request says why it is sitting there, and so does the bead's
 thread — a green pull request open for two days with nothing on it to explain itself is
 the state this whole fallback exists not to be mysterious about.
@@ -10200,7 +10257,7 @@ page](#the-board-is-a-pane-too), is where you act on one. Both draw the row from
 renderer, `public/prcard.js`; there were two before that bead, and a fact added to one
 screen was a fact missing from the other.
 
-A row on the board folds open to what you can *do* — Merge & push, Ship, Comment, and
+A row on the board folds open to what you can *do* — Queue to merge, Ship, Comment, and
 **Full view**, which is a link into the inbox's own full-screen sheet for that pull request
 rather than a second copy of it. The status sub-filter widens itself when that link names a
 rung it is hiding (`revealPr` in `public/app.js`): the board's whole subject is what has
@@ -10251,7 +10308,7 @@ It carries what a merge decision needs and nothing else:
   goes through — it is the only text on the screen that came from outside this Mac;
 - **the branch and base, the bead, the authoring agent, and the datetimes** — opened, last
   touched, merged where there is one, and the merge commit;
-- **Merge & push**, **Close it** and **Comment on GitHub**;
+- **Queue #N to merge**, **Close it** and **Comment on GitHub**;
 - and, where GitHub reports a conflict, **Resolve conflicts** and **Cancel** in place of
   merge.
 
@@ -10411,9 +10468,11 @@ four ways into `main` here:
 
 - a tap on a **delivery card** in the inbox, which is how work a worker could not merge
   itself lands;
-- a tap on **Merge** on the [PR board](#where-you-read-it-an-inbox-card-and-the-board);
 - **the merge queue**, which is how most work lands — a worker files a merge-bead as its
-  last act and the daemon merges it (`lib/mergequeue.js`);
+  last act and the daemon merges it (`lib/mergequeue.js`), and since bc-02ldo the
+  [PR board's **Queue to merge**](#the-three-buttons) sends its own here rather than
+  merging on the spot;
+- **a worker's own merge**, `beadcause-deliver` in a space with no queue in front of it;
 - the **merge button on github.com**, from a phone browser or from somebody else, which
   nothing here performs and `reconcileLanded` notices afterwards.
 
@@ -11307,19 +11366,38 @@ says **no bead named** rather than borrowing one.
 
 ### The three buttons
 
-- **Merge & push** — `gh pr merge`, with lib/pr.js's own preflight in front of it, so
-  an already-merged, closed or conflicting PR is refused *here* with a sentence that
-  says which. GitHub's merge puts the commit on `origin/<base>` itself, so the work is
-  off the laptop the moment it lands; the "& push" half is bringing this Mac's own
-  `<base>` up with it, and it **will not touch a checkout with edited work in
-  it** — it says so instead, naming the paths in the way. Untracked residue it steps
-  past, and says so
-  ([why](#landing-work--a-branch-a-pull-request-and-a-merge-queue)). Both halves are always reported separately: a merge that
-  landed and a fast-forward refused because you have files open is a good outcome, and
-  one flat word over the pair would send you to the Mac to find out which happened.
+- **Queue to merge** — hands the pull request to the [merge queue](#landing-work--a-branch-a-pull-request-and-a-merge-queue),
+  and does not merge it. It is `beadcause-merge` from the phone: the same `admitPlan`
+  decides which bead this pull request already *is* — a merge-bead the queue handed back,
+  a delivery card asking about it, one already queued, or nothing open at all — and the
+  same `admitToQueue` writes the approval into the queue's own block in `notes`, where
+  `gateVerdict` reads it. Then every gate still applies: the base comes into the branch,
+  the checks are judged against what the base is already failing, one merge per repo at a
+  time, and a branch that broke something comes back as a card with the approval still on
+  it. A draft, a closed pull request, or one already merged is refused *here* with a
+  sentence saying which.
+
+  **It used to merge, and that was the bug** (bc-02ldo). The tap was `gh pr merge`
+  straight through — no downmerge, no baseline comparison, no one-at-a-time, and no
+  record in the tracker that anybody had decided anything. deluvia merged three pull
+  requests on one afternoon in August 2026: #53 and #54 went through `/merge` and each
+  left a merge-bead closed with the commit it landed as, #55 went through this button and
+  its approval exists nowhere. Two doors into `main` that disagreed about what merging
+  was, while the `/merge` skill named this endpoint by path as the thing not to do.
+
+  **The cost is that it stops being instant, and it is the reason the button no longer
+  says "Merge".** The queue's "is anything waiting" read is cached, so the merge lands a
+  minute or two later; a button still promising a merge would look broken for exactly
+  that long, which is what made the same pull request get tapped three times. What comes
+  back names the bead the queue will act on, says it is *not* merged yet, and names any
+  other open bead about the same pull request — two of those is a work bead that cannot
+  close, and the phone has no stderr to print them to.
+
   It takes **two taps**, with the consequence written into the button between them —
   the same arming pattern as the destructive control on /admin, and for the same
-  reason: a `confirm()` on a phone is a system sheet you dismiss by reflex.
+  reason: a `confirm()` on a phone is a system sheet you dismiss by reflex. The arming
+  survived the change on its own argument: what the second tap makes is the *approval*,
+  which the queue then acts on unattended.
 - **Ship** — **runs this repo's declared deploy** ([below](#deploying-a-repo-when-it-says-how))
   where there is one, and opens an iTerm session with a deploy-only brief where there is
   not. Which of the two it will do is on the button before you press it — *Ship* against
@@ -14357,14 +14435,21 @@ single derivation both ends call.
 
 Three things it deliberately does, each of which is a way of being wrong on purpose:
 
-- **It over-includes.** Ship beads, promotion beads, containers and superseded ones are cut
-  — nothing was built for any of them — and nothing else is. There is no label separating
-  landed work from a card the daemon filed and Adam answered: bc-xl7n.15 (*#244 left 1
-  conflicting pull request behind it*) and bc-xl7n.35 (*a sweep card whose record is dropped
-  can never close*) are both closed under bc-9d37 and both carry `inbox`, and only the
-  second was built. bc-9d37 therefore derives 29 rows where fourteen are its own work. The
-  titles separate them in a glance; the alternative is silently testing four of nine and
-  passing.
+- **It over-includes.** Ship beads, promotion beads, containers, superseded ones and, since
+  bc-7qo.9, `card` beads are cut — nothing was built for any of them — and nothing else is.
+  Before bc-7qo.9 there was no label separating landed work from a card the daemon filed and
+  Adam answered: bc-xl7n.15 (*#244 left 1 conflicting pull request behind it*) and bc-xl7n.35
+  (*a sweep card whose record is dropped can never close*) are both closed under bc-9d37 and
+  both carry `inbox`, and only the second was built. Now a bead a sweep or an advocate raises
+  purely to ask a question — never to be built — carries `card` (lib/card.js) from the moment
+  it is filed, and `NOT_WORK` (lib/promote.js) excludes it the same way it excludes `ship` and
+  `promote`. `card` is narrower than `human`: a decision made mid-flight through a bead that
+  still owes code once answered keeps `human` without `card`, so it still counts as work —
+  pinned by `whyNotWork({labels:['human','p0']}) === ''` in test/promotework.mjs. Beads filed
+  before `card` existed carry no such marker and still over-include — bc-xl7n.15 and
+  bc-xl7n.35 among them, since neither was backfilled by hand. bc-9d37 therefore still derives
+  29 rows where fourteen are its own work, on beads this old. The titles separate them in a
+  glance either way; the alternative is silently testing four of nine and passing.
 - **`unendorsed` is not an exclusion, though it reads like the strongest one there is.**
   bc-9d37.12 and bc-9d37.14 are closed, still carry it, and are two of that epic's nine —
   a session working a neighbour fixed them and nothing takes the label off. Cutting it
@@ -14735,8 +14820,21 @@ somebody can act on. Nothing throws, and the ordinary answer for a repo with no
 `.beadcause/` at all costs one failed `stat`: no read, no parse, no directory listing, which
 is what lets the advocate ask per checkout on every tick.
 
-Reading the file is wired; *dispatching* off it is `bc-ogicx.5`, so until that lands a
-checkout's file is read and validated and the chain still comes from `relays` above.
+**And the launcher asks the bead's own checkout.** `openWorkSession` resolves the relay off
+the directory `resolveSessionRepo` already picked for the bead, not off the workspace name —
+which is what makes *several relays in one workspace* fall out for a multi-repo workspace as
+well, because each checkout answers for itself and nothing in the launcher has to know a
+workspace can hold more than one. The `packet` stays the config's either way, since a repo
+file naming one is refused. `bc-ogicx.5`, `node test/relaywiring.mjs`.
+
+`bin/relaystep.js` is the other consumer and it asks a different question. It is handed a
+workspace, a role and a step — no bead, no checkout — so under named relays it cannot know
+which relay a `--role` was meant to belong to, and it checks against the **union** of every
+relay's roles across every checkout the workspace has. Deliberately wider than any one
+relay: what that list is for is catching `--role clip` for `clio`, not enforcing routing,
+and the same command already declines to check step *order* for exactly that reason. A
+`--relay` flag would be a second routing decision typed by hand at the one place that cannot
+verify it. `bc-ogicx.7`.
 
 ### The relay journal — every step and handoff, on the bead and on the epic card
 
@@ -18515,7 +18613,7 @@ on top, and two of those were refused by the worktree guard before finding a sha
 b7e-gate                              every suite scripts/test.mjs --list would run
 b7e-gate --only <suite>|<glob> ...    repeatable — an exact path or a * glob, never a regex
 b7e-gate --skip <suite>|<glob> ...    repeatable, applied after --only
-b7e-gate --jobs N                     how many suites at once (default 6)
+b7e-gate --jobs N                     how many suites at once (default: chosen from the load)
 b7e-gate --timeout <s>                per-suite seconds, overriding the slow-suite default
 b7e-gate --json                       one object per suite, streamed, for a caller to parse
 b7e-gate --log <path>                 also write every line here (default: a tmp file, named at the end)
@@ -18558,6 +18656,52 @@ first is still running would double the load a busy Mac is already under, so it 
 the resolved root, holding the running pid. A lock whose pid is no longer alive is stale
 and is silently reclaimed on the next attempt, because a runner that leaves a permanent
 lock behind after a crash is worse than the race it exists to prevent.
+
+**And two gates on the Mac, with the third in a queue — `bc-xlz32.1`.** That refusal was
+right and too narrow: the doubling happens just as thoroughly from a different worktree,
+and there are ~20 of those. Measured from the 60 run records in `.claude/gate-runs`, which
+carry per-suite elapsed and had never been read: a gate with nothing overlapping it is a
+mean **9.6 min** (n=16); the same run with >=1.5 concurrent sibling gates is **16.7 min**
+(n=13). Identical work, 74% slower, and nobody gains — the machine has the same 12 cores
+whether one gate or six are asking for them. Six were in flight at once at load average 99,
+and the loaded runs are also the ones that manufacture false reds: a full gate came back
+434/440 with six reds that same day and **all six passed** re-run serially, same tree, no
+changes.
+
+So a third gate now **waits** — `acquireSlot` in `lib/gate.js`, a FIFO semaphore of two
+(`BEADCAUSE_GATE_SLOTS` to change it, `0` to opt out) — and says what it is waiting for:
+`1 gate ahead of you, oldest started 4m ago`. Waiting rather than refusing is the whole
+design: a session told to go away runs `node scripts/test.mjs` instead, which is invisible
+to every overlap metric and worse for everyone. Which is also why **`npm test` takes the
+same token** — the two runs measured at 41 and 51 minutes elapsed on the load-99 Mac were
+both the plain serial runner, and a semaphore only `b7e-gate` respects is one the heaviest
+caller walks straight past.
+
+Tickets rather than a counter, so two runs starting in the same millisecond cannot both
+read "one free" and both take it, and so a loser keeps its place instead of going to the
+back of the queue on every retry. **The stamp on a ticket keeps its sub-millisecond part**,
+which is the half of that the first version got wrong: the queue is ordered by `startedAt`
+and `Date.now()` is a whole millisecond, so tickets taken back-to-back all landed inside one
+and the order fell through to the random suffix in each ticket's filename. A gate arriving
+third then sorted first about two times in three, and took a slot the two ahead of it were
+already holding — `limit + 1` gates on the Mac, which is the one thing the semaphore is for.
+`performance.now()` is monotonic within a process, so a later ticket is now always a larger
+number and the queue is creation order rather than a coin toss. A holder killed with `SIGKILL` frees its slot the same
+way a stale lock is reclaimed — by its pid being dead. Three runs never queue: CI (a
+GitHub runner is a machine of its own), anything that opted out, and **a runner started
+inside a gate**, which would otherwise wait for the slot its own parent is holding — both
+runners mark every suite child with `BEADCAUSE_GATE_HELD` for exactly that.
+
+**`--jobs` is chosen from the load, not from a constant — `bc-xlz32.5`.** 6 was wrong in
+both directions. Too few on a quiet Mac: the longest single suite is `test/landcheck.mjs`
+at 307s against ~50 min of total suite work, so a pool does not begin waiting on a
+straggler until roughly 15 jobs, and at 6 on an idle 12-core Mac half the machine sits
+unused. Too many on a busy one: six sessions each asking for 6 is 36 concurrent suites on
+12 cores. `chooseJobs` clamps `cores - loadavg1` between 2 and `cores - 2`, sampled once at
+start — a pool that resized itself mid-run would make two runs of the same suite
+incomparable. An explicit `--jobs N` still wins outright, the rule `--timeout` already
+follows, and the opening line says which number was picked and why, so a slow gate can be
+accounted for after the fact.
 
 **Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, for a sharper version of
 the reason `b7e-say` is not there: `lib/grants.js` already classifies `Bash(npm test:*)` —
@@ -19096,6 +19240,65 @@ module, because everything this needs (`fetch`, `rev-parse`, `rev-list`, `merge-
 sense as `b7e-siblings` just above: nothing here writes a ref, a commit or a working-tree
 file, which is what put `Bash(b7e-base:*)` straight on `DEFAULT_TOOL_LIST` in
 `lib/toolbelt.js` and `read` in `lib/grants.js` beside it.
+
+### Which ref a workspace actually delivers into, before anyone reads a file — `b7e-deliverbase`
+
+`bc-dgx7.58`, filed by the session audit (`lib/sessionaudit.js`) against six sessions in
+the *deluvia* workspace — `dv-90i`, `dv-i5v`, `dv-5f3`, `dv-2v3`, `dv-6cn`, `dv-3rn.3` —
+each of which worked out by hand, in six different ways, that the checkout's own branch
+is not the ref beadcause actually delivers that workspace's work into. `dv-6cn` found it
+by failure: a `grep` for a gate check against a script that turned out not to exist on
+this branch at all, then an `ls` showing four files where the real base has twelve, then
+finally recalling the memory note that says so. `dv-2v3` read a file with `git show
+<base>:<path>` "on purpose", without writing down how it knew to. `dv-90i` called
+getting this right "the thing that mattered most," after a worktree had already been
+built on the wrong branch and hit a gate check that could not possibly pass there. Six
+sessions is the same shape `bc-36xx.25` (`b7e-base`, just above) was filed over, one door
+along: that tool answers "is my branch current with main"; this one answers the question
+that has to be settled *first* — which ref "current" even means for this workspace, since
+one repo here (`deluvia`) does not deliver into `main` at all.
+
+```
+b7e-deliverbase -w deluvia                                  the base, and how the checkout compares
+b7e-deliverbase -w deluvia --show scripts/check_saga_audit.py   cat a file as it exists at the base
+b7e-deliverbase -w deluvia --json                            one object on stdout, for a caller
+```
+
+**The base is resolved exactly the way a real delivery would resolve it** — `baseFor` in
+`lib/prbase.js`, the same call `bin/deliver.js` makes before ever opening a pull request
+— rather than a second opinion that could drift from what a delivery actually does. For
+a single-repo workspace that is `pr.basePerWorkspace` (falling back to the install-wide
+`pr.base`, then the literal `main`); for a multi-repo workspace it is the repo's own
+default branch on GitHub, the same question a real delivery asks.
+
+**The checkout is `resolveSessionDir`, never `ws.dir`.** `ws.dir` is the *tracker's*
+directory — `~/beads/deluvia/.beads` on a personal install — and matching it against a
+git checkout path only coincidentally works; `resolveSessionDir` (`lib/session.js`) is
+the call ~25 other places already make for "which directory is this workspace's
+checkout," multi-repo case included. An earlier b7e-* command hand-rolled the `ws.dir`
+match instead and got away with it only because nothing there routed a `git`/`gh` call
+through the result — this one does, so it does not repeat that shortcut.
+
+Reports one block: the base ref and its sha; the checkout's current branch and whether
+it is an **ancestor** of the base (behind, or the mirror case — ahead, with the base an
+ancestor of it), **equal** to it, or **diverged**, with real ahead/behind counts either
+way; and — the part none of the six sessions above computed by hand — every top-level
+path the base's tree carries that the checkout's tree does not have *at all* (a partial
+overlap, some files under a shared directory name and not others, is not "absent here"
+and would be noise). `--show <path>` cats a file as it exists at the base, which
+succeeds exactly where a plain `Read` of the same path in the checkout fails, because
+the checkout never had it.
+
+**Refuses with exit `2` rather than guessing** in every case where the answer would
+otherwise be a shrug: an unknown `-w`, `pr.enabled: false` (nothing is delivered
+anywhere for this install, so there is no base to report), or a configured base that
+names no `origin/<base>` and no local `<base>` at all in the checkout.
+
+Built on the same `lib/gitref.js` primitives `b7e-base` is — `fetch`, `rev-parse`,
+`rev-list`, plus `ls-tree` and `show` for the tree comparison and `--show` — so it is
+read-only in the same construction sense: nothing here writes a ref, a commit or a
+working-tree file, which is what put `Bash(b7e-deliverbase:*)` on `DEFAULT_TOOL_LIST` in
+`lib/toolbelt.js` and `read` in `lib/grants.js` beside `b7e-base`.
 
 ### Whether the library is being used — the Skills view
 
@@ -22611,7 +22814,7 @@ Nine things follow, and they are the whole of the change:
   reliably did. In between, every new worktree branched from before the delivery, and the
   session that got it paid with a downmerge of work it had never heard of. So a delivery
   ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
-  cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
+  cannot move anyway — and it is the same `landLocally` the merge queue's own `afterMerge` uses,
   refusal and all: *a checkout with edited work in it is not touched*, it says so on
   the bead instead, and Adam's open files are worth more than a tidy `main`. **It names
   the paths that stopped it.**
@@ -30660,7 +30863,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` — and so does a **tracker that did not answer in time**, which used to escape the bead read at the top as a 500 carrying bd's command line, and so filed a sev2 P0 about a daemon that was serving every other route (bc-4jkjv). Only a `bd` *timeout*: a `bd` that answered and said no still reaches the route error handler as itself |
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. One card per **repo** — `key` is `beadcause` or `climative/athena-service`, and it is what every row and every button below is addressed by, because a pull request number is only unique inside a repo. `workspace` is still accepted everywhere `key` is and means the same thing for a workspace that is one repo; see [why](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them). Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
-| POST | `/api/pr/merge` | `{key, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. Only *edited* files refuse it: untracked residue is stepped past and named, because this checkout is shared with every session on the Mac and one stray `.DS_Store` used to stop all of them. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
+| POST | `/api/pr/merge` | `{key, number, method?}` | **admits it to the merge queue — it does not merge** (bc-02ldo). `admitPlan` picks the bead this pull request already is (a merge-bead the queue handed back, a delivery card asking about it, one already queued, or nothing open at all) and `admitToQueue` writes `approved`/`approvedBy` into the queue block in its `notes`, where `gateVerdict` reads it — the same two functions `beadcause-merge` calls, because two copies of that sequence is two copies that drift. Answers `{queued, action, id, bead, why, others, warnings}`: `queued` is false on `approve` (it was already on the queue and moving, and claiming a move nothing made is the one thing this must not do) and `others` names any second open bead about the same pull request, which is a work bead that cannot close. A pull request already merged is `{alreadyMerged: true}` and a 200, because "it is already in" is the outcome the tap wanted; a draft or a closed one is a 409. **It used to merge, fast-forward this Mac's base and retire the inbox card** — all three now happen on the queue path, where `afterMerge` does the first two the moment the merge lands and the card is *converted* into the queue entry rather than closed behind it |
 | POST | `/api/pr/ship` | `{key, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | GET | `/api/queues` | `?refresh=1` | [the two queues](#the-two-queues-and-where-a-bead-is-in-either), keyed by repo: `{at, repos[], orphans[], counts, unavailable, errors[], observing}`. Each repo carries `merge[]` — one entry per bead with an unmerged branch, from the moment its PR joined the queue — and `release[]`, one per merged PR in the batch it will ship with. Every entry names its bead, its pull request and its `stage`, plus `rungs[]`: the whole ladder with each rung `done` · `now` · `pending` · **`untracked`**, which is what the three stages nothing records yet come back as and is never `done`. A repo with no declared deploy and no visible build returns merge entries and **no release entries**. A release entry is kept one release past the one that made it live (`ago`), then it is gone. Reads nothing of its own: the 25-second board `/api/prs` shares, the deploy journal, and merge-beads kept 20s behind the same `bd.graph()` gate the queue's own tick uses |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
