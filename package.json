@@ -68,6 +68,7 @@
     "b7e-deliverbase": "bin/b7e-deliverbase",
     "b7e-detach": "bin/b7e-detach",
     "b7e-diff": "bin/b7e-diff",
+    "b7e-dossier": "bin/b7e-dossier",
     "b7e-enroll": "bin/b7e-enroll",
     "b7e-entry": "bin/b7e-entry",
     "b7e-eyeball": "bin/b7e-eyeball",
