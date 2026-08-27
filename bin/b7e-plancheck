@@ -7,6 +7,8 @@
  *   b7e-plancheck bc-jk4m -w beadcause --json
  *   b7e-plancheck bc-jk4m -w beadcause --check plan.yaml
  *   cat plan.yaml | b7e-plancheck bc-jk4m -w beadcause --check
+ *   b7e-plancheck bc-jk4m -w beadcause --out plan.yaml
+ *   b7e-plancheck bc-jk4m -w beadcause --out | beadcause-plan bc-jk4m -w beadcause -f -
  *
  * bc-dgx7.18, filed by the session audit against bc-ka5y.15, bc-1kwl and bc-khoe.33 —
  * three planners that each needed exactly this and each built a different one: ten
@@ -33,6 +35,19 @@
  * through the same `validatePlan`/`validateWhole` `bin/plan.js` would, without writing
  * the comment, the label, or the handback.
  *
+ * **`--out [file]` (bc-dgx7.79) is default mode's own document, back out as the literal
+ * YAML `bin/plan.js` accepts.** Found by a session audit against three *deluvia* planning
+ * sessions each rebuilding this by hand to revise an existing plan: `bd comments --json`
+ * plus a hand-rolled fence-strip to pull the stored JSON block, then retyping group
+ * prompts out of it rather than editing a file. `lib/plan.js` already has the read —
+ * `planFrom`/`wholeFrom` parse exactly what is stored — this is that document reprinted in
+ * the write shape, to `<file>` or stdout if none is given. Piping it straight into
+ * `--check` (or into `beadcause-plan -f`) must reproduce the stored plan exactly — that
+ * round-trip is the whole of the acceptance test — so the YAML is *all* that goes to
+ * stdout/`<file>`: the per-group budget line and the unplanned list still print, to
+ * stderr, so a plan whose prompt is already over `MAX_PROMPT_CHARS` is flagged in the same
+ * run rather than only discovered on a later `--check`.
+ *
  * Both modes end with the two verdicts a planner actually needs: which ready beads under
  * the epic no group names (`unplanned`, the one that freezes the whole subtree until it
  * is cleared) and which groups a tick could dispatch right now (`dispatchable`). The
@@ -44,11 +59,12 @@
  * `a.workers` but not it: a bead claimed by hand, outside dispatch, reads the same way.
  *
  * Exit codes: `0` printed — a plan exists, or `--check` reports a candidate that would be
- * accepted. `1` bad usage. `2` the tracker would not answer, or the epic does not exist.
- * `3` `--check` input is not valid YAML, or names both `groups:` and `whole:` (or
- * neither) — `bin/plan.js`'s own codes for the same failure. `4` `--check` input is a
- * legal document shape but `validatePlan`/`validateWhole` would refuse it, which is the
- * answer this command exists to give before anyone writes it.
+ * accepted. `1` bad usage. `2` the tracker would not answer, the epic does not exist, or
+ * `--out` was asked for an epic that carries neither a plan nor a whole-job decision —
+ * there is nothing to write out. `3` `--check` input is not valid YAML, or names both
+ * `groups:` and `whole:` (or neither) — `bin/plan.js`'s own codes for the same failure.
+ * `4` `--check` input is a legal document shape but `validatePlan`/`validateWhole` would
+ * refuse it, which is the answer this command exists to give before anyone writes it.
  *
  * @grant read
  */
@@ -69,13 +85,17 @@ import {
   wholeFrom,
 } from '../lib/plan.js';
 
-const USAGE = `usage: b7e-plancheck <epic> -w <workspace> [--check [plan.yaml]] [--json]
+const USAGE = `usage: b7e-plancheck <epic> -w <workspace> [--check [plan.yaml]] [--out [file]] [--json]
 
   <epic>                 the epic bead to read the plan of
   -w, --workspace <name>  which tracker <epic> lives in (required)
   --check [file]          validate a candidate plan/whole-job document instead of
                           printing what is on the bead — from <file>, or stdin if none
                           or "-" is given. Writes nothing.
+  --out [file]            print the epic's current plan (or whole-job decision) as the
+                          literal YAML \`beadcause-plan -f\` accepts, to <file> or stdout
+                          if none is given. The budget line and the unplanned list still
+                          print, but to stderr, so stdout stays pipeable into --check.
   --json                  machine-readable output instead of the printed report`;
 
 function fail(msg, code) {
@@ -89,6 +109,8 @@ let wsName = null;
 let jsonMode = false;
 let checkMode = false;
 let checkFile = null;
+let outMode = false;
+let outFile = null;
 
 for (let i = 0; i < argvIn.length; i += 1) {
   const a = argvIn[i];
@@ -107,6 +129,13 @@ for (let i = 0; i < argvIn.length; i += 1) {
       checkFile = next;
       i += 1;
     }
+  } else if (a === '--out') {
+    outMode = true;
+    const next = argvIn[i + 1];
+    if (next !== undefined && !next.startsWith('-')) {
+      outFile = next;
+      i += 1;
+    }
   } else if (a.startsWith('-')) {
     console.error(USAGE);
     fail(`unrecognised argument "${a}"`, 1);
@@ -118,6 +147,7 @@ for (let i = 0; i < argvIn.length; i += 1) {
   }
 }
 if (checkFile === '-') checkFile = null;
+if (outFile === '-') outFile = null;
 
 const cfg = loadConfig();
 const ws = cfg.workspaces.find((w) => w.name === wsName);
@@ -169,8 +199,40 @@ try {
   console.error(`b7e-plancheck: could not read ${ws.name}'s ready queue (${err.message.split('\n')[0]}) — unplanned/dispatchable cannot be computed`);
 }
 
+/**
+ * The write shape `bin/plan.js` and `--check` take, for a plan `lib/plan.js` has already
+ * validated and stored. `repo:` is written explicitly rather than left to derive from
+ * `prs:` (which `validatePlan` would do identically for every plan this tool ever wrote)
+ * because that derivation is a fallback for a *hand-written* candidate — carrying the
+ * stored value forward literally is what makes the round-trip byte-exact regardless of
+ * how it got there. `files:` is omitted when empty, since `normalizeSurface(undefined)`
+ * is `[]` on the way back in — the same value, not a different spelling of it.
+ */
+function planToYaml(plan) {
+  return YAML.stringify({
+    groups: plan.groups.map((g) => ({
+      name: g.name,
+      repo: g.repo,
+      beads: g.beads,
+      ...(g.files?.length ? { files: g.files } : {}),
+      prs: g.prs.map((p) => ({ repo: p.repo, title: p.title })),
+      prompt: g.prompt,
+    })),
+  });
+}
+
+/** Same idea, for the other document this file can govern — see `validateWhole`. */
+function wholeToYaml(whole) {
+  return YAML.stringify({ whole: { why: whole.why } });
+}
+
+function emitYaml(text, file) {
+  if (file) fs.writeFileSync(file, text);
+  else process.stdout.write(text);
+}
+
 /** What `bin/plan.js` would print instead of writing — the plan/group summary. */
-async function report(plan) {
+async function report(plan, { log = console.log } = {}) {
   const un = queue ? unplanned(plan, queue, index.parents) : null;
 
   const namedIds = [...new Set(plan.groups.flatMap((g) => g.beads))];
@@ -225,24 +287,29 @@ async function report(plan) {
   for (const g of plan.groups) {
     const filesPart = g.files?.length ? ` · files ${g.files.join(', ')}` : '';
     const prsPart = g.prs.map((p) => (p.title ? `${p.repo} (${p.title})` : p.repo)).join(', ');
-    console.log(`  ${g.name} — beads ${g.beads.join(', ')}${filesPart} · prs ${prsPart} · prompt ${g.prompt.length}/${MAX_PROMPT_CHARS}`);
+    // A stored plan cannot be over MAX_PROMPT_CHARS through this tool's own --out/--check —
+    // both validate before anything is written — but a plan predating a lowered cap, or a
+    // comment edited by hand, can be. Said here rather than only discovered on a later
+    // --check, which is the whole point of --out reporting in the same run it printed in.
+    const overPart = g.prompt.length > MAX_PROMPT_CHARS ? ` · OVER by ${g.prompt.length - MAX_PROMPT_CHARS}` : '';
+    log(`  ${g.name} — beads ${g.beads.join(', ')}${filesPart} · prs ${prsPart} · prompt ${g.prompt.length}/${MAX_PROMPT_CHARS}${overPart}`);
   }
   for (const note of notes) console.error(`  note: ${note}`);
 
-  if (!un) console.log('unplanned: could not be computed — the ready queue would not read');
-  else if (un.length) console.log(`unplanned (freezes the subtree until grouped): ${un.map((b) => b.id).join(', ')}`);
-  else console.log('unplanned: none — every ready bead under the epic is named');
+  if (!un) log('unplanned: could not be computed — the ready queue would not read');
+  else if (un.length) log(`unplanned (freezes the subtree until grouped): ${un.map((b) => b.id).join(', ')}`);
+  else log('unplanned: none — every ready bead under the epic is named');
 
   if (!disp) {
-    console.log('dispatchable: could not be computed — the ready queue would not read');
+    log('dispatchable: could not be computed — the ready queue would not read');
   } else {
-    console.log(
+    log(
       disp.groupOf.size
         ? `dispatchable now: ${[...disp.groupOf.entries()].map(([lead, g]) => `${g.name} (lead ${lead})`).join(', ')}`
         : 'dispatchable now: none'
     );
-    if (disp.done) console.log('done: every named bead is closed and nothing is live');
-    else if (disp.unclosed.length) console.log(`still open: ${disp.unclosed.join(', ')}`);
+    if (disp.done) log('done: every named bead is closed and nothing is live');
+    else if (disp.unclosed.length) log(`still open: ${disp.unclosed.join(', ')}`);
   }
 }
 
@@ -310,14 +377,27 @@ const hasWholeLabel = isWholeJob(epic);
 
 if (hasWholeLabel || (whole && !plan)) {
   if (!hasWholeLabel) console.error(`b7e-plancheck: ${epicId} carries a whole-job comment but not the \`whole-job\` label — a previous run's label write may have failed`);
-  if (jsonMode) console.log(JSON.stringify({ epic: epicId, whole }));
-  else {
+  if (outMode) {
+    emitYaml(wholeToYaml(whole), outFile);
+  } else if (jsonMode) {
+    console.log(JSON.stringify({ epic: epicId, whole }));
+  } else {
     console.log(`${epicId} is one job, no children filed`);
     console.log(`  ${whole.why}`);
   }
 } else if (plan) {
   if (!hasPlannedLabel) console.error(`b7e-plancheck: ${epicId} carries a plan comment but not the \`${PLANNED_LABEL}\` label — a previous run's label write may have failed`);
-  await report(plan);
+  if (outMode) {
+    emitYaml(planToYaml(plan), outFile);
+    // The budget line and the unplanned list still print — to stderr, so a group already
+    // over MAX_PROMPT_CHARS is flagged in this same run, without touching what stdout/
+    // <file> carries: the round-trippable YAML and nothing else.
+    await report(plan, { log: console.error });
+  } else {
+    await report(plan);
+  }
+} else if (outMode) {
+  fail(`${epicId} has no plan and no whole-job decision on it — nothing to write out`, 2);
 } else if (jsonMode) {
   console.log(JSON.stringify({ epic: epicId, plan: null, whole: null }));
 } else {

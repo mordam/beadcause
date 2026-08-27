@@ -684,9 +684,21 @@ check('lib/toolbelt.js selects the suites that name the tool list, not everythin
   assert.ok(suites.includes(rel('test', 'loadorder.mjs')), 'names the file — it is the cycle guard toolbelt.js exists for');
 });
 
+// The sentinel is joined from parts at run time, and that is the whole point of it.
+// `findAffected` matches a *quoted path literal* (`pathLiteralIndex` in lib/affected.js),
+// so any name written out in full here is only absent from the tree until some other suite
+// happens to pick the same plausible string for its own missing-path fixture — and then
+// this check goes red in a file that suite's author never opened. That is not
+// hypothetical: #813 added test/b7esurface.mjs using this check's previous
+// `lib/this-file-does-not-exist-anywhere.js` verbatim, `unmatched` came back empty, and
+// main was red from 3b2001af1 until bc-jhelk (bc-sp2sz). Assembled, the literal this check
+// looks for appears in no file in the repo — this one included — so nothing can collide
+// with it, whatever anybody adds next.
 check('a file nothing references is reported unmatched against the real repo too', () => {
-  const { unmatched } = affected.findAffected(affected.REPO_ROOT, [rel('lib', 'this-file-does-not-exist-anywhere.js')]);
-  assert.deepEqual(unmatched, [rel('lib', 'this-file-does-not-exist-anywhere.js')]);
+  const absent = rel('lib', ['affected', 'mjs', 'sentinel', 'absent'].join('-') + '.js');
+  assert.ok(!fs.existsSync(path.join(affected.REPO_ROOT, absent)), `${absent} has to be absent for this check to mean anything`);
+  const { unmatched } = affected.findAffected(affected.REPO_ROOT, [absent]);
+  assert.deepEqual(unmatched, [absent], `something in the tree now names ${absent} — give this check a fresh sentinel rather than weakening it`);
 });
 
 /* --------------------------------------------------------------------- */

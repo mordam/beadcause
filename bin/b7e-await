@@ -1,0 +1,253 @@
+#!/usr/bin/env node
+/**
+ * `b7e-await` — wait for a call the harness already backgrounded, and hand back its
+ * real output and exit status.
+ *
+ *   b7e-await <task-id>                    block until it exits, print output, exit
+ *                                           with the SAME code the task exited with
+ *   b7e-await <task-id> --timeout 60       give up after 60s: print what there is so
+ *                                           far and exit 124
+ *   b7e-await <task-id> --tail 40          print only the last 40 lines of the output
+ *
+ * bc-dgx7.99, filed by the session audit against six sessions (dv-b5d.24, dv-b5d.26,
+ * dv-3rn.2, dv-gr6.36, dv-nsy.6, dv-k4n.5) that each invented a different wait for a
+ * long call the harness had moved to the background: blind `cat` polls that several
+ * times read a half-written file as a finished one, a `grep -c` busy-wait that spun at
+ * full CPU and died at exit 143, `setsid` (which does not exist on this Mac), a line
+ * count checked against a guessed total. None of them could see the one thing that
+ * actually answers "is it done" — the task's real exit status — because none of them
+ * knew where it was written down.
+ *
+ * **Where it is written down**, worked out by driving a real `run_in_background` call
+ * and reading what came back (no doc for this — it is this repo's own discovery):
+ * the harness backs a task with a file at
+ *
+ *   /private/tmp/claude-<uid>/<cwd, every non-alnum char turned into `-`>/<session id>/tasks/<task-id>.output
+ *
+ * which fills with the task's combined stdout+stderr as it runs and, the moment the
+ * task exits, gets one line appended — `[exited with code N]` — or, if something else
+ * stopped it first (the harness itself, at session end or on a `TaskStop`), `[killed]`
+ * with no code at all. Emptiness is not completion and neither is a line count; this
+ * marker is the only thing in the file that means "done", so it is the only thing this
+ * polls for.
+ *
+ * `<uid>` and `<session id>` are `os.userInfo().uid` and `$CLAUDE_CODE_SESSION_ID` —
+ * both already ours, no discovery needed. `<cwd>` is trickier: it is the caller's cwd
+ * **at the moment the background call was made**, which is not necessarily this
+ * process's cwd right now — a session that calls `EnterWorktree` between backgrounding
+ * a task and awaiting it has a different cwd than when the task started. So the search
+ * tries this process's own cwd first, and if that slug has no matching file, falls back
+ * to every sibling slug under the same uid that has this exact session id under it —
+ * cheap (a few dozen directory entries, stat'd once) and does not need the caller to
+ * remember or pass its old cwd. `--dir <path>` skips all of this and looks for
+ * `<task-id>.output` directly under `<path>` — the escape hatch for a caller that
+ * already has the path (the backgrounding call prints it), and how the test suite
+ * drives this without a real backgrounded task to point at.
+ *
+ * Exit codes: the task's own code if it exited on its own (normalised into 0-255, same
+ * as any `process.exit`); 124 if `--timeout` ran out first (coreutils' own `timeout`
+ * uses the same number, and so does this repo's `b7e-bound`); 125 if the task's file
+ * says `[killed]` — something else stopped it, so there is no exit code to propagate;
+ * 127 if no task by that id ever turns up (a two-second grace for the file to appear at
+ * all, so a typo does not hang forever when `--timeout` was not given).
+ *
+ * Extensionless on purpose (bin/b7e-await, not bin/b7e-await.js) — see the memory note
+ * only-an-extensionless-bin-resolves-on-path: lib/foundation.js puts this repo's bin/ on
+ * every agent's PATH by resolving the literal filename typed, and a package.json bin
+ * entry that renames a `.js` file only resolves after an `npm link` this install has
+ * never had.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const USAGE = `usage: b7e-await <task-id> [--timeout <seconds>] [--tail <n>] [--dir <path>]
+
+Blocks until the backgrounded task <task-id> exits, then prints its output and exits
+with the SAME CODE the task exited with. --timeout <seconds> gives up after that long:
+prints whatever output exists so far and exits 124. --tail <n> prints only the last n
+lines instead of the whole thing. --dir <path> looks for <task-id>.output directly
+under <path>, skipping the usual session/cwd search (mainly for when you already have
+the path the backgrounding call printed).`;
+
+function arg(name) {
+  // `--flag=value` first, same as b7e-bound's flagValue — both forms should work here
+  // for the same reason they do there.
+  const eq = process.argv.find((a) => a.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const i = process.argv.indexOf(name);
+  if (i === -1) return undefined;
+  return process.argv[i + 1];
+}
+const has = (name) => process.argv.includes(name);
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const positional = process.argv.slice(2).filter((a, i, all) => {
+  if (a.startsWith('-')) return false;
+  const prev = all[i - 1];
+  return !(prev === '--timeout' || prev === '--tail' || prev === '--dir');
+});
+const taskId = positional[0];
+if (!taskId) {
+  console.log(USAGE);
+  process.exit(1);
+}
+
+const timeoutRaw = arg('--timeout');
+const timeoutMs = timeoutRaw !== undefined ? Number(timeoutRaw) * 1000 : undefined;
+if (timeoutRaw !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+  console.error(`b7e-await: --timeout <seconds> must be a positive number, got ${JSON.stringify(timeoutRaw)}`);
+  process.exit(1);
+}
+
+const tailRaw = arg('--tail');
+const tailLines = tailRaw !== undefined ? Number(tailRaw) : undefined;
+if (tailRaw !== undefined && (!Number.isInteger(tailLines) || tailLines <= 0)) {
+  console.error(`b7e-await: --tail <n> must be a positive integer, got ${JSON.stringify(tailRaw)}`);
+  process.exit(1);
+}
+
+const explicitDir = arg('--dir');
+
+const POLL_MS = 300;
+// Only used when --timeout was not given: how long to wait for the task's file to turn
+// up at all before giving up on a task id that never existed. Real backgrounding writes
+// the file before the tool call even returns (measured), so this is pure typo insurance,
+// not a bound on how long a real task gets to start.
+const DISCOVERY_GRACE_MS = 2000;
+// How much of the file's tail to read on each poll, so a long-running gate log does not
+// get re-read in full every 300ms. Comfortably bigger than the longest marker line.
+const TAIL_CHECK_BYTES = 256;
+
+const EXIT_TIMEOUT = 124;
+const EXIT_KILLED = 125;
+const EXIT_NOT_FOUND = 127;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sanitize = (p) => String(p).replace(/[^A-Za-z0-9]/g, '-');
+
+// Overridable only so test/b7eawait.mjs can drive the REAL discovery/fallback logic
+// (uid + sanitised cwd + session id, falling back across sibling cwd-slugs) against a
+// throwaway fixture tree instead of writing into the real /private/tmp/claude-<uid> —
+// `--dir` skips this whole function and proves nothing about it. Never read anywhere
+// else, and not in --help: a real caller never has a reason to set it.
+const TASKS_BASE = process.env.B7E_AWAIT_TEST_BASE || `/private/tmp/claude-${os.userInfo().uid}`;
+
+/** Every directory worth checking for `<taskId>.output`, cheapest first. */
+function candidateDirs() {
+  if (explicitDir) return [explicitDir];
+  const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
+  if (!sessionId) return null;
+  const base = TASKS_BASE;
+  const dirs = [path.join(base, sanitize(process.cwd()), sessionId, 'tasks')];
+  let entries = [];
+  try {
+    entries = fs.readdirSync(base);
+  } catch {
+    // base not there yet (no background task has ever run under this uid) — the
+    // primary candidate above is all there is to try.
+  }
+  for (const entry of entries) {
+    const d = path.join(base, entry, sessionId, 'tasks');
+    if (!dirs.includes(d)) dirs.push(d);
+  }
+  return dirs;
+}
+
+function resolveFile() {
+  const dirs = candidateDirs();
+  if (dirs === null) return { noSession: true };
+  for (const dir of dirs) {
+    const f = path.join(dir, `${taskId}.output`);
+    if (fs.existsSync(f)) return { file: f };
+  }
+  return { file: null };
+}
+
+/** `{ code }` for `[exited with code N]`, `{ killed: true }` for `[killed]`, or `null`. */
+function trailerOf(tail) {
+  const exited = tail.match(/\[exited with code (-?\d+)\]\s*$/);
+  if (exited) return { code: Number(exited[1]) };
+  if (/\[killed\]\s*$/.test(tail)) return { killed: true };
+  return null;
+}
+
+function readTail(file, bytes) {
+  const size = fs.statSync(file).size;
+  if (size === 0) return '';
+  const len = Math.min(size, bytes);
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    return buf.toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function printOutput(file) {
+  const full = fs.readFileSync(file, 'utf8');
+  if (tailLines === undefined) {
+    process.stdout.write(full);
+    return;
+  }
+  const lines = full.split('\n');
+  // A trailing '' from the final newline is not a line anyone asked to see.
+  if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  process.stdout.write(lines.slice(-tailLines).join('\n') + '\n');
+}
+
+async function main() {
+  const start = Date.now();
+  const deadline = timeoutMs !== undefined ? start + timeoutMs : undefined;
+  const discoveryDeadline = deadline !== undefined ? deadline : start + DISCOVERY_GRACE_MS;
+
+  let file = null;
+  for (;;) {
+    if (!file) {
+      const resolved = resolveFile();
+      if (resolved.noSession) {
+        console.error(
+          'b7e-await: $CLAUDE_CODE_SESSION_ID is not set, so there is no session to search — pass --dir <path> pointing at the tasks directory directly.'
+        );
+        process.exit(2);
+      }
+      file = resolved.file;
+      if (!file) {
+        if (Date.now() >= discoveryDeadline) {
+          if (deadline !== undefined) {
+            // --timeout ran out before the task ever turned up: same shape as any other
+            // timeout, just with nothing to show for it.
+            process.exit(EXIT_TIMEOUT);
+          }
+          console.error(`b7e-await: no task "${taskId}" found (waited ${DISCOVERY_GRACE_MS}ms for it to appear)`);
+          process.exit(EXIT_NOT_FOUND);
+        }
+        await sleep(POLL_MS);
+        continue;
+      }
+    }
+
+    const trailer = trailerOf(readTail(file, TAIL_CHECK_BYTES));
+    if (trailer) {
+      printOutput(file);
+      process.exit(trailer.killed ? EXIT_KILLED : trailer.code);
+    }
+
+    if (deadline !== undefined && Date.now() >= deadline) {
+      printOutput(file);
+      process.exit(EXIT_TIMEOUT);
+    }
+
+    await sleep(POLL_MS);
+  }
+}
+
+await main();
