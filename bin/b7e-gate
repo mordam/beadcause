@@ -89,10 +89,20 @@ const value = (f, fallback) => {
   return at === -1 ? fallback : (argv[at + 1] ?? fallback);
 };
 
+/** Everything after a literal `--` — forwarded verbatim as `tools/partest.py`'s own argv. */
+const DASH_DASH_AT = argv.indexOf('--');
+/**
+ * `--help` (or any other of this command's own flags) after a literal `--` belongs to
+ * the far side, not to this one — the same split `bin/b7e-detach`'s HEAD/TAIL already
+ * draws, for the same reason: without it, a `--help` meant for `tools/partest.py` would
+ * print usage instead of starting the run it was forwarded to be part of.
+ */
+const OWN_ARGV = DASH_DASH_AT === -1 ? argv : argv.slice(0, DASH_DASH_AT);
+
 // bc-dgx7.31: this used to fall through to a real run — `--help` on argv matched none
 // of the flags above, so it read as "no suites to skip, no dir given" and started the
 // whole gate. Checked first, before ROOT or the lock, so it runs nothing at all.
-if (has('--help') || has('-h')) {
+if (OWN_ARGV.includes('--help') || OWN_ARGV.includes('-h')) {
   console.log(
     [
       'b7e-gate                              # every suite scripts/test.mjs --list would run',
@@ -115,8 +125,6 @@ const ONLY = multi('--only');
 const SKIP = multi('--skip');
 /** `PY_ARM`: the tree at `ROOT` is `tools/partest.py`'s shape, not `scripts/test.mjs`'s. */
 const PY_ARM = isPythonShaped(ROOT);
-/** Everything after a literal `--` — forwarded verbatim as `tools/partest.py`'s own argv. */
-const DASH_DASH_AT = argv.indexOf('--');
 const EXTRA_ARGS = DASH_DASH_AT === -1 ? [] : argv.slice(DASH_DASH_AT + 1);
 /**
  * `--jobs` given wins outright — an explicit ask from whoever is running the gate is a real
