@@ -14332,12 +14332,46 @@ either name beads under the epic or they do not. Here the reason *is* the decisi
 "one job" with nothing behind it is indistinguishable from a window that ran out of turn and
 reached for the cheapest exit. The worker opened on that epic reads it before the diff.
 
-lib/plan.js owns the format, `validateWhole` owns the refusals, and lib/epicadvocate.js
-quotes the block rather than spelling it out — an Epic Advocate writes it with `bd comment`
-and `bd label add`, exactly as it already writes the plan, so the two writers of one document
-cannot drift. `test/wholejob.mjs` drives the real `bin/plan.js` against a fake `bd` for the
-three writes and their order; `test/epicqueue.mjs` pins the hold and every way out of it;
-`test/epicadvocate.mjs` pins one case per answer.
+lib/plan.js owns the format and `validateWhole` owns the refusals. `test/wholejob.mjs` drives
+the real `bin/plan.js` against a fake `bd` for the three writes and their order;
+`test/epicqueue.mjs` pins the hold and every way out of it; `test/epicadvocate.mjs` pins one
+case per answer.
+
+### An Epic Advocate reaches that same door through `beadcause-epicplan`, not by hand-typing the markers
+
+The door above assumes whoever writes the document can run `beadcause-plan` — a real
+`node` process — which is true of a planning **worker** (`worker`'s `allowedTools` is the
+unrestricted CLI default) and was not true of the **Epic Advocate** (bc-jvt0.6). Its
+allowlist (lib/foundation.js's `epic-advocate` role) has no `Bash(node:*)` grant — far too
+wide to add just for this — and `beadcause-plan` is not on PATH regardless, being a
+package.json rename of `bin/plan.js` that only resolves after an `npm link` this install has
+never had (bc-jlop). So until this bead, the one agent that actually writes both of these
+documents wrote them by hand instead: a `bd comment` whose body it typed to match
+`WHOLE_OPEN`/`WHOLE_CLOSE` by eye, then a separate `bd label add`. Nothing checked that what
+it typed was the document it meant — a malformed block reads as no decision at all, and
+silently: the label still goes on, the epic still dispatches, and the reason nobody can
+parse the comment is the only record of why.
+
+`bin/beadcause-epicplan` is the fix, and it is deliberately thin: an extensionless,
+filename-is-the-command wrapper — the same shape `beadcause-get` and
+`beadcause-requirements` already use — that spawns `node bin/plan.js` with its own argv and
+stdin unchanged and exits with whatever that exits with, the same composition
+`b7e-shipgate` uses to spawn `b7e-gate` rather than reimplementing it. It is deliberately
+*not* named `b7e-plan`: lib/tooldecl.js turns any `bin/b7e-*` file's `@grant` header into an
+entry on `DEFAULT_TOOL_LIST`, the read-only surface every `dispatch` reply agent gets, and
+this is neither read-only nor for `dispatch` — it is a tracker write, scoped to the one
+agent that plans epics. It decides nothing of its own: `bin/plan.js` stays the one place
+either document's format, validation and the three-write order live, so a rename there
+cannot leave the wrapper out of step. `Bash(beadcause-epicplan:*)` is on the Epic
+Advocate's allowlist and nowhere else, classified in lib/grants.js as a tracker write held
+only by `epic-advocate` — hand-written there exactly as `beadcause-get` is, rather than
+through `lib/tooldecl.js`'s `@grant` mechanism, because writing a bead's plan is not
+something `dispatch` does at all. lib/epicadvocate.js's brief now tells the agent to pipe
+its YAML into `beadcause-epicplan` for either answer, rather than quoting the markers for
+it to retype. `test/epicplanwrite.mjs` drives the real `bin/beadcause-epicplan` against the
+same fake-`bd` fixture `test/wholejob.mjs` uses, and proves the wrapper is transparent: a
+valid decision reaches the tracker, a refused one is refused with `bin/plan.js`'s own exit
+code and writes nothing, and the flags and stdin survive the extra hop.
 
 **And what happens when that job lands** is the section below: an epic worked as one job is
 delivered by a pull request that merges, and the merge queue deliberately leaves an epic open.
@@ -21208,6 +21242,75 @@ which is what all three originating sessions actually were, already carries an
 unrestricted allowlist and needs no grant to run it.
 
 
+### Which call does this to a bead — `b7e-bd`
+
+`bc-dgx7.20`, filed by the session audit (`lib/sessionaudit.js`) against five sessions
+that each spent real minutes on the same hunt, from opposite ends. `bc-xl7n.114` ran
+`bd --version`, `bd --help`, `bd show --help`, `bd update --help | grep -i "lease\|claim"`,
+`bd ready --help`, `bd heartbeat --help`, `bd reclaim --help`, plus `bd ready --id
+bc-xl7n.114` → `Error: unknown flag: --id` — and eight greps through `lib/` and `bin/` for
+`reclaim`, `heartbeat`, `reclaimStale`, `leaseReclaim`, one of which ran past the 120s
+tool timeout. `bc-khoe.33` and `bc-khoe.48` each ran `bd update --help | grep -i parent`
+a day apart, hunting for how to detach a child. `bc-xl7n.117` and `bc-jvt0.4` each ran
+four greps through `lib/bd.js` for `addLabel`, `reopen`, `children`, `reopenAbandoned` —
+the same four greps, twice, to answer "which method does the write". The answers are
+load-bearing and easy to get wrong: `Bd.addLabel` is `bd label add <id> <label>`, id
+first, label last.
+
+```
+b7e-bd label                    # which Bd method does this, and which raw bd command
+b7e-bd reparent
+b7e-bd close force
+b7e-bd lease
+b7e-bd --method reopenAbandoned # the reverse lookup: everything about one named method
+b7e-bd label --json
+```
+
+**Two questions, one command.** Given an intent — a verb or a short phrase — this
+answers "which `Bd` method (`lib/bd.js`) wraps that" *and* "what does the raw `bd`
+binary installed on this machine call that", side by side, plus any
+`beadcause-memory` note whose key or text names it. `lib/bdintrospect.js` does the
+work and none of it runs `bd` write-shaped: the `Bd` half is read straight out of the
+source (parsed with `acorn`, never executed, never imported), and the raw-`bd` half is
+nothing but `bd --help` and `bd <verb> --help` — informational, no workspace ever
+touched.
+
+**The `Bd`-method search is `lib/already.js`'s `scoreEntry`, reused rather than
+reinvented** — the same convention `b7e-already` (`bc-dgx7.81`) already searches
+`lib/` with: a query word must appear, as a substring, in the method's name or the
+*first line* of its doc comment. That first-line rule is why `b7e-bd reparent` finds
+no `Bd` method: `Bd.graph()`'s doc comment does say, eleven paragraphs down, "the thing
+being cached moves only when somebody deliberately *reparents* a bead" — but that
+sentence is not the first line, and `Bd.update()` — the method that actually builds
+every `--flag` it will ever pass — never touches `--parent` at all; `Bd.adopt()` owns
+that flag alone. Reusing the existing scorer rather than a second, subtly different one
+is what keeps "no `Bd` method wraps this" an honest answer instead of an accident.
+
+**The raw-`bd` search reads every top-level command's *full* `--help` text, not just
+its one-line summary**, which is the other half of the `reparent` answer: `bd --help`'s
+own one-liner for `update` is "Update one or more issues" — nothing about a parent
+anywhere — and the only place the word shows up at all is the `--parent` flag's own
+description, one level down ("New parent issue ID (**reparents** the issue, ...)").
+Fetching every subcommand's full `--help` (still under two seconds for the ~50 this
+install has) is what makes that findable with no hand-maintained synonym table to keep
+in sync with the next `bd` release. Matching is anchored to a *left* word boundary only
+(`\bword`, not `\bword\b`) — `\blease` correctly skips the "lease" sitting inside
+"re**lease**" while still matching "reparent**s**" for the query `reparent`, which a
+two-sided boundary would have missed.
+
+**The argv is read out of the source, never executed.** Most `Bd` methods call
+`this.run(workspace, [literal, array], { retries: N })` directly and that array is
+resolved element by element — a string prints as itself, a parameter like `id` or
+`label` prints as `<id>`, anything more exotic falls back to its own source text. A
+handful (`update`, `create`, `closeAnswered`, …) build the argv into a local `const
+args = [...]` and grow it with conditional `args.push(...)` calls through the body;
+those are resolved too, each push labelled with the `if`/`for` that guards it, which is
+exactly how `update()` is shown to never push `--parent`.
+
+**On `DEFAULT_TOOL_LIST`** via its own `@grant read` header (`bc-wbrhi`) — it never
+writes anything, so there is nothing here `lib/grants.js` would classify a write.
+
+
 ### Count the beads that carry a label or an edge — `b7e-census`
 
 `bc-bmry.12`, filed by the session audit (`lib/sessionaudit.js`) against three sessions
@@ -22644,6 +22747,74 @@ against.
 Exit codes: `0` every mutation was caught. `2` bad usage. `3` a baseline test command was
 already red — nothing was mutated. `1` at least one mutation `SURVIVED` or errored. See
 `bin/b7e-mutate`, `lib/mutate.js` and `test/b7emutate.mjs`.
+
+
+### Read the plan on an epic, or check a candidate before filing it — `b7e-plancheck`
+
+`bc-dgx7.18`, filed by the session audit against three planners that each needed exactly
+this and each built a different one-off. `bc-ka5y.15` filed a `plan.yaml` and was refused
+for a prompt over `MAX_PROMPT_CHARS`, then ran ten successive `python3 - <<'PY'` heredocs
+re-measuring every group's dedented length after each trim, guessing at how the writer's
+own indentation was being stripped, and was refused a second time. `bc-1kwl` was a
+*replan* and needed the plan already on the bead back first: five scratchpad programs —
+`replan.cjs` (reconstructing through `planFrom` over `bd comments --json`), a Python
+trimmer, two versions of an `addgroup.cjs`, and a `verify.mjs` to run `dispatchable` and
+`unplanned` against the live queue by hand. `bc-khoe.33` did the same job a third way,
+with a `dump.mjs` and a `python3 -` pass over the dump to print `prompt len` per group.
+`lib/plan.js` already exported everything all three needed — this is the argv and the
+printing around it, and it never writes.
+
+```
+b7e-plancheck bc-jk4m -w beadcause                       the plan (or whole-job decision)
+                                                           on the bead right now
+b7e-plancheck bc-jk4m -w beadcause --json                 the same facts, machine-readable
+b7e-plancheck bc-jk4m -w beadcause --check plan.yaml      would this candidate be accepted?
+cat plan.yaml | b7e-plancheck bc-jk4m -w beadcause --check
+                                                           same, from stdin
+```
+
+**Named `b7e-plancheck` rather than the `bin/b7e-plan` the bead itself asked for.**
+`bc-jvt0.6` landed a *different* command at that exact path while this one was being
+built — a thin write-shaped proxy that spawns `node bin/plan.js` unchanged, so an Epic
+Advocate (whose allowlist has no `node` grant) can reach the door that already writes and
+validates a plan or a whole-job decision. Opposite direction from this one — theirs
+writes, `@grant excluded`; this one only ever reads, `@grant read` — the same shape as
+`bc-dgx7.86`'s `b7e-write` renaming off `b7e-bd`: two beads settling on one name for
+opposite jobs, resolved by moving the reader rather than the writer, since the writer is
+what an allowlist and a role already depend on by that exact name.
+
+**Default mode prints whichever document actually governs the epic**, by the label the
+epic carries — `planned` or `whole-job` — rather than by which comment merely parses,
+because a comment can outlive a label write that failed (`bin/plan.js` warns and carries
+on rather than refusing). `--check` runs a candidate through the same
+`validatePlan`/`validateWhole` `bin/plan.js` would — same refusals, same exit codes (`3`
+for a shape `bin/plan.js` itself refuses at the YAML/document level, `4` for a legal
+document `validatePlan`/`validateWhole` refuses) — without writing the comment, the
+label, or the handback.
+
+**Both modes end with the two verdicts a planner actually needs.** `unplanned` — every
+ready bead under the epic no group names, the one that freezes the whole subtree until
+it is cleared, at whatever depth the export's parent edges reach (see
+"A plan may now name a bead under its epic at any depth" above). And `dispatchable` —
+which groups a tick could actually open a window on. The second is **best-effort**: which
+windows are already live is `a.workers`, in-memory state inside the daemon's own process
+that nothing outside it can read (see `DISPATCHED_PREFIX`'s own header in
+`lib/advocate.js`) — so a group is treated as live here when the tracker itself shows one
+of its beads `in_progress`, the same mark a real worker window's first line
+(`bd update --claim`) leaves. Close to `a.workers`, not identical to it: a bead claimed by
+hand outside dispatch reads the same way.
+
+One `bd export` (`Bd.graph`, already cached a minute) answers both `unplanned`'s parent
+edges and `dispatchable`'s live-bead guess together — the same status map also backs
+`isClosed`'s `unclosed`/`done` verdict, so nothing here pays for a second read of it.
+
+Exit codes: `0` printed — a plan or whole-job decision exists, or `--check` reports a
+candidate that would be accepted. `1` bad usage. `2` the tracker would not answer, or the
+epic does not exist. `3`/`4` — see above. `Bash(b7e-plancheck:*)` is on
+`DEFAULT_TOOL_LIST`, declared `@grant read` in the command's own header: every `bd` verb
+it spawns (`show`, `comments`, `children`, `export`, `ready`, a batched `show` for surface
+notes) is a read, and `--check` validates in memory only. See `bin/b7e-plancheck` and
+`test/b7eplancheck.mjs`.
 
 
 ### Which requirement a change was for — `refs/beadcause/requirements`
@@ -28307,8 +28478,9 @@ word-set comparison solves — loosening the bar on a graph of several hundred l
 similarly-worded titles (this repo's own convention) would trade a sweep that misses
 real pairs for one that wires unrelated beads together every cycle. So this sweep
 catches what its acceptance criterion actually asks for — a near-verbatim title with
-no edge — and the harder case of the same bug in different words is still open work,
-not a bug in this file.
+no edge — and the harder case of the same bug in different words is
+[the section after next](#and-the-harder-case-the-same-job-in-different-words), not a
+bug in this file.
 
 `node test/dupesweep.mjs` (in `npm test`) covers the plan against real `bd export`
 JSONL through `indexFrom` — an unjoined near-verbatim pair, a pair already linked by
@@ -28316,6 +28488,71 @@ any edge type, one merely sharing a few words, a closed bead, a question on eith
 side, a deterministic three-way tie — and the round trip against a fake `bd`: what it
 writes, that the graph refreshes once per batch rather than once per write, and a
 rejected write landing in the answer rather than throwing into the poll cycle.
+
+### And the harder case: the same job in different words
+
+The section above leaves the hard half open, and this is it. A 0.9 word-set bar catches a
+bead typed twice and nothing else, which is worth having and is not what this graph
+actually produces. The measurement, on beadcause itself: **twelve live beads carry
+`superseded-by:`**, each one a duplicate a worker found by hand and could not close.
+Scored against the bead each duplicates, with this repo's own `titleSimilarity`, they run
+**0.07 to 0.64** — median 0.30, top of the range 0.64. Not one is within reach of 0.9.
+Eleven of the twelve carry `agent-filed`: they came through `beadcause-file`, from a
+session deep in one bead that had not read the tracker.
+
+Lowering the bar does not work, and that was measured too, over all 45,451 live
+non-`human` pairs:
+
+| bar | flags | catches |
+|---|---|---|
+| `dice >= 0.50` | 11 pairs | 2 of 12 |
+| `dice >= 0.40` | 45 pairs | 4 of 12 |
+| `dice >= 0.35` | 100 pairs | 5 of 12 |
+
+Eight times more noise than signal at the loosest bar that catches even five. Requiring a
+shared source file alongside it halves the flags and adds no recall; structure alone is
+worse, with 583 of those pairs sharing files at Jaccard ≥ 0.5 against twelve real
+duplicates. **No lexical threshold separates the two populations**, because what separates
+them is what the words mean.
+
+So `lib/samejob.js` shortlists cheaply and judges semantically:
+
+1. **The shortlist** is pure — no model, no spawn. Three signals, none decisive: a shared
+   file surface (declared *and* prose, unioned, where `surfaceOf` takes one or the other),
+   kinship — two beads in one epic's family, which is three of the twelve pairs — and title
+   similarity at `TITLE_FLOOR` (0.25), far below the near-verbatim bar. Anything clearing
+   any signal is a candidate; the top eight by combined score go on. Replayed over the
+   twelve pairs at the moment the second of each was filed, the first is in that top eight
+   **ten times**. The two misses are epics with generic titles naming no path at all, and
+   they are named in the suite rather than buried in a ratio.
+2. **The judge** is one headless `claude -p` over those eight rows, running as the chat
+   session's foundation for lib/sessionaudit.js's reason — a read-only judge needs exactly
+   the read-only surface every reading agent has, and a new foundation kind owes five
+   registrations before it can run. It is affordable because the shortlist handed it eight
+   rows and not three hundred: about 7 KB of prompt.
+
+**This one refuses, where the create-time flag does not.** lib/dupe.js's rule is that
+refusing loses work nobody can send back — true of a crash the daemon files on itself at
+04:00, and not true here. A session ran `beadcause-file` and is still holding the context
+that produced it, so it is told which bead covers the work, **what it wrote is committed as
+a comment on that bead** rather than dropped, and `--force` files anyway in the same breath.
+The observation survives the refusal; that is the whole reason a refusal is affordable.
+Refused filings exit **5**, distinct from 4 — both mean "you did not get every bead you
+asked for", and only one of them is worth retrying.
+
+Every failure is a pass. A judge that cannot start, times out, answers nonsense, or names
+a bead it was never shown files the bead and says so on stderr. The errors are not
+symmetric and the prompt says so out loud: a wrong `none` costs one duplicate bead, which
+is ordinary and gets tidied later, while a wrong name throws away a discovery a session
+cannot find again.
+
+`node test/samejob.mjs` (in `npm test`) covers the shortlist against the real corpus —
+`test/fixtures/samejob-pairs.json` is those twelve pairs, real titles and descriptions,
+each oriented as a create-time check would meet it — plus the exclusions (closed, `human`,
+ignored), the cap, the deterministic tie order, and the verdict plumbing through an
+injected runner: an invented id, `none`, unparseable YAML, no block at all and a spawn that
+throws are each asserted **not** to be a refusal.
+
 
 ### What you just filed, one tap away
 
