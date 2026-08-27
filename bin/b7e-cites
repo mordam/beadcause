@@ -25,6 +25,8 @@
  * answer is "nothing to look at", not a failure. `2` bad usage. `4` `-w` named a
  * workspace this Mac has no config for, or this checkout resolves to none and `-w` was
  * not given.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';

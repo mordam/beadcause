@@ -23,6 +23,12 @@
  *
  * Exit codes: `0` printed the map. `2` refused — bad usage. `4` the suite does not
  * exist or does not parse, or `--for` named a file nothing covers.
+ *
+ * Read-only in the same construction sense as `b7e-already` and `b7e-answered`: it
+ * parses one suite with acorn — comments included — and prints what it finds, never
+ * spawning a process and never touching `bd`.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

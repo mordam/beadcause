@@ -210,9 +210,19 @@
 
     if (p.state === 'OPEN') {
       const armed = isArmed(p.key, 'merge');
+      /**
+       * **Queue**, not Merge — bc-02ldo, and the word is the whole of what changed here.
+       *
+       * The button used to say *Merge &amp; push* and mean it: the tap was `gh pr merge`,
+       * and by the time the row redrew the work was in `main`. It now hands the pull
+       * request to the merge queue, which merges it a minute or two later once its gates
+       * pass — so a button still saying *Merge* would be a button that looks broken for
+       * as long as the queue's cached read takes to notice. That lag is what made Adam
+       * press it three times on deluvia #55.
+       */
       buttons.push(
         `<button class="board-btn merge${armed ? ' armed' : ''}" data-act="merge" data-key="${esc(p.key)}">${
-          armed ? `Merge #${p.number} — sure?` : 'Merge &amp; push'
+          armed ? `Queue #${p.number} — sure?` : 'Queue to merge'
         }</button>`
       );
     }
@@ -607,9 +617,12 @@
     const p = rowFor(key);
     if (!p || state.busy) return;
 
-    // Merge always arms. Ship arms only where it will *deploy* — where it opens a
-    // window instead, the window is the guard: you can watch it and stop it, which is
-    // the whole reason this button never needed a second tap before it could deploy.
+    // Queue always arms, and still does now that it queues rather than merges: what the
+    // second tap buys is not the merge but the *approval*, which is the decision the queue
+    // then acts on unattended, and a phone in a pocket must not be able to make one on a
+    // single touch. Ship arms only where it will *deploy* — where it opens a window
+    // instead, the window is the guard: you can watch it and stop it, which is the whole
+    // reason that button never needed a second tap before it could deploy.
     const arms = action === 'merge' || (action === 'ship' && p.deployDeclared);
     if (arms && !isArmed(key, action)) {
       // First press arms it. Nothing is sent, and the button now says what it will do.
@@ -627,7 +640,14 @@
     state.armed = null;
     state.said = {
       key,
-      text: action === 'ship' ? (p.deployDeclared ? `Deploying ${whereOf(p)}…` : 'Opening a window on the Mac…') : 'Working…',
+      text:
+        action === 'ship'
+          ? p.deployDeclared
+            ? `Deploying ${whereOf(p)}…`
+            : 'Opening a window on the Mac…'
+          : action === 'merge'
+            ? 'Putting it on the merge queue…'
+            : 'Working…',
       bad: false,
     };
     render();
@@ -650,24 +670,34 @@
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
       if (action === 'merge') {
-        // Both halves, always. A merge that landed and a fast-forward that was refused
-        // because there is uncommitted work in the checkout is a good outcome, and one
-        // word over the pair would send you to the Mac to find out which happened.
-        //
-        // And the third half where there was one: merging here spends the inbox's own
-        // "Merge #N?" card, and a card that vanishes from another screen with nothing
-        // said about it is indistinguishable from a card that was never there. What is
-        // reported is the *bead* rather than the card id, because the bead is what you
-        // were waiting on — the card was only how it was asked.
-        const closed = (data.cards || []).filter((c) => c.closed);
-        const beads = closed.map((c) => c.work?.closed && c.bead).filter(Boolean);
+        /**
+         * **Never "merged".** The tap queues, and the queue merges a minute or two later
+         * — so the one thing this sentence must not do is claim the thing that has not
+         * happened yet. It says what is true now, names the bead the queue will act on so
+         * there is something to look at while waiting, and says what still has to pass.
+         *
+         * The three cases are genuinely different and are worth three sentences: it went
+         * on the queue, it was *already* on the queue and moving (nothing moved, and the
+         * approval is recorded anyway), or it is already in `main` and there was nothing
+         * to do. `others` rides on the end of all of them — two open beads about one pull
+         * request is a work bead that cannot close, and the phone has no stderr for it.
+         */
+        const extra = (data.others || []).length
+          ? ` ${data.others.join(', ')} ${data.others.length === 1 ? 'is' : 'are'} also open about #${p.number} — close or supersede ${
+              data.others.length === 1 ? 'it' : 'them'
+            }.`
+          : '';
         state.said = {
           key,
-          text:
-            `${data.alreadyMerged ? `#${p.number} was already merged` : `Merged #${p.number}`} — ${
-              data.land?.note || 'nothing else to do here'
-            }.` +
-            (closed.length ? ` Closed its inbox card${beads.length ? ` and ${beads.join(', ')}` : ''}.` : ''),
+          text: data.alreadyMerged
+            ? `#${p.number} was already merged — nothing to queue.`
+            : (data.queued
+                ? `Queued #${p.number}${data.id ? ` as ${data.id}` : ''} — the merge queue brings ${
+                    p.base || 'the base'
+                  } into the branch, checks it, and merges. Not merged yet.`
+                : `#${p.number} was already on the merge queue${
+                    data.id ? ` as ${data.id}` : ''
+                  } — your approval is recorded and nothing was moved.`) + extra,
           bad: false,
         };
       } else if (action === 'ship') {
@@ -695,9 +725,16 @@
     } finally {
       state.busy = false;
       render();
-      // Merging changes the lamps on the row you are looking at, so go and find out
-      // rather than leaving a board that still says "open" over a merged PR.
-      if (action === 'merge') load({ refresh: true });
+      /**
+       * **No refresh on the queue path, and that is the point rather than an omission.**
+       *
+       * It used to reload the board because the tap had just merged and the lamps on the
+       * row were wrong the instant it returned. The tap now queues: the pull request is
+       * still open, every lamp is still right, and a forced sweep — which is a `gh` query
+       * per repo — would come back with the identical row and paint over the sentence
+       * saying what just happened. The merge arrives on its own later, and the poll that
+       * is already running is what draws it.
+       */
     }
   }
 
