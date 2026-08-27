@@ -9,6 +9,7 @@
  *     b7e-gate --timeout 120                # per-suite seconds, overriding the slow-suite default
  *     b7e-gate --json                       # one object per suite, streamed, for a caller to parse
  *     b7e-gate --log /path/to/gate.log      # also write every line here (default: a tmp file, named at the end)
+ *     b7e-gate --run-id <id>                # file the run record under this id, rather than minting one
  *     b7e-gate --list                       # what would run, without running it
  *     b7e-gate --dir <root>                 # another tree — this is how it is tested
  *     b7e-gate --dir <sophab worktree> -- tests.test_report   # the tools/partest.py arm
@@ -67,7 +68,7 @@ import {
   waitingLine,
 } from '../lib/gate.js';
 import { PARTEST_REL, commandLine, findInterpreter, isPythonShaped, runPythonGate } from '../lib/pygate.js';
-import { appendResult, endRun, startRun } from '../lib/gaterun.js';
+import { RUN_ID_RE, appendResult, endRun, runFile, runsDir, startRun } from '../lib/gaterun.js';
 import { onExit } from '../lib/teardown.js';
 
 const argv = process.argv.slice(2);
@@ -106,6 +107,13 @@ const JOBS_EXPLICIT = JOBS_ARG != null && Number(JOBS_ARG) > 0;
 const CORES = os.availableParallelism();
 const LOAD = os.loadavg()[0];
 const JOBS = JOBS_EXPLICIT ? Math.max(1, Math.floor(Number(JOBS_ARG))) : chooseJobs({ cores: CORES, load: LOAD });
+/**
+ * `--run-id <id>`: file the run record under an id somebody else already chose, instead of
+ * minting one. `bin/b7e-detach` (bc-dgx7.25) is the caller — it forks this into a session
+ * of its own and has to hand *its* caller a run id in the same breath, which it cannot do
+ * by reading a log this process has not written yet. Nothing else about the run changes.
+ */
+const RUN_ID = value('--run-id', null);
 const TIMEOUT_ARG = value('--timeout', null);
 const TIMEOUT_MS = TIMEOUT_ARG == null ? null : Math.max(0, Number(TIMEOUT_ARG) || 0) * 1000;
 const JSON_MODE = has('--json');
@@ -120,6 +128,28 @@ const leave = async (code) => {
   await new Promise((r) => process.stdout.write('', r));
   process.exit(code);
 };
+
+/**
+ * Checked before anything is locked or run, because both ways of getting it wrong are the
+ * caller's mistake rather than the run's: an id that is not a bare filename would decide
+ * where the record is written, and an id whose file already exists would append a second
+ * `start` line to somebody else's run and quietly ruin both readings of it.
+ */
+if (RUN_ID != null) {
+  if (!RUN_ID_RE.test(RUN_ID)) {
+    console.error(red(`--run-id wants a bare id (letters, digits, dot, dash, underscore), not ${RUN_ID}`));
+    await leave(2);
+  }
+  // A `--dir` that is not a git checkout has no runs directory at all and records nothing
+  // either way — nothing to collide with, so nothing to refuse.
+  const dir = await runsDir(ROOT).catch(() => null);
+  const existing = dir ? runFile(dir, RUN_ID) : null;
+  if (existing && fs.existsSync(existing)) {
+    console.error(red(`run ${RUN_ID} already exists — ${existing}`));
+    console.error(dim('refusing rather than appending a second run to it; `b7e-watch --run` reads that one'));
+    await leave(2);
+  }
+}
 
 /**
  * Resolved once, up front, for both `--list` and the real run — a fresh worktree has no
@@ -188,7 +218,7 @@ if (slot.waitedMs > 1000 && !JSON_MODE) {
  * gate itself from running.
  */
 const SELECTED = PY_ARM ? [PARTEST_REL] : selectSuites(discoverSuites(ROOT), { only: ONLY, skip: SKIP });
-const record = await startRun(ROOT, { suites: SELECTED }).catch(() => null);
+const record = await startRun(ROOT, { suites: SELECTED, runId: RUN_ID ?? undefined }).catch(() => null);
 const wallStart = Date.now();
 
 const logPath = path.resolve(value('--log', path.join(fs.realpathSync(os.tmpdir()), `beadcause-gate-${process.pid}.log`)));
