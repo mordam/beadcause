@@ -19,6 +19,12 @@
  * Exit codes: `0` a report was printed (whatever it says — reds and diff gaps are
  * reported, not gated on); `1` no run was evidenced, nothing printed to stdout; `2`
  * refused — bad usage.
+ *
+ * Read-only by construction: it reads this repo's own files and the evidence a run
+ * already left behind, and prints the sentence a delivery wants. It runs no suite,
+ * writes nothing and spawns nothing that could.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { REPO_ROOT, buildReport } from '../lib/verified.js';
