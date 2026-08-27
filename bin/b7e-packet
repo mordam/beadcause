@@ -81,6 +81,23 @@ const USAGE =
   'usage: b7e-packet -w <workspace> -b <bead> -t <title> [-f packet.md] [--artifact <url>] ' +
   '[--from <role>] [--no-options]';
 
+// bc-dgx7.31: without --file, a missing -w/-b/-t falls through to reading stdin for
+// the body — so `b7e-packet --help` with nothing piped in did not exit at all, it
+// hung waiting on a terminal that was never going to send anything. Checked before
+// loadConfig() or anything else on argv is read.
+if (flag('--help', '-h')) {
+  console.log(
+    [
+      USAGE,
+      '',
+      'b7e-packet -w deluvia -b dv-abc -t "Ship the Q3 pricing page?" -f packet.md',
+      'b7e-packet -w deluvia -b dv-abc -t "..." -f packet.md --artifact https://claude.ai/...',
+      'cat packet.md | b7e-packet -w deluvia -b dv-abc -t "..." --from ward',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
 const cfg = loadConfig();
 const wsName = arg('--workspace', '-w');
 const beadId = arg('--bead', '-b');
