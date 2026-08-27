@@ -1,0 +1,147 @@
+#!/usr/bin/env node
+/**
+ * `b7e-model` — the numbers a named building actually produces, for one or more sizes,
+ * in one call.
+ *
+ *     b7e-model 24x14x12 50x22x20
+ *     b7e-model 24x14x12 --rib closed --shape 1.2 --place "fredericton, nb"
+ *     b7e-model 24x14x12 50x22x20 --costing
+ *     b7e-model 24x14x12 --json
+ *
+ * bc-dgx7.15: five sophab sessions (sp-oyg, sp-0hw, sp-j8f, sp-clh, sp-weu) each needed
+ * "what does the model say for THIS size, versus the as-built one" and each built the
+ * params from scratch, differently — see `lib/b7e_model.js` for the fuller history and
+ * why this shells out to sophab's own `planset_sweep.numbers_for()`/`costing.takeoff()`
+ * rather than reimplementing anything structural.
+ *
+ * Each size is `LxRxH` in feet — length, run (projection), rise — the same order
+ * `engine.build_params(length, run, rise, ...)` takes. A size that fails to parse, or
+ * whose geometry the model itself refuses, is reported and does not stop the others.
+ *
+ * Exit codes: `0` ran to completion, whether or not any size came back with an error —
+ * a refused geometry is data, the same as `numbers_for`'s own row. `2` bad usage. `4`
+ * no `sophab` workspace is configured on this machine, or its checkout could not be
+ * resolved. `1` the model process itself could not be run at all (no `python3`, or its
+ * output could not be parsed) — every size failed the same infrastructural way, unlike
+ * `0`'s per-size refusals.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { parseSize, RIB_STYLES, runModel, formatReport } from '../lib/b7e_model.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+
+function fail(msg, code = 2) {
+  console.error(`b7e-model: ${msg}`);
+  process.exit(code);
+}
+
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) {
+      const next = argv[at + 1];
+      if (next === undefined) fail(`${f} needs a value`);
+      if (next.startsWith('-')) fail(`${f} needs a value, not the flag "${next}"`);
+      return next;
+    }
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-model <LxRxH> [<LxRxH> ...] [options]
+
+The numbers a named building of that size actually produces — section, governing
+NBCC combo, rib and beam utilisation, base reactions, and whether it is over capacity
+or past the calibrated section ladder. Calls sophab's own \`planset_sweep.numbers_for()\`
+(which calls the same \`fea_report\` functions production does) and, with --costing,
+\`costing.takeoff()\` — never a re-derivation of either.
+
+  <LxRxH>            length x run x rise, in feet (e.g. 24x14x12) — one or more,
+                     printed side by side so "as-built vs a projection" is one call
+  --rib open|closed   the rib's look (default: open); moves the takeoff and the model
+  --shape <n>          arch eccentricity, 1.0 = as-built curve (default: 1.0)
+  --place "<name>"     a place name to fix the project's climate (default: reference climate)
+  --costing            also run costing.takeoff() and print the total + top line items
+  --sophab-root <dir>   use this checkout instead of resolving the sophab workspace —
+                     this is how it is tested
+  --json                one object per size instead of the printed report
+
+Runs from a beadcause worktree with no .venv of its own: the interpreter and every
+import come from the resolved sophab checkout, never from the caller's own environment.`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const sizeArgs = argv.filter((a, i) => {
+  if (a.startsWith('-')) return false;
+  const prev = argv[i - 1];
+  // A bare value right after a flag that takes one is that flag's value, not a size —
+  // `--place fredericton` must not be read as a fifth positional token.
+  if (prev && ['--rib', '--shape', '--place', '--sophab-root'].includes(prev)) return false;
+  return true;
+});
+
+if (sizeArgs.length === 0) fail(`at least one <LxRxH> is required\n${USAGE}`);
+
+const sizes = [];
+const badTokens = [];
+for (const raw of sizeArgs) {
+  const parsed = parseSize(raw);
+  if (parsed.error) badTokens.push(parsed.error);
+  else sizes.push(parsed);
+}
+if (badTokens.length) fail(badTokens.join('\n'));
+
+const rib = value('--rib') || 'open';
+if (!RIB_STYLES.includes(rib)) fail(`--rib wants one of ${RIB_STYLES.join('|')}, not "${rib}"`);
+
+const shapeRaw = value('--shape');
+const shape = shapeRaw === undefined ? 1.0 : Number(shapeRaw);
+if (!Number.isFinite(shape) || shape <= 0) fail(`--shape wants a positive number, not "${shapeRaw}"`);
+
+const place = value('--place') || '';
+const costing = has('--costing');
+const JSON_MODE = has('--json');
+const sophabRootOverride = value('--sophab-root');
+
+let sophabRoot;
+if (sophabRootOverride) {
+  sophabRoot = path.resolve(sophabRootOverride);
+  if (!fs.existsSync(sophabRoot)) fail(`--sophab-root ${sophabRoot} does not exist`, 4);
+} else {
+  const cfg = loadConfig();
+  const ws = cfg.workspaces.find((w) => w.name === 'sophab');
+  if (!ws) fail('no "sophab" workspace is configured on this machine — pass --sophab-root, or configure it', 4);
+  try {
+    sophabRoot = resolveSessionDir(cfg, ws);
+  } catch (err) {
+    fail(`could not resolve the sophab checkout: ${String(err?.message || err).split('\n')[0]}`, 4);
+  }
+}
+
+let outcome;
+try {
+  outcome = runModel({ sophabRoot, sizes: sizes.map(({ length, run, rise }) => ({ length, run, rise })), rib, shape, place, costing });
+} catch (err) {
+  fail(String(err?.message || err), 1);
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(outcome.results, null, 2));
+} else {
+  console.log(formatReport(outcome.results));
+}
+
+// See bin/b7e-known's own note on this: a plain `process.exit(0)` right after a
+// console.log of caller-scaled output (N sizes, each with a costing block) can drop
+// whatever of it is still queued to a pipe. Setting the code and falling off the end
+// flushes instead.
+process.exitCode = 0;
