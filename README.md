@@ -7381,12 +7381,12 @@ every `.pagescroll` inside a pane on the way out and writes it back on the way i
 same turn as the unhide: the content was never unbuilt, only unpainted, so there is no
 height still to arrive and no frame to wait for.
 
-**A pane can be present and unshowable, and one is.** `data-pending` names the
-bead that fills a container, and it is load-bearing rather than a note: a pending pane is
-registered nowhere, can never be shown, and the pill row asks the same question, so its pill
-stays the `<a href>` it has always been and still loads its own document. That is what let
-the shell land on its own. The alternative was two of seven pills leading to a blank screen
-until two further beads merged, on an app that
+**A pane can be present and unshowable, and every one of them has been at some point.**
+`data-pending` names the bead that fills a container, and it is load-bearing rather than a
+note: a pending pane is registered nowhere, can never be shown, and the pill row asks the
+same question, so its pill stays the `<a href>` it has always been and still loads its own
+document. That is what let the shell land on its own. The alternative was two of seven
+pills leading to a blank screen until two further beads merged, on an app that
 [deploys itself](#ship-it--the-same-merge-and-then-the-deploy) the moment a branch lands.
 History's attribute came off when
 [bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash),
@@ -7395,12 +7395,14 @@ Releases' with bc-khoe.30.14, and Advocates' — the last of the four the shell 
 went **on** afterwards, which is the direction worth noticing: bc-khoe.50 gave the row a
 fifth view because a pill pointing at a page that is not a view marks nothing current on the
 page it points at, and a view the grammar knows owes a container the same day. **bc-khoe.60**
-fills it. So the attribute is how a view arrives rather than a debt the shell was born with.
-The attribute names the bead whose
-merge *deletes* it, which is why it named bc-khoe.4 rather than bc-khoe.30.6: that bead
-ruled how the fold goes rather than folding it. The mechanism is not retired with the last
-of them; it is how the next view arrives, and `test/panes.mjs` covers it against fixtures
-now that the shell itself has none.
+filled it, and its going with nothing behind it is the fact worth stating: every view the
+grammar knows has a live pane now, and the attribute is how a view *arrives* rather than a
+debt the shell was born with — the next one to join `VIEWS` will carry it exactly the same
+way. The attribute names the bead whose merge *deletes* it, which is why History's and
+Releases' named the fold rather than the ruling that decided it, and why Advocates' named
+**bc-khoe.4** rather than bc-khoe.30.6: that bead ruled how the fold goes rather than
+folding it. `test/panes.mjs` covers the mechanism against fixtures now that the shell
+itself has none left to read it off of.
 
 **The row asks; it does not require.** `public/viewbar.js` is drawn on twelve pages and one
 of them is the shell, so it reaches for `window.beadcause.panes` with `?.` and takes *no* as
@@ -12295,6 +12297,54 @@ a browser can make: that the pill stopped being an `<a>`, that a tap loads no do
 all, and that the scroll position comes back — measured at a deliberately short viewport,
 because at phone height the board fits and an assertion about a scroll position that was
 never there would pass while proving nothing.
+
+### Config as a pane, and the fetch it deliberately does not make
+
+Everything above describes `/config`, a document. It is a **pane of the shell** now:
+`[data-pane="config"]` in `public/index.html`, shown by a `display: none` swap with nothing
+fetched and nothing rebuilt. `/config`, `/settings` and `/config.html` still answer — any of
+them can be sitting on a phone's home screen — but as a **302 onto the pane** since
+bc-khoe.60 rather than as the document. `public/config.js` is still one file written to run
+in either, deciding which by asking whether the one it is in has panes at all;
+`public/config.html` is still on disk and reachable exactly as it always was — unlike
+`public/history.html` and `public/releases.html`, nothing has deleted it, because that is a
+cleanup for once the hop has taken traffic for a while rather than a condition of landing
+it. It is the third view to make this move, after
+[the ledger](#the-ledger-as-a-pane-and-its-filters-in-the-hash) and
+[Releases](#releases-as-a-pane-and-the-two-clocks-it-brought-with-it), and the smallest —
+what is worth writing down is the one place it went a different way.
+
+**It has no `wake` and no clock, where both of the other two have at least one.** Nothing
+about a space's settings changes except a press on this card or the picker moving to a
+different space, so there is no event a poll could carry that a fetch this file already
+made would not already answer. It registers with the stager as `{ build }` alone, the same
+bare shape `public/app.js` registers Home with, and it means a genuine cost rather than an
+oversight: a setting changed on another device does not reach this pane until the picker
+moves or ⟳ is pressed, where the document it replaced got a free re-read on every
+navigation back to it. That is the trade this whole epic is making, paid here in the open
+rather than hidden behind a mechanism that looks complete.
+
+**Two element ids moved with it, and one of them for a reason the ledger and Releases did
+not have.** `id="cfg-observing"` rather than the bare `observing` — not because `#config`
+is a fragment target (nothing in this pane is named that), but because the Advocates pane
+already holds the bare name, the same collision `rel-observing` exists to dodge. The chip
+moved *inside* the pane rather than staying beside the mark, for the reason Releases'
+did: the top bar belongs to every view now, and which group is being watched is a fact
+about one of them. `id="space"` did not move — nothing else in the shell wanted it.
+
+**Presence reporting is dropped in the shell rather than carried over.** The document
+version reports `{ view: 'config', space }` to `public/mirror.js` on every load and every
+picker move; the pane does not, matching `public/history.js` and `public/releases.js`,
+neither of which reports anything once folded. The mirror does not yet know how to say
+"this device is on a pane other than Home", and teaching it that is a shell-wide question
+none of the three pane folds has answered — this one just states the gap explicitly rather
+than leaving it to be rediscovered.
+
+`node scripts/space-check.mjs` is the browser half, and the claims a static read cannot
+make: that a navigation to `/config` lands on the pane rather than the document, that the
+pill on the row is lit while it is up, and that a press under a repaint mid-flight cannot
+take a half-typed Slack channel id away — the whole reason that check exists, unchanged by
+which document is drawing the card.
 
 ### The row is the bead, not a summary of it
 
