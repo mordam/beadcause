@@ -246,6 +246,10 @@ const die = (m) => { process.stderr.write(m + '\\n'); process.exit(1); };
 const verb = args[0];
 if (verb === 'show') {
   const id = args[1];
+  // bc-dgx7.109: a transient tracker failure — Dolt lock, timeout — arrives as the same
+  // kind of rejection as a genuinely missing bead, but with different wording. Never a
+  // real id in \`world.issues\`, so it always takes this branch.
+  if (id === 'ws-locked' || id === 'ws-locked2') die('Error fetching ' + id + ': database is locked');
   const issue = world.issues[id];
   if (!issue) die('Error fetching ' + id + ': no issue found matching "' + id + '"');
   const includeComments = args.includes('--include-comments');
@@ -446,6 +450,49 @@ check('multi-bead --json is one row per requested id, including the not-found on
   assert.equal(parsed.results[0].bead, 'ws-self');
   assert.equal(parsed.results[0].carrier.id, 'ws-self');
   assert.equal(parsed.results[1].notFound, true);
+});
+
+console.log('\nbc-dgx7.109: a transient tracker failure is not "not found"\n');
+
+check('single-bead: a Dolt-lock-shaped failure exits 1, distinctly worded from "not found"', () => {
+  const { status, stderr } = run(['-w', 'answered-ws', '-b', 'ws-locked']);
+  assert.equal(status, 1);
+  assert.match(stderr, /tracker failure/);
+  assert.match(stderr, /database is locked/);
+  assert.doesNotMatch(stderr, /has no bead/);
+});
+
+check('single-bead: a genuinely missing bead still exits 4, worded "has no bead"', () => {
+  const { status, stderr } = run(['-w', 'answered-ws', '-b', 'ws-nope']);
+  assert.equal(status, 4);
+  assert.match(stderr, /has no bead ws-nope/);
+});
+
+check('batch: a Dolt-lock-shaped failure is reported as a tracker error, not folded into "not found"', () => {
+  const { status, stdout } = run(['-w', 'answered-ws', '-b', 'ws-self,ws-locked,ws-nope']);
+  assert.equal(status, 0);
+  assert.match(stdout, /ws-locked — tracker error, not a verdict.*database is locked/);
+  assert.match(stdout, /ws-nope — .*no issue found matching/);
+  assert.match(stdout, /1\/1 answered, 1 not found, 1 tracker error/);
+});
+
+check('batch --json carries trackerError distinctly from notFound', () => {
+  const { status, stdout } = run(['-w', 'answered-ws', '-b', 'ws-self,ws-locked,ws-nope', '--json']);
+  assert.equal(status, 0);
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.results.length, 3);
+  assert.equal(parsed.results[0].bead, 'ws-self');
+  assert.equal(parsed.results[1].bead, 'ws-locked');
+  assert.equal(parsed.results[1].trackerError, true);
+  assert.equal(parsed.results[1].notFound, undefined);
+  assert.equal(parsed.results[2].bead, 'ws-nope');
+  assert.equal(parsed.results[2].notFound, true);
+  assert.equal(parsed.results[2].trackerError, undefined);
+});
+
+check('batch: exits 1, not 4, when every bead is a tracker failure', () => {
+  const { status } = run(['-w', 'answered-ws', '-b', 'ws-locked,ws-locked2']);
+  assert.equal(status, 1);
 });
 
 console.log(`\n${failures ? `\x1b[31m${failures} failed\x1b[0m` : '\x1b[32mall passed\x1b[0m'}\n`);
