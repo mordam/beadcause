@@ -46,6 +46,22 @@ const value = (...names) => {
   return null;
 };
 
+// bc-dgx7.31: this used to fall into the positional loop below and either be turned
+// away as "unrecognised flag: --help" (nothing else on argv) or read as the bead id
+// itself (something else on argv) — either way never a help line. Checked first.
+if (flag('--help', '-h')) {
+  console.log(
+    [
+      "b7e-card <bead-id>                        # what toQuestion() makes of the bead now",
+      'b7e-card <bead-id> --field notes           # just one field',
+      'b7e-card <bead-id> --file card.md          # validate a draft before writing it',
+      'b7e-card <bead-id> --file card.md --field description',
+      'b7e-card <bead-id> --json',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
 const FIELDS = ['description', 'design', 'notes'];
 const JSON_MODE = flag('--json');
 const filePath = value('--file');
