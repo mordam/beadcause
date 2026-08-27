@@ -38564,6 +38564,63 @@ completed; some criteria could not be verified this way. `2` bad usage, or
 `acceptance_criteria` is empty — a legitimate, distinct state, not "ran and found
 nothing wrong." `4` `-w`/`-b` named something this checkout's tracker does not have.
 
+### Has Adam already decided this — every ruling on a topic, newest first — `b7e-ruled`
+
+`bc-dgx7.102`, filed by the session audit against five sessions (`dv-afr.7`, `dv-52r.2`,
+`dv-afr.8`, `dv-gr6.8`, `dv-b5d.4`) that each needed to know, before writing a decision
+card, whether Adam had already ruled on the question — and each worked it out by hand, a
+different way every time. `dv-afr.7` skipped the check and a reviewer caught it in the
+relay, handing Adam a question two of whose three options he had rejected hours earlier;
+its own lesson was "before writing any decision card, grep the tracker for the question —
+the answer may be hours old." `dv-52r.2` found a ruling scattered across three reference
+files by materialising them with `git archive` and reading each by hand. The corpus this
+command reads is the structured half of what those five sessions each rebuilt: closed
+`decision`/`human` beads, and — in a repo like deluvia's — `CHANGE_LOG.md` entries whose
+`Type` names a decision.
+
+```
+b7e-ruled -w deluvia "chapter word count"
+b7e-ruled -w deluvia "Kazran spear points"
+b7e-ruled -w deluvia -b dv-afr.9              topic taken from that bead's own title
+b7e-ruled -w deluvia "travel times" --since 2026-08-01
+b7e-ruled -w deluvia "travel times" --json
+```
+
+**Two corpora, not three.** dv-52r.2's own search also read arbitrary reference prose
+(`METALLURGY.md`, `TECHNOLOGY_GUIDE.md`) — deliberately left out here, because that prose
+has no shared shape a generic tool can scan honestly, and grepping a whole doc tree for a
+topic is a different, fuzzier tool than this one. What this reads: closed beads of type
+`decision` or labelled `human`/`needs-approval`, each with the ruling text pulled from the
+comment `respond()` wrote right before closing (reusing `lib/beadanswer.js`'s
+`answerFromComments` rather than re-deriving it — the fix for `bc-dgx7.95`'s
+`answered-but-unrecorded` gap applies here too); the same beads still open, reported as
+still awaiting Adam rather than as a ruling; and `CHANGE_LOG.md` entries at the delivery
+base whose `**Type:**` field contains "DECISION" (`WORLD DECISION`, `LORE DECISION`,
+`CHARACTER DECISION`) — never `STRUCTURAL CHANGE` or `CRAFT ENFORCEMENT`, which record
+work done rather than a ruling made, and would otherwise flood every topic that shares
+vocabulary with an execution step.
+
+**Matching is deliberately plain.** Every significant word (3+ letters, past a short
+stopword list) in the topic must appear, case-insensitively, somewhere in the candidate's
+title, description, notes, acceptance criteria, or `CHANGE_LOG` entry body. That is
+blunter than `lib/changelog.js`'s own Jaccard similarity (built to judge whether two
+`Decision:` fields are an edit of the same decision, not whether a topic touches one), but
+it is the rule an agent typing a topic phrase can predict.
+
+`lib/ruled.js` is the read — `findBeadRulings`, `findChangeLogRulings` (reusing
+`lib/changelog.js`'s `entryHeadings`), and `mergeRulings` to sort the two corpora into one
+newest-first list. `bin/b7e-ruled` is the argv shell and the printing. `-b`/`--bead` is a
+convenience, not a second question: given instead of (or alongside) a topic, it pulls that
+bead's own title in as the search text, for the case in hand where you have a candidate
+bead but no topic phrase yet typed out. `--dir` reads `CHANGE_LOG.md` from a directory
+directly rather than through the workspace's own checkout — this is how it is tested, the
+same escape hatch `bin/b7e-entry` already uses.
+
+Exit codes: `0` ran to completion, whether or not anything was found — no ruling on a
+topic is a legitimate, useful answer, not a failure. `2` bad usage — no `-w`, or neither a
+topic nor `-b`. `4` `-w` named a workspace this checkout has no config for, or `-b` named
+a bead the workspace does not have.
+
 ## Notes on bd
 
 - **`bd human respond` is broken in bd 1.1.2** — it dies with `storage is nil`.
