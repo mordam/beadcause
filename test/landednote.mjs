@@ -31,7 +31,10 @@
  * 3. **Wherever in the write it fell over** — `bd.respond` is a comment, then a close,
  *    then the mention sweep, and a bd that dies at any of the three is one refusal as far
  *    as the card is concerned.
- * 4. **And an ordinary failure still says nothing was written**, because it is true, and
+ * 4. **The one act that can half-happen carries its own** — a batch of creates is beads
+ *    made one at a time, and it throws out of `createProposed` before the handler has
+ *    composed anything at all.
+ * 5. **And an ordinary failure still says nothing was written**, because it is true, and
  *    a note that hedged on every refusal would teach you to ignore the one that matters.
  *
  * The whole path is real — a `POST /api/respond` through `createApp`, with `bd` and `gh`
@@ -71,6 +74,7 @@ const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail))
 
 const { deliveryBody } = await import(LIB('delivery.js'));
 const { MERGE_SWEEPS_PATH } = await import(LIB('mergesweep.js'));
+const { parseProposal, proposalBody, proposalTitle } = await import(LIB('proposal.js'));
 
 /* ---------------------------------------------------------------- the fake bd */
 
@@ -121,6 +125,17 @@ if (args[0] === 'comment') {
   if (!issue) die('Error: no issue found matching "' + args[1] + '"');
   (issue.comments = issue.comments || []).push(args[2]);
   save();
+  process.exit(0);
+}
+if (args[0] === 'create') {
+  // The one act that can half-happen: a batch of beads created one at a time, with
+  // bd dying part-way through it.
+  const n = (w.created = (w.created || 0) + 1);
+  if (brk.createFailsAfter && n > brk.createFailsAfter) die('bd: could not open database: resource temporarily unavailable');
+  const id = 'zz-new' + n;
+  w.issues[id] = { id, title: flag('--title') || '', status: 'open', labels: [], description: '', dependencies: [] };
+  save();
+  process.stdout.write(JSON.stringify({ id }));
   process.exit(0);
 }
 if (args[0] === 'dep' && args[1] === 'remove') {
@@ -255,7 +270,20 @@ const DELIVERY = {
   summary: 'Something small.',
 };
 
-/** The tracker as a delivery leaves it, plus one card that is only ever a question. */
+/** Two beads an advocate proposed, through the normaliser so they carry every field. */
+const PROPOSED = parseProposal(
+  [
+    '```beadproposal',
+    'beads:',
+    '  - title: "The first thing"',
+    '    description: Something worth doing.',
+    '  - title: "The second thing"',
+    '    description: Something else worth doing.',
+    '```',
+  ].join('\n')
+).beads;
+
+/** The tracker as a delivery leaves it, a proposal card, and one plain question. */
 const reset = () => {
   fs.rmSync(MERGE_SWEEPS_PATH, { force: true });
   fs.writeFileSync(PR_STATE, JSON.stringify(rawPR()));
@@ -280,6 +308,16 @@ const reset = () => {
         status: 'in_progress',
         issue_type: 'task',
         dependencies: [{ id: 'zz-pr', dependency_type: 'blocks' }],
+      },
+      'zz-prop': {
+        id: 'zz-prop',
+        title: proposalTitle('demo', PROPOSED),
+        description: proposalBody('demo', PROPOSED),
+        labels: ['human', 'advocate-proposal'],
+        status: 'open',
+        issue_type: 'task',
+        dependencies: [],
+        comment_count: 0,
       },
       'zz-ask': {
         id: 'zz-ask',
@@ -357,6 +395,39 @@ console.log('\nand when it is the close rather than the comment that bd refuses\
   check(
     'including the half of the delivery that bd would not do either',
     (res.json.landed || []).some((s) => /zz-work is still open/.test(s)),
+    JSON.stringify(res.json.landed)
+  );
+}
+
+/* ================================ the beads a "yes" filed before bd stopped answering */
+
+console.log('\nand the one act that can half-happen\n');
+
+{
+  reset();
+  // A batch of creates is beads made one at a time. bd dying after the first throws out
+  // of `createProposed`, which is *before* the handler has composed anything — so this is
+  // the one window `performed` cannot see, and the create has to carry its own.
+  breaks({ subcommands: [], createFailsAfter: 1 });
+  const res = await post('/api/respond', {
+    workspace: 'demo',
+    id: 'zz-prop',
+    response: 'CREATE: yes, both of them.',
+    // One-based, row by row, which is what the app sends — `[0, 1]` silently approves
+    // only the second and the create never gets far enough to fail.
+    create: [1, 2],
+  });
+
+  check('the answer fails', res.status >= 500, `${res.status} ${JSON.stringify(res.json)}`);
+  check('the first bead exists all the same', Boolean(world().issues['zz-new1']), Object.keys(world().issues).join(', '));
+  check(
+    'and the failure says which beads were made before it stopped',
+    (res.json.landed || []).some((s) => /zz-new1/.test(s)),
+    JSON.stringify(res.json)
+  );
+  check(
+    'without claiming the one that never got made',
+    !(res.json.landed || []).some((s) => /zz-new2/.test(s)),
     JSON.stringify(res.json.landed)
   );
 }

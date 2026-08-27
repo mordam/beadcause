@@ -2501,6 +2501,11 @@ is, and being that shape is the point of it. A refusal with nothing behind it st
 nothing was written, because it is true — a note that hedged on every refusal would teach
 you to ignore the one that matters.
 
+One act does not wait for `performed`, because it can half-happen: a batch of creates is
+beads made one at a time, and it throws out of `createProposed` before the handler has
+composed anything at all. That catch already commented what it managed on the thread; it
+puts the same sentence on the failure now, so the thread and the card agree.
+
 `node test/landednote.mjs` drives a real `POST /api/respond` with a bd that dies mid-write,
 over a delivery card whose merge has already gone through, and lifts `failedNoteHtml` out
 of public/app.js into a vm for the sentence itself. The browser half is in
