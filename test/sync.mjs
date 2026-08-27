@@ -1054,6 +1054,85 @@ await check('and once nothing named is left in trouble, the clear stands', async
   assert.equal(syncCardVerdict({ broke: [], clearing: recovered, trouble }), 'clear', 'a really is fine now, so the card may clear');
 });
 
+// bc-y3qk.15. The same collision, through the one card `trouble()` cannot answer for.
+// Two workspaces and a clock the suite owns, both for the same reason as above and one
+// more: workspace A has to cross into flapping on a *recovery* tick — which is what
+// leaves it `ok`, and so absent from `trouble()`, at the exact moment its card goes up —
+// while workspace B's flapping quiet hour elapses on that same tick. Neither half is
+// reachable with a real `Date.now()`; see `withClock`.
+await check('a workspace crossing into flapping keeps its card, whatever else settles that tick', async () => {
+  const broken = { a: false, b: false };
+  const bd = fakeBd({ pull: (ws) => { if (broken[ws.name]) throw new Error(STOMP); } });
+  const { s, tick, sweep } = withClock(bd);
+  // One tick: set who is broken, move the clock, sweep both. Driven by hand rather than
+  // by `flappyBd`, because the two workspaces have to flap at different times.
+  const beat = async (state, ms = 10) => {
+    Object.assign(broken, state);
+    tick(ms);
+    return sweep(['a', 'b']);
+  };
+
+  await sweep(['a', 'b']);
+  // B flaps: four transitions ending on a recovery, all inside one window.
+  await beat({ b: true }, 1);
+  await beat({ b: false }, 1);
+  await beat({ b: true }, 1);
+  await beat({ b: false }, 1);
+  assert.equal(s.get('b').flapping, true, 'b has changed its mind four times');
+
+  // Then B holds, while A spends the hour that ages B's marks out doing four of its own.
+  await beat({ a: true }, FLAP_WINDOW_MS - 40);
+  await beat({ a: false });
+  await beat({ a: true });
+  assert.equal(s.get('a').flapping, false, 'three transitions is an incident, not yet a pattern');
+  assert.equal(s.get('b').flapping, true, 'and b has not held its hour out yet either');
+  // A's fourth transition lands just past B's oldest mark, so both happen on one tick.
+  const out = await beat({ a: false }, 20);
+
+  // lib/server.js's own filters, copied rather than imported — see the note above.
+  const flapping = out.changed.filter((o) => o.flapped);
+  const broke = out.changed.filter(
+    (o) =>
+      !o.damped &&
+      !o.flapped &&
+      (o.transition === 'broke' || (o.transition === null && (o.state === 'conflict' || o.state === 'stuck')))
+  );
+  const recovered = out.changed.filter((o) => !o.damped && !o.flapped && o.transition === 'recovered');
+  const settled = (out.results || []).filter((o) => o.settled && o.state === 'ok');
+  assert.deepEqual(flapping.map((o) => o.workspace), ['a'], 'a is declared flapping on this tick');
+  assert.equal(flapping[0].state, 'ok', 'and it crossed on a recovery, so it is fine this very instant');
+  assert.deepEqual(settled.map((o) => o.workspace), ['b'], 'while b settles on the same one');
+  assert.deepEqual(broke, [], 'and nothing broke, so nothing louder is competing for the card');
+
+  const trouble = s.trouble();
+  assert.deepEqual(trouble, [], 'neither workspace is failing right now — which is why trouble() cannot decide this');
+  const stillFlapping = s.all().filter((o) => o.flapping);
+  assert.deepEqual(stillFlapping.map((o) => o.workspace), ['a'], 'but the card a just raised is still true of a');
+  assert.equal(
+    syncCardVerdict({ broke, clearing: [...recovered, ...settled], trouble, flapping: stillFlapping }),
+    null,
+    "b's settle must not wipe the FLAPPING card a raised on this very tick — that card is the last thing said about a until it holds"
+  );
+});
+
+await check('and the flapping card is not a lock on the screen — a stuck workspace still outranks it', () => {
+  assert.equal(
+    syncCardVerdict({
+      broke: [{ workspace: 'c' }],
+      clearing: [],
+      trouble: [{ workspace: 'c' }],
+      flapping: [{ workspace: 'a' }],
+    }),
+    'stuck',
+    'STUCK is emitted after the flapping event and still wins the card'
+  );
+  assert.equal(
+    syncCardVerdict({ broke: [], clearing: [{ workspace: 'a' }], trouble: [], flapping: [] }),
+    'clear',
+    'and with nobody flapping the clear stands exactly as it did'
+  );
+});
+
 await check('a tick that changed nothing says nothing, whatever trouble already stands', () => {
   assert.equal(syncCardVerdict({ broke: [], clearing: [], trouble: [] }), null);
   assert.equal(
@@ -1185,9 +1264,27 @@ await check('a clear cannot fire without asking trouble() whether anyone else st
   // Both emits still exist as literal calls, so test/news.mjs's own guard against a
   // `bus is not defined`-shaped regression still means something — and neither is
   // reachable except through the one function that reads `trouble()` first.
-  assert.match(sweep, /const verdict = syncCardVerdict\(\{ broke, clearing, trouble \}\);/);
+  assert.match(sweep, /const verdict = syncCardVerdict\(\{ broke, clearing, trouble, flapping: stillFlapping \}\);/);
   assert.match(sweep, /if \(verdict === 'stuck'\) app\.bus\.emit\(syncStuckEvent\(trouble\)\);/);
   assert.match(sweep, /else if \(verdict === 'clear'\) app\.bus\.emit\(syncClearEvent\(clearing\)\);/);
+});
+
+await check('and it asks a second question the trouble list cannot answer — bc-y3qk.15', () => {
+  const from = SERVER.indexOf('const sweepSync = async () => {');
+  const sweep = SERVER.slice(from, SERVER.indexOf('let jiraSweptAt'));
+  // Off `all()`, not `trouble()`: a flapping workspace alternates through `ok` and is
+  // absent from trouble() on every good tick it has, the tick its card is raised on
+  // included. And every workspace it is still true of, not just this tick's crossings —
+  // the card outlives the tick that raised it, and `flapping` above is one tick's worth.
+  assert.match(
+    sweep,
+    /const stillFlapping = app\.syncer\.all\(\)\.filter\(\(o\) => o\.flapping\);/,
+    'the currently-flapping set is read fresh after the sweep, like trouble() beside it'
+  );
+  assert.ok(
+    sweep.indexOf('const stillFlapping =') < sweep.indexOf('const verdict ='),
+    'and before the verdict that uses it'
+  );
 });
 
 await check('the inbox draws it as a pane of its own, outside the empty state', () => {

@@ -560,6 +560,43 @@ check('it is deliberately NOT on DEFAULT_TOOL_LIST, and the reason is written do
   assert.ok(argument.includes('b7e-eyeball'), 'the reason it is not on the list is not written down');
 });
 
+/* ------------------------------------------------------ every b7e-* answers --help */
+
+// bc-dgx7.31 (`bin/b7e-usage`): the second half of what makes that command safe to
+// trust — it reads a header doc comment and never runs the command it describes, but
+// that promise is worthless if the command itself does not treat `--help` as inert.
+// `bin/b7e-gate` used to fall through `--help` into a real 400-suite sweep;
+// `bin/b7e-affected` and five others turned it away as an "unrecognised flag" or a
+// missing positional, which is a refusal, not an answer. This spawns every `bin/b7e-*`
+// file with `--help` and a closed stdin (several of the family read stdin when no
+// other input is given, and `--help` must never wait on that) and asserts each one
+// exits 0 within a few seconds — cheap, once, rather than trusting the doc comment.
+console.log('\nevery bin/b7e-* answers --help inertly');
+
+check('every bin/b7e-* exits 0 on --help, fast, with a closed stdin', () => {
+  const binDir = path.join(ROOT, 'bin');
+  const files = fs
+    .readdirSync(binDir)
+    .filter((f) => f.startsWith('b7e-'))
+    .filter((f) => fs.statSync(path.join(binDir, f)).isFile());
+  assert.ok(files.length >= 60, `only ${files.length} bin/b7e-* files found — the scan is not reading bin/`);
+  const bad = [];
+  for (const f of files) {
+    try {
+      execFileSync('node', [path.join(binDir, f), '--help'], {
+        cwd: ROOT,
+        input: '',
+        timeout: 8000,
+        encoding: 'utf8',
+        maxBuffer: 4 * 1024 * 1024,
+      });
+    } catch (err) {
+      bad.push(`${f} (${err.signal || `exit ${err.status}`})`);
+    }
+  }
+  assert.deepEqual(bad, [], `did not answer --help cleanly: ${bad.join(', ')}`);
+});
+
 /* ------------------------------------------------------------------- done */
 
 removeTreeSync(tmp);
