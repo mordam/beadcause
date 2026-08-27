@@ -18464,6 +18464,72 @@ nobody asserts prose on prints nothing and exits `0` — and `2` only for a modu
 that does not resolve to a file. Read-only by construction: every path through it is a
 `readFileSync` and a regex, and it never runs a suite or calls the module it reads.
 
+### What a module exports, with the one line that says what each export is for — `b7e-surface`
+
+`bc-dgx7.28` is the same shape breaking five times rather than once, found by
+[the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
+watching five sessions (`bc-bmry.10`, `bc-bmry.11`, `bc-bmry.12`, `bc-khoe.33`,
+`bc-xl7n.102`) each ask "what is in here that I can call" before writing against a
+`lib/` file, and each invent a regex for it — `grep -n "^export"`, `grep -n "^export
+function\|^export const"`, four more spellings across the other four. The tell is in
+what came back empty: `bc-bmry.12` guessed `grep -n "^export function isRoot\|
+^export function isEpic\|^export function isP0"` against `lib/ownership.js` and got
+nothing, because all three are real — as arrow-valued `const`s, which the guessed
+shape does not match — and an empty grep looks exactly like "this file has none of
+those" whichever one is true. `grep`-for-`export` cannot answer the question at all
+against a file whose surface is a *class*: `bc-bmry.10`'s
+`grep -n "show(\|comments(\|list(\|ready(\|search("` against `lib/bd.js` came back
+with nothing, because `show`, `comments` and the rest are methods on `Bd`, and a
+class method carries no `export` keyword of its own. `b7e-def` cannot answer this
+either — it takes a symbol name, and the whole point of the question is that the
+name is not yet known.
+
+```
+b7e-surface <path> [<path> …]      one line per export: kind, name, signature,
+                                     line number, first sentence of its doc comment
+b7e-surface --all <path>           + module-private functions, consts and classes
+b7e-surface --class <Name> <path>  only <Name>'s methods, whichever class it is
+```
+
+A module-level `export function`/`export class`/`export const|let|var` is found the
+same way `b7e-def` finds a definition — matched against the trimmed start of a
+line — restricted to lines at curly-brace depth `0`, so a same-shaped line inside a
+function body is never mistaken for a second top-level export. **A file whose whole
+surface is a class does not read as empty**: every class found this way (exported,
+or — with `--all` — not) has its direct methods listed nested underneath it, found
+the same disambiguated way `b7e-def` tells a method definition apart from a call —
+the token immediately after the method head's own `(...)` closes must be `{` — and
+at exactly one brace-depth deeper than the class's own body, which is what keeps a
+bare `if (x) {` or `catch (e) {` *inside* a method from reading as a second, phantom
+method of the class. `lib/bd.js`, whose module-level exports are five guard
+functions and `Bd`, reads as those five and then `Bd` with its ~60 methods under
+it — not as five lines and then silence.
+
+A path that does not resolve to a real, readable source file is a refusal (a
+message on stderr, exit `2`) — never empty output, which is exactly the shape that
+cost `bc-bmry.11` and `bc-bmry.12` a lost call each: a guess that finds nothing
+prints nothing, and nothing looks identical whether the guess was wrong or the file
+was.
+
+**What this does not do.** Destructured exports (`export const { a, b } = x`) are
+not matched, the same bound `b7e-def` accepts for destructured imports. A class
+field assigned an arrow function (`onClick = () => {}`) is not read as a method —
+this codebase's classes use method-shorthand throughout — and comments are not
+blanked before scanning, the same tradeoff `b7e-def` already makes. Signatures are
+read off the source text by the same small hand-rolled scanner as the rest of this
+family, not a real parser, and are truncated for display.
+
+**A regex literal with a quote inside its own pattern is not a string.** `lib/bd.js`'s
+`CLAIM_GUARD_RE` matches a `bd` error that itself quotes an assignee's name back —
+`"[^"]*"` inside the pattern — and the first version of this tool read that
+embedded `"` as a string opening, which put every brace and quote for the rest of
+the file on the wrong side of it and lost all ~60 of `Bd`'s methods. Division and a
+regex literal share the same leading `/` in JavaScript's own grammar, and this tool
+resolves it the way a real tokenizer does: by the character immediately before —
+an identifier, a number, or a value that just closed leaves a value behind, so `/`
+next divides it; anything else — an operator, an open bracket, or nothing yet —
+starts a regex.
+
 ### A new tool declares its own grant, and edits no registry
 
 Adding one `b7e-*` tool used to mean editing three shared lists it had nothing to do with:
@@ -19305,6 +19371,82 @@ parse; `2` refused — bad usage, or the bead was not found.
 **On `DEFAULT_TOOL_LIST`**: `@grant read` in its own header — the `b7e-def`/`b7e-owes`/
 `b7e-notes` shape. It runs one `bd show`, reads a file if `--file` is given, and never
 writes anything; `lib/tooldecl.js` classifies it `read` from the declaration alone.
+
+### Retire the answered block and put the next question where the card reads it — `b7e-recard`
+
+`b7e-card` just above says what the phone *will* show. This is the write half: the bead
+has been answered, the answer commissioned work rather than closing anything, and the
+card is still drawing a question that is settled.
+
+`bc-dgx7.27`: three sessions — `bc-khoe.33`, `bc-xl7n.77.1`, `bc-1kwl.29` — each opened
+on exactly that bead and each built the same transaction from scratch. `bc-khoe.33`
+dumped `design` to `/tmp`, assembled the archival comment in `python3`, posted it, wrote
+a new `design` from a heredoc, and ran a third `python3` to cut the stale block out of
+`notes` — which came back `--notes replaced existing notes (use --append-notes to
+preserve)`. `bc-xl7n.77.1` wrote `newdesc.md`, updated, verified through `toQuestion`,
+commented, labelled `human` — and then did the whole thing again the next day as
+`newdesc2.md` when the answer changed. `bc-1kwl.29` wrote a scratchpad script that
+prepended a banner and replaced the trailing question while asserting the body stayed
+byte-identical, then ran its own "which block would render" check.
+
+```
+b7e-recard -w beadcause -b bc-xyz < next.md          the next question, from stdin
+b7e-recard -w beadcause -b bc-xyz -f next.md         …or from a file
+b7e-recard -w beadcause -b bc-xyz -f next.md --dry-run
+b7e-recard -w beadcause -b bc-xyz -f next.md --reason "split-30, answered 2026-08-22"
+b7e-recard -w beadcause -b bc-xyz -f next.md --field design --no-keep
+```
+
+**The trap all three were working around is field precedence.** `toQuestion`
+(`lib/decision.js`) reads `description`, then `design`, then `notes`, and takes the
+**first** block it finds — so a new block appended to `notes` on a bead whose `design`
+still holds a spent one renders nothing new. `bd update` succeeds, the notes read
+perfectly, and the phone draws the old question; the answer Adam then taps is recorded
+against a question nobody asked. That is the whole of the repo memory note
+`a-spent-decision-block-in-design-outranks-a-new-one-in-notes`, and it is a rule a
+command should hold rather than a fact each session rediscovers.
+
+So one call does six things, in this order: validate the new text against `decisionTail`
+(a block, last, with a recommendation on it if it has options); read the bead and find
+**every** block on it; archive the ones it is about to cut, verbatim, in one comment;
+write the new text into `--field` (default `description`) after that field's surviving
+prose and a one-line banner; clear the competing blocks out of the other two fields; and
+read the bead back through `toQuestion` — the same code the phone runs — refusing to
+call it done unless exactly one block survives and the card asks what went in.
+
+**A malformed block writes nothing at all**, which is why validation is step one and
+happens before the tracker is read: no block, a block that is not last, a block whose
+YAML will not parse, options with nothing `recommended` — each exits `2` having spawned
+no `bd` at all.
+
+**It never clobbers a field.** Every write is that field's own prose with the blocks cut
+out of it, so a `<!-- beadcause:… -->` marker anywhere in the three survives — and a
+computed body that has lost one is refused rather than written, because `alreadyAsked`
+(`lib/superseded.js`) matches those across all three fields and dropping one re-asks a
+question that has already been asked. The banner is the one line it writes of its own,
+and a second run replaces the first one's rather than stacking them; every retirement is
+recorded with its `--reason` in the archive comment anyway.
+
+**It says out loud when a cut block was a machine sweep's.** `supersedeAsk`,
+`inMainAsk` and `finishedEpicAsk` each raise their card by appending a block *and* a
+marker to `notes`, and that produces two things worth naming, either of which can happen
+alone. A block is **shadowed** when the bead's description already carried one — that
+card was never drawn and nobody ever saw it, so cutting it changes nothing anybody could
+read. A block is **final** when its field carries a `<!-- beadcause:… -->` marker, drawn
+or not: `alreadyAsked` (`lib/superseded.js`) reads that marker across all three fields
+and will not ask again, and the marker stays, because it is what stops the sweep asking
+twice. Neither is a refusal — retiring a question is the whole job — but both are said
+rather than quietly done.
+
+Exit codes: `0` written, or `--dry-run` printed; `1` the writes went out and the readback
+disagreed — the card on the phone is not the question that was handed in; `2` refused
+before anything was written.
+
+**On `DEFAULT_TOOL_LIST`**: `@grant excluded` in its own header — the `b7e-say`/
+`b7e-write` shape, not the `b7e-card` one beside it. It rewrites the question a bead is
+asking, and `dispatch`, the one agent that list governs, answers a single comment and
+exits. The workers this was built for already carry an unrestricted allowlist. See
+`bin/b7e-recard`, `stripDecisionBlocks` in `lib/decision.js`, and `test/b7erecard.mjs`.
 
 ### Where in README.md something belongs — `b7e-readme`
 
