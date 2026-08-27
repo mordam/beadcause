@@ -17,6 +17,13 @@
  * Exit codes: `0` ran to completion, whether or not any window is live on this bead —
  * an empty answer is the ordinary "nobody is on this", not a failure. `2` bad usage.
  * `4` `-w`/`-b` named something this checkout's tracker does not have.
+ *
+ * Read-only in the same construction sense as `b7e-siblings`/`b7e-prior`: it spawns
+ * `bd show`, then only `git` reads (`git worktree list`, `git log`, `git status
+ * --porcelain` in a worktree) plus `~/.claude/sessions/*.json` and a `ps` read — no
+ * push, no merge, no write of any kind.
+ *
+ * @grant read
  */
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';

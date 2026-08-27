@@ -27,6 +27,8 @@
  * Exit codes: 0 while the run is still going, or once it finished with nothing red, or
  * once every red suite is also red on `origin/main`; 1 once it finished with a suite
  * red that is not `origin/main`'s; 2 if the run named (or found) does not exist.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import { runsDir, latestRunFor, readRun, runFile, worktreeSlug } from '../lib/gaterun.js';

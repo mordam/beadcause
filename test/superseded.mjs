@@ -597,6 +597,53 @@ function syncBd({ refuse = {} } = {}) {
   return run;
 }
 
+/**
+ * The same runner with a graph behind it, for the one case a stateless fake cannot stage:
+ * a refusal that has to stop being a refusal once something has been removed.
+ *
+ * bd's three rules, copied off the real binary on 2026-08-27 rather than guessed. **One
+ * row per ORDERED pair** — a second type on it is refused, in bd's own sentence, and the
+ * reverse row is a different question that survives. **`dep relate` writes two rows**, one
+ * at each end. **`dep remove` over a pair with no edge exits 0** and says it removed one
+ * anyway, so a blind remove needs no existence check.
+ */
+function syncBdGraph({ edges = {} } = {}) {
+  const graph = new Map(Object.entries(edges));
+  const calls = [];
+  const run = (argv) => {
+    calls.push(argv.join(' '));
+    const [a, b, c, d] = argv;
+    if (a === 'dep' && b === 'add') {
+      const held = graph.get(`${c}->${d}`);
+      if (held) {
+        throw Object.assign(new Error('Command failed: bd'), {
+          stderr: `Error: dependency ${c} -> ${d} already exists with type "${held}" (requested "blocks"); remove it first with 'bd dep remove' then re-add`,
+        });
+      }
+      graph.set(`${c}->${d}`, 'blocks');
+      return '';
+    }
+    if (a === 'dep' && b === 'relate') {
+      for (const key of [`${c}->${d}`, `${d}->${c}`]) if (!graph.has(key)) graph.set(key, 'relates-to');
+      return '';
+    }
+    if (a === 'dep' && b === 'remove') {
+      graph.delete(`${c}->${d}`);
+      return '';
+    }
+    if (a === 'dep' && b === 'list') {
+      const from = `${c}->`;
+      return JSON.stringify(
+        [...graph].filter(([k]) => k.startsWith(from)).map(([k, type]) => ({ id: k.slice(from.length), dependency_type: type }))
+      );
+    }
+    return '';
+  };
+  run.calls = calls;
+  run.edge = (from, to) => graph.get(`${from}->${to}`) || null;
+  return run;
+}
+
 const taskRow = (id, extra = {}) => ({ id, status: 'open', issue_type: 'task', labels: [], ...extra });
 const epicRow = (id, extra = {}) => ({ id, status: 'open', issue_type: 'epic', labels: [], ...extra });
 
@@ -690,6 +737,44 @@ await check('a pair that already has an edge keeps it: provenance is not traded 
   assert.equal(out.marked, true, 'the half that holds it landed');
   assert.equal(out.held, false, 'and it says the hold did not');
   assert.match(out.notes.join(' '), /already have an edge/);
+});
+
+/* -------------------------------------- and the mention on the pair gives way (bc-arj0.23)
+ *
+ * The one edge the check above must not protect. "This is the same job as bc-x" is prose
+ * naming bc-x, so `relateMentions` draws a `relates-to` on the pair, and the hold somebody
+ * has just established is then refused over it. `Bd.addDep` has outranked a mention since
+ * bc-arj0.20; `mark` runs over a synchronous runner and could not reach it. Here the
+ * marker holds the bead either way, so what the collision cost was the graph record — on
+ * a tracker whose whole complaint (bc-arj0) is that structure lives in prose.
+ */
+
+await check('a prose mention gives way so the hold can go in, at both ends', () => {
+  const bdx = syncBdGraph({ edges: { 'zz-a->zz-b': 'relates-to', 'zz-b->zz-a': 'relates-to' } });
+  const out = mark(bdx, 'zz-a', 'zz-b', { dupRow: taskRow('zz-a'), originalRow: taskRow('zz-b') });
+  assert.equal(out.held, true, 'the hold is real, not a note about why there is not one');
+  assert.equal(out.edge, HOLDING_EDGE);
+  assert.equal(bdx.edge('zz-a', 'zz-b'), 'blocks');
+  assert.equal(bdx.edge('zz-b', 'zz-a'), null, 'the other half of the relate went with it');
+  assert.match(out.notes.join(' '), /took the `relates-to`/, 'an edge is never deleted in silence');
+  assert.equal(bdx.calls.filter((c) => c.startsWith('dep add')).length, 2, 'the write and one retry, never a loop');
+});
+
+await check('provenance under a mention at the far end is still not this write’s to take', () => {
+  const bdx = syncBdGraph({ edges: { 'zz-a->zz-b': 'relates-to', 'zz-b->zz-a': 'discovered-from' } });
+  const out = mark(bdx, 'zz-a', 'zz-b', { dupRow: taskRow('zz-a'), originalRow: taskRow('zz-b') });
+  assert.equal(out.held, true);
+  assert.equal(bdx.edge('zz-a', 'zz-b'), 'blocks');
+  assert.equal(bdx.edge('zz-b', 'zz-a'), 'discovered-from', 'the row nobody asked about is untouched');
+});
+
+await check('an epic original draws its see-also and demotes nothing', () => {
+  const bdx = syncBdGraph({ edges: { 'zz-a->zz-e': 'relates-to', 'zz-e->zz-a': 'relates-to' } });
+  const out = mark(bdx, 'zz-a', 'zz-e', { dupRow: taskRow('zz-a'), originalRow: epicRow('zz-e') });
+  assert.equal(out.edge, RELATED_EDGE);
+  assert.equal(bdx.edge('zz-a', 'zz-e'), 'relates-to', 'demoting a mention to make room for a mention is work with no result');
+  assert.deepEqual(bdx.calls.filter((c) => c.startsWith('dep remove')), [], 'so nothing is removed');
+  assert.doesNotMatch(out.notes.join(' '), /took the/);
 });
 
 await check('an edge bd refuses for any other reason is reported, and the marker still stands', () => {

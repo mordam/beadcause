@@ -1,0 +1,189 @@
+#!/usr/bin/env node
+/**
+ * `b7e-diff` — what this branch actually delivers, against its own merge base and
+ * nobody else's.
+ *
+ *     b7e-diff                  merge-base against local main, report the branch's own diff
+ *     b7e-diff --base develop   merge-base against a ref other than main
+ *     b7e-diff --json           one object on stdout, for a caller
+ *
+ * bc-dgx7.17: the session audit found twelve sophab sessions each answering "is my
+ * diff only my files" a different way right before delivering — `git diff
+ * main...HEAD --name-only`, `git diff --cached --stat`, `git rev-list --count
+ * HEAD..main`, a hand-run `git merge-base` — and none of them caught what the tenth
+ * one needed caught: sp-weu ran `git reset --soft main` to squash, and the resulting
+ * `git status` carried five files two *other* branches (sp-clh's, sp-b2k's) had
+ * already merged into main while sp-weu worked, sitting there uncommitted and
+ * indistinguishable from sp-weu's own change until a human read every line by eye.
+ * `main` had simply moved past sp-weu's fork point in the meantime.
+ *
+ * **The part that catches that automatically: every path `git status` names is
+ * checked against the union of files this branch's own commits actually touched.**
+ * A modified-but-uncommitted file that no commit on this branch ever authored is
+ * named and the tool exits 1 — which is exactly the shape `git reset --soft` onto a
+ * moved base produces, and exactly what none of the twelve sessions' hand-rolled
+ * commands would have caught, because all of them read commits or diffs, never the
+ * working tree against them.
+ *
+ * **`--base` is a literal ref, `main` by default, never `origin/main`.** This is a
+ * narrower, cheaper question than `b7e-base` asks (bc-36xx.25) — not "has the
+ * upstream moved" but "does everything sitting in this checkout right now belong to
+ * a commit this branch actually made" — and it is meant to run against whatever
+ * `main` already is in this checkout without a network round-trip, immediately
+ * before a delivery.
+ *
+ * Reports: the merge-base sha; whether `--base` has advanced past the merge-base and
+ * by how many commits; this branch's own commits since the merge-base; the file list
+ * of `merge-base...HEAD`; and the uncommitted paths that belong to none of those
+ * commits.
+ *
+ * Exit codes: `0` nothing uncommitted is orphaned. `1` at least one uncommitted path
+ * belongs to no commit this branch made. `2` bad usage or not a git checkout.
+ *
+ * @grant read
+ */
+import { git, gitCode, ok } from '../lib/gitref.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (name) => {
+  const at = argv.indexOf(name);
+  return at > -1 ? argv[at + 1] : undefined;
+};
+
+const USAGE = `usage: b7e-diff [--base <ref>] [--json]
+
+What this branch actually delivers, against its own merge base and nobody else's.
+Reports the merge-base with --base (default: main), whether that ref has advanced
+since, this branch's own commits, the files they touched, and any uncommitted path
+that belongs to none of those commits — the check that catches a squash or reset
+that picked up another branch's already-merged work by mistake.
+
+  --base <ref>   merge-base against this ref instead of main — a local ref, never
+                 fetched and never an origin/<ref> fallback
+  --json         one object on stdout instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const startCwd = process.cwd();
+const base = value('--base') || 'main';
+const jsonMode = has('--json');
+
+const die = (msg, code = 2) => {
+  console.error(`b7e-diff: ${msg}`);
+  process.exit(code);
+};
+
+const branch = (await ok(git(startCwd, ['rev-parse', '--abbrev-ref', 'HEAD'])))?.trim();
+if (branch === undefined) die(`${startCwd} is not a git checkout`);
+
+// Every later call runs against the top level, not `startCwd` — `git status` and
+// `git diff --name-only` both report paths relative to the directory git was invoked
+// in when that directory is inside a worktree with no arguments telling it otherwise,
+// and the two have to agree with each other for the orphan check below to mean
+// anything.
+const cwd = (await git(startCwd, ['rev-parse', '--show-toplevel'])).trim();
+
+const hasBase = (await ok(git(cwd, ['rev-parse', '--verify', '--quiet', base]))) !== null;
+if (!hasBase) die(`no such ref: ${base}`);
+
+const head = (await git(cwd, ['rev-parse', 'HEAD'])).trim();
+const baseSha = (await git(cwd, ['rev-parse', base])).trim();
+
+let mergeBase;
+try {
+  mergeBase = (await git(cwd, ['merge-base', head, baseSha])).trim();
+} catch {
+  die(`HEAD and ${base} share no common history — is this even the same repo?`);
+}
+
+const count = async (range) => Number((await git(cwd, ['rev-list', '--count', range])).trim());
+const baseAdvanced = await count(`${mergeBase}..${baseSha}`);
+
+/** Commit subjects in a range, git's own order — newest first, never re-sorted. */
+const subjects = async (range) => {
+  const out = await ok(git(cwd, ['log', '--format=%h\t%s', range]));
+  if (!out) return [];
+  return out
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => {
+      const [sha, ...rest] = l.split('\t');
+      return { sha, subject: rest.join('\t') };
+    });
+};
+
+/** Files touched between two trees — never a two-dot range, same reason `b7e-base` gives. */
+const filesTouched = async (from, to) => {
+  const out = await ok(git(cwd, ['diff', '--name-only', from, to]));
+  return out ? out.trim().split('\n').filter(Boolean) : [];
+};
+
+const commits = await subjects(`${mergeBase}..${head}`);
+const files = await filesTouched(mergeBase, head);
+
+/**
+ * Every path `git status` names, current-side only — a rename or copy carries an
+ * origin path too, in the field right after, which this skips rather than reports:
+ * what matters here is where a path sits *now*, not where it used to.
+ */
+const uncommittedPaths = async () => {
+  const out = await ok(git(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));
+  if (!out) return [];
+  const tokens = out.split('\0').filter((t) => t !== '');
+  const paths = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const entry = tokens[i];
+    const xy = entry.slice(0, 2);
+    paths.push(entry.slice(3));
+    if (xy.includes('R') || xy.includes('C')) i++; // orig path — skip it
+  }
+  return paths;
+};
+
+const uncommitted = await uncommittedPaths();
+const fileSet = new Set(files);
+const owed = uncommitted.filter((p) => !fileSet.has(p)).sort();
+
+const short = (sha) => sha.slice(0, 8);
+
+if (jsonMode) {
+  console.log(
+    JSON.stringify({
+      branch,
+      base,
+      head,
+      baseSha,
+      mergeBase,
+      baseAdvancedBy: baseAdvanced,
+      commits,
+      files,
+      uncommittedUnauthored: owed,
+    })
+  );
+} else {
+  console.log(`[b7e-diff] ${branch} vs ${base}: merge-base ${short(mergeBase)}`);
+  console.log(
+    baseAdvanced
+      ? `[b7e-diff] ${base} has advanced ${baseAdvanced} commit${baseAdvanced === 1 ? '' : 's'} past the merge-base`
+      : `[b7e-diff] ${base} has not moved past the merge-base`
+  );
+  console.log(`[b7e-diff] ${commits.length} commit${commits.length === 1 ? '' : 's'} of this branch's own:`);
+  for (const c of commits) console.log(`  ${c.sha} ${c.subject}`);
+  console.log(`[b7e-diff] ${files.length} file${files.length === 1 ? '' : 's'} in ${short(mergeBase)}...${short(head)}:`);
+  for (const f of files) console.log(`  ${f}`);
+  if (owed.length) {
+    console.log(
+      `[b7e-diff] ${owed.length} uncommitted path${owed.length === 1 ? '' : 's'} belong${owed.length === 1 ? 's' : ''} to no commit on this branch:`
+    );
+    for (const p of owed) console.log(`  ${p}`);
+  } else {
+    console.log('[b7e-diff] no uncommitted path is orphaned — every one belongs to a commit this branch made');
+  }
+}
+
+process.exit(owed.length ? 1 : 0);

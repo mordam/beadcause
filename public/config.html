@@ -23,8 +23,14 @@
            page has one, where the ledger next door deliberately does not, and the
            difference is that everything here is a button: what the chip warns you about
            is a press that would reach the wrong Mac. It rides on /api/space, which is
-           the one request this page makes anyway. -->
-      <span class="observing" id="observing" hidden>⦿ observing</span>
+           the one request this page makes anyway.
+
+           `cfg-observing` rather than the bare `observing` every other page calls this,
+           and the id is shared with the pane this page also is in public/index.html
+           (bc-khoe.60). There it cannot be `observing`: the Advocates pane already holds
+           that name, so the bare one is a collision waiting on a sibling. One id across
+           the two documents, and it is the one that cannot collide. -->
+      <span class="observing" id="cfg-observing" hidden>⦿ observing</span>
     </div>
     <div class="sheet-actions">
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>

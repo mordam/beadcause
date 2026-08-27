@@ -23,6 +23,8 @@
  * column says about it — that is context, not an excuse). `2` refused: bad usage, no
  * manifest recognises the repo, or another `b7e-checks`/`b7e-gate` is already running on
  * this root.
+ *
+ * @grant excluded
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';
