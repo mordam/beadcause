@@ -38564,7 +38564,89 @@ completed; some criteria could not be verified this way. `2` bad usage, or
 `acceptance_criteria` is empty — a legitimate, distinct state, not "ran and found
 nothing wrong." `4` `-w`/`-b` named something this checkout's tracker does not have.
 
-## Notes on bd
+### A book's chapter and interlude manifest, with the sequence checked — `b7e-manifest`
+
+`bc-dgx7.103`, filed by the session audit (`lib/sessionaudit.js`) against five deluvia
+sessions (`dv-afr.6`, `dv-afr.7`, `dv-afr.8`, `dv-afr.9`, `dv-gr6.8`) that each needed the
+same table — every chapter and interlude of a book, with its header fields — and built it
+by hand, five different ways, before any judgement about the book itself could start.
+`dv-afr.6` ran a `sed`/`grep` loop over `CHAPTER_N.summary.md` headers, then a second loop
+for section shape, then a third over `INTERLUDE_01..12` for placement keys. `dv-afr.8` hit
+the worktree isolation guard on its version of that loop and had to `Write` a scratchpad
+`heads.sh` and shell out to it. `dv-afr.7` used yet another shape — `grep -h` across two
+different field names. `dv-afr.9` read a chapter map plus individual summaries as its
+model and sized them with `wc -c`. `dv-gr6.8` needed only a three-chapter neighbourhood
+and read each file by hand. Five rigs, one question: what does this book's own table of
+contents actually say, checked against itself.
+
+```
+b7e-manifest 3                          a bare book number, resolved under <repo
+                                         root>/novel/Deluvia Book 3
+b7e-manifest "novel/Deluvia Book 1"      an explicit directory, relative to cwd
+b7e-manifest 3 --json                    the whole manifest as JSON
+b7e-manifest 3 --ref abc1234             read the book at a git ref, not the working tree
+```
+
+Prints one row per chapter, then one per interlude, both in numeric order: POV (and a
+best-effort age, read out of the POV field's own parenthetical), thread/timeline letter,
+setting, day range or BP figure, target word count, every file that exists for that
+number with its own measured word count, and — for an interlude — its placement key.
+Then a derived block: every day-range **overlap** or **gap** between two entries on the
+same thread, and every interlude placement key that is **inconsistent** (`before` isn't
+`after + 1`), **out-of-range** (names a chapter past the book's own last one), or
+**non-monotone** (a later-numbered interlude placed before an earlier one) — silently, if
+there is nothing to report.
+
+**Counting a chapter or interlude reuses the exact regex shapes
+`deluvia/scripts/build_series_log.py`'s own `measure()` already settled on**, reimplemented
+in JS rather than imported — `lib/manifest.js` must run with no `deluvia` checkout on disk
+at all, since this repo's own suite is what proves it, against a fabricated fixture tree.
+That script's own header explains why the counting is this exact and this narrow: a
+hand-kept mirror of the tree told every reader for three months that two books had no
+chapters and a third had ten fewer than it did. Matching its blind spot matters as much as
+matching its coverage: `CHAPTER_18A_THE_PARTING.summary.md` is a real file in Book 3 and
+gets its own row here, but it does **not** count toward `totals.chapters` — the pattern is
+digits immediately followed by `.summary.md`, nothing between — and printing it under
+"not counted above" rather than silently including or silently dropping it is what keeps
+this tool's totals equal to `build_series_log.py`'s own, which is what the bead's own
+acceptance criterion asks for. Checked by hand against the live `deluvia` checkout when
+this landed: all six books' chapter/interlude counts matched `novel/SERIES_CHAPTER_LOG.md`'s
+committed, `build_series_log.py`-generated block exactly.
+
+**Header parsing is best-effort over real, inconsistently-shaped prose, not a strict
+grammar** — five of the six books label the thread field `**Timeline:**`, one labels it
+`**Thread:**`; a book's own Chapter 1 can lack a `**Time:**` field entirely and put its
+only day mention inside `**Setting:**` instead. `parseHeader` in `lib/manifest.js`
+collects every `**Key:** value` line in the file's metadata block (before the first `---`
+or the first `## ` heading) into a lowercased map, and each extractor looks through
+whichever fields it needs, in the order a person skimming the file would.
+
+**The day-range overlap this was filed over still reproduces.** Book 3's Chapter 18
+("Weeks of Water") and Chapter 19 ("The Overboard") are both Thread A and, as of this
+writing, Days 30–35 and Days 28–33 respectively — `b7e-manifest 3` against the live
+`deluvia` checkout flags the overlap without being told to look, the same finding
+`dv-afr.8` made by hand. **Book 1's interlude-placement finding the bead also names does
+not** — `INTERLUDE_05`/`06` are in monotone order and `INTERLUDE_12` already reads "the
+final chapter (24-chapter map, CHANGE_LOG Entry 088)" in the live tree, so whatever
+made `dv-afr.6` flag it by hand has been hand-fixed since. That is the data changing
+under a stale acceptance criterion, not a bug in the check: the placement-issue logic is
+proven directly, on fabricated fixtures built to reproduce all four kinds
+(`test/manifest.mjs`), independent of whatever state Book 1 happens to be in on a given
+day.
+
+**`--ref <ref>` reads the book from git — `git ls-tree`/`git show` against the resolved
+repo root — instead of the working tree**, for the same reason `b7e-blame` and `b7e-diff`
+take one: a manifest built at a past commit is what tells you whether an overlap is new or
+has always been there.
+
+**`process.exitCode`, not `process.exit(0)`, after the report.** A book with enough
+chapters produces enough JSON to hit Node's 64KB pipe buffer, and `console.log` to a
+**pipe** is asynchronous — `process.exit(0)` right after the write used to cut it there
+with a success status and no signal at all (`bc-dgx7.45`, the same trap `b7e-census`
+documents). `test/manifest.mjs` reproduces it directly: 200 fabricated chapters, piped,
+parsed back.
+
+**`@grant read`** (`bin/b7e-manifest`'s own header) — it only ever reads files.
 
 - **`bd human respond` is broken in bd 1.1.2** — it dies with `storage is nil`.
   Beadcause does the two steps it documents (`bd comment` then `bd close`) itself.
