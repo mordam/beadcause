@@ -284,7 +284,7 @@ check('no view name can ever be mistaken for a key, or a key for a view name', (
 
 check('and the other half of the same question: which view an address names', () => {
   // The nine addresses that are all the advocate console, the two that are Home, the
-  // three that are the space's settings, and the five pages that draw the pill row and are
+  // three that are the space's settings, and the seven pages that draw the pill row and are
   // on no pill. `viewOfPath` is what
   // bc-khoe.30.7 will land an old path on the right pane with, and what the row already
   // lights itself by.
@@ -305,7 +305,7 @@ check('and the other half of the same question: which view an address names', ()
   for (const p of ['/config', '/settings', '/config.html']) {
     assert.equal(route.viewOfPath(p), 'config', `${p} is the space's settings`);
   }
-  for (const p of ['/flow', '/requirements', '/endorse', '/admin', '/console']) {
+  for (const p of ['/flow', '/requirements', '/endorse', '/admin', '/console', '/skills', '/sounds']) {
     assert.equal(route.viewOfPath(p), null, `${p} draws the row and is on no pill — that is deliberate`);
   }
 });
