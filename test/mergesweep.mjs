@@ -11,14 +11,17 @@
  * it. Five ways that goes wrong, and none of them shows up on a screen:
  *
  * 1. **A door that does not record its merge.** There are four — a delivery card and the
- *    PR board (lib/server.js), `beadcause-deliver`, and `reconcileLanded` for a merge
- *    made on github.com — and the one that gets missed is the one that looks broken
- *    exactly when Adam happens to merge that way. Each is asserted where it can actually
- *    be pressed — test/mergeclose.mjs answers a delivery card, test/boardmerge.mjs posts
- *    to `/api/pr/merge`, test/landed.mjs sweeps a merge made on github.com — and all
- *    three read the record back off disk. `beadcause-deliver` is the one with no harness,
- *    being a process that merges and exits, so its door is read out of the source here
- *    the way test/crash.mjs reads the poll cycle.
+ *    merge queue's own `afterMerge` (lib/server.js), `beadcause-deliver`, and
+ *    `reconcileLanded` for a merge made on github.com — and the one that gets missed is
+ *    the one that looks broken exactly when Adam happens to merge that way. Each is
+ *    asserted where it can actually be pressed — test/mergeclose.mjs answers a delivery
+ *    card, test/mergequeue.mjs drives the queue, test/landed.mjs sweeps a merge made on
+ *    github.com — and all three read the record back off disk. `beadcause-deliver` is the
+ *    one with no harness, being a process that merges and exits, so its door is read out
+ *    of the source here the way test/crash.mjs reads the poll cycle. The PR board is no
+ *    longer among them: since bc-02ldo its button admits to the queue rather than merging,
+ *    so the sweep it used to ask for is the queue's to ask (test/boardmerge.mjs asserts it
+ *    asks for none).
  * 2. **A record acted on twice.** `takeSweepRequests` empties the file before anything
  *    is swept, because the one thing a second sweep can do that the first did not is
  *    open a second resolver window on a branch that already has one — bc-utyr, the
@@ -244,20 +247,20 @@ check(
 
 /* --------------------------------------------------- and the two in the daemon */
 
-// Read from the source, deliberately. Both live inside `resolveDeliveryFor` and the
-// `/api/pr/merge` handler, behind a real `gh pr merge` — standing a daemon up and
-// stubbing GitHub to watch a JSON file appear would be a test of the stub. What can go
-// wrong and be invisible is the *wiring*: a door that never calls it at all.
+// Read from the source, deliberately. Both live inside `resolveDeliveryFor` and the merge
+// queue's `afterMerge`, behind a real `gh pr merge` — standing a daemon up and stubbing
+// GitHub to watch a JSON file appear would be a test of the stub. What can go wrong and be
+// invisible is the *wiring*: a door that never calls it at all.
 console.log('\nand the doors that need a harness to press');
 
 const server = fs.readFileSync(LIB('server.js'), 'utf8');
 const deliver = fs.readFileSync(path.join(HERE, '..', 'bin', 'deliver.js'), 'utf8');
 // Every door is asserted where it can be pressed: test/mergeclose.mjs answers a delivery
-// card, test/boardmerge.mjs posts to `/api/pr/merge`, test/landed.mjs sweeps a merge made
-// on github.com, and `scripts/land-check.mjs` runs the real bin/deliver.js against a real
-// git and a fake `gh` — all four then read the record back. The reads below are the two
-// things none of those can see: that land-check's door is still there on a machine with no
-// `bd` (where it skips), and that nothing has moved the sweep itself into the worker.
+// card, test/landed.mjs sweeps a merge made on github.com, and `scripts/land-check.mjs`
+// runs the real bin/deliver.js against a real git and a fake `gh` — each then reads the
+// record back. The reads below are the two things none of those can see: that
+// land-check's door is still there on a machine with no `bd` (where it skips), and that
+// nothing has moved the sweep itself into the worker.
 check('a worker that merges its own pull request asks for a sweep', /requestSweep\(/.test(deliver), 'nothing in bin/deliver.js');
 check(
   'and nothing in bin/deliver.js sweeps in its own process',

@@ -180,8 +180,10 @@ const id = created.id || created.issue?.id;
 // caller told the command failed over a question that is already on the phone either
 // asks nothing or asks twice. `park` reports instead, in one sentence.
 if (blocks) {
-  const { parked, note } = park(bd, blocks, id);
-  if (!parked) console.error(`beadcause-ask: ${note}`);
+  // `note` rather than `!parked`: a park that worked can still have had to take a prose
+  // mention's see-also off the pair to do it (bc-arj0.23), and that is worth a line.
+  const { note } = park(bd, blocks, id);
+  if (note) console.error(`beadcause-ask: ${note}`);
 }
 
 console.log(id);
