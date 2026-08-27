@@ -35,6 +35,8 @@
  * `com.google.Chrome`, so once one is orphaned, opening Chrome.app only *activates* it —
  * no window, and Cmd-Q apparently ignored. Read the age column before passing
  * `--older-than`; it is a deliberate override, not a default.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';

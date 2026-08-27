@@ -50,6 +50,8 @@
  *
  * Exit codes: `0` equal (or `--show` printed the file), `1` ancestor/diverged, `2` bad
  * usage / nothing to report / the base does not exist / the file is not at the base.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import { loadConfig } from '../lib/config.js';
