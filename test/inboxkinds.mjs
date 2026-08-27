@@ -23,7 +23,7 @@
  *    and every one of the six rewritten exclusions is a chance to drop a row on the
  *    floor or draw it twice.
  *
- * 2. **The row and the table have to be the same six.** viewbar.js is loaded on twelve
+ * 2. **The row and the table have to be the same six.** viewbar.js is loaded on ten
  *    pages and this file on one, so the row cannot read the table and carries a copy of
  *    the ids and labels. A checked copy is not a second place that knows; an unchecked
  *    one is, and this suite is the check.
@@ -702,7 +702,7 @@ await check('a selection the new scope keeps is kept', () => {
   The other half of the same fact, and the bug bc-khoe.25 is: dropping is right when the
   *scope* has just had the last word and wrong when the *pill* is having it.
 
-  `All Beads` is drawn on every scope, because public/viewbar.js draws the row on twelve
+  `All Beads` is drawn on every scope, because public/viewbar.js draws the row on ten
   pages and knows nothing about a scope. Under the default `Human` it was the one pill on
   it that could not be selected at all — `set` dropped it, `current()` fell back and the
   row lit `My Epics` — so the most-tapped scope had a dead control on it and nothing said
@@ -777,7 +777,7 @@ await check('and My Epics still clears the selection rather than widening anythi
 });
 
 await check('a page with no answer is left as it was, not broken', () => {
-  // `onWiden` is optional: eleven of the twelve pages the row is on have no scope at
+  // `onWiden` is optional: nine of the ten pages the row is on have no scope at
   // all. The tap is then the drop it always was, which is a pill that does nothing —
   // never a throw inside a click handler.
   const { filter } = load();
@@ -1540,7 +1540,7 @@ const rowPills = () => {
 };
 
 await check('the row draws the six kinds, in the table’s order', () => {
-  // The copy, checked. viewbar.js is loaded on twelve pages and inboxfilter.js on one,
+  // The copy, checked. viewbar.js is loaded on ten pages and inboxfilter.js on one,
   // so the row cannot read the table at paint time — which makes this the only thing
   // standing between "one place that knows" and two lists that drift.
   const drawn = rowPills();
@@ -1624,7 +1624,7 @@ await check('the lit pill follows the selection, and is pushed at the row', () =
 
 await check('the four counted pills are pushed their numbers down the same channel', () => {
   // bc-khoe.23. Pushed rather than pulled for the same reason `mark` is: the row is on
-  // twelve pages and this file on one. What is pushed is the whole map — the row reads
+  // ten pages and this file on one. What is pushed is the whole map — the row reads
   // only the ids it draws a badge for — and it is the map counted *before* the kind
   // filter, so a badge is what tapping the pill would leave you with rather than what
   // is on screen already.
