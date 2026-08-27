@@ -22250,6 +22250,56 @@ parsing and the printing around it. `Bash(b7e-moment:*)` is on `DEFAULT_TOOL_LIS
 write anything either. See `bin/b7e-moment`, `lib/moment.js` and `test/b7emoment.mjs`.
 
 
+### The numbers a named building actually produces, in one call — `b7e-model`
+
+`bc-dgx7.15` is the session audit's finding: five sophab sessions (`sp-oyg`, `sp-0hw`,
+`sp-j8f`, `sp-clh`, `sp-weu`) each needed "what does the model say for THIS size, versus
+the as-built one" and each built the params from scratch, differently — a raw
+`(length, run, rise)` tuple, `dataclasses.replace`, `engine.build_params` by hand, or
+`SolariumParams()` directly. `sp-j8f` burned three failed calls before discovering
+`costing.takeoff()` returns `(items, summary)`, not a list of dicts.
+
+```
+b7e-model 24x14x12 50x22x20                                   as-built vs a projection
+b7e-model 24x14x12 --rib closed --shape 1.2 --place "fredericton, nb"
+b7e-model 24x14x12 50x22x20 --costing                           + the takeoff total
+b7e-model 24x14x12 --json                                        one object per size
+```
+
+Each size is `LxRxH` in feet, the same order `engine.build_params(length, run, rise,
+...)` takes. Per size: section (breadth × depth, `A`, `I`, `Sx`), the governing NBCC
+combo, rib and beam utilisation, base reactions (`R_base_kN`, `thrust_kN`), and whether
+it is over capacity or past the calibrated section ladder — every one of those fields is
+`tools/planset_sweep.py::numbers_for()`'s own, not a re-derivation: it already calls
+`engine.build_params` and the same `fea_report` functions production does ("a sweep that
+re-derived the load path would be checking its own arithmetic"). With `--costing`, also
+`costing.takeoff()` on the same params object, reporting the total and the top 5 line
+items by extended cost. A size whose geometry the model itself refuses is reported
+(`error`/`error_type`) and does not stop the others.
+
+**This is a beadcause `lib/` file that shells out to sophab, not a file written into the
+sophab checkout**, even though the bead's own "belongs at" line — filed while it still
+lived in the sophab tracker — named `tools/b7e_model.py` there. Every wiring requirement
+the bead also lists (`package.json`/lockfile bin entries, `test/*.mjs`, a
+`DEFAULT_TOOL_LIST` entry, this section) is beadcause-repo machinery, and the bead's own
+move-comment says the work lands in the beadcause repo. Splitting the deliverable across
+two repos — a sophab-side Python file needing its own PR, review and merge on top of
+this one — would owe a second delivery nothing here asks for. So the whole thing lives
+here: `lib/b7e_model.js` only *reads* sophab (`sys.path.insert` onto its checkout, then
+`import`), and never writes into it. The interpreter is resolved from the sophab
+checkout itself (`.venv/bin/python3` if it has one, else plain `python3`) — never from
+the caller's own `.venv`, which is what makes `b7e-model` work from a beadcause
+worktree, which has no `.venv` at all and never will.
+
+`lib/b7e_model.js` is the Python bridge (one `python3 -c` process, a JSON job on stdin,
+a JSON array on the last line of stdout — the same shape `lib/plate.js`'s
+`RENDER_SCRIPT` already uses) and the report formatting; `bin/b7e-model` is the argv
+parsing and the printing around it. `Bash(b7e-model:*)` is on `DEFAULT_TOOL_LIST` in
+`lib/toolbelt.js` and `read` in `lib/grants.js` — everything it does is an import and a
+subprocess, never a write to either checkout. See `bin/b7e-model`, `lib/b7e_model.js`
+and `test/b7emodel.mjs`.
+
+
 ### The next free `CHANGE_LOG.md` entry number, across every branch — `b7e-entry`
 
 `bc-dgx7.61`, a session audit against a repo like deluvia's, where `CHANGE_LOG.md` is
