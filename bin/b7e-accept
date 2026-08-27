@@ -1,0 +1,215 @@
+#!/usr/bin/env node
+/**
+ * `b7e-accept` — run the invocations a bead's own `acceptance_criteria` field quotes,
+ * against this checkout, instead of copying them into `Bash` by hand.
+ *
+ *     b7e-accept -w beadcause -b bc-dgx7.81
+ *     b7e-accept -w beadcause -b bc-dgx7.81 --list
+ *     b7e-accept -w beadcause -b bc-dgx7.81 --timeout 10
+ *     b7e-accept -w beadcause -b bc-dgx7.81 --dir /path/to/other/checkout
+ *
+ * bc-dgx7.93, filed by the session audit against five sessions (`bc-dgx7.81`,
+ * `bc-dgx7.85`, `bc-dgx7.77`, `bc-dgx7.82`, `bc-dgx7.84`) that each ran the same kind of
+ * call by hand: `bc-dgx7.81`'s session made four separate `Bash` calls for the three
+ * `` `b7e-already …` `` invocations its own criteria quote plus the no-match case;
+ * `bc-dgx7.77`'s carried an absolute worktree path as a shell variable through roughly
+ * ten calls because it never entered its own worktree. `lib/accept.js` is the whole
+ * decision — extraction, placeholder detection, the read/write classification — pure
+ * and tested without spawning; this is the argv parsing, the one spawn per runnable
+ * invocation, and the printing, the same split every other `b7e-*` command uses.
+ *
+ * One block per criterion sentence in `acceptance_criteria`, in the order they are
+ * written: the sentence itself, verbatim; then either the resolved command line this
+ * checkout's own `bin/` would run (the same resolution rule `bin/b7e-run` landed for
+ * `bc-dgx7.87` — never whichever copy `PATH` finds), the exit code and the first lines
+ * of output; or, when the sentence quotes no runnable invocation, is refused because its
+ * target does not declare `@grant read`, or contains an angle-bracket placeholder
+ * (`bc-dgx7.82`'s own case — a criterion that is not executable as written must be
+ * reported so, never guessed at), a one-line reason instead.
+ *
+ * `--list` resolves and prints every criterion's verdict without running anything.
+ * `--timeout <s>` is the per-invocation deadline, default 30s — a criterion whose own
+ * invocation blows it is reported as `timed out`, not hung on.
+ *
+ * Exit codes: `0` every runnable invocation exited `0` and nothing was refused. `1` at
+ * least one invocation ran and exited non-zero. `3` nothing failed, but at least one
+ * criterion's invocation was refused (write-classified, or targets a tool this checkout
+ * does not declare) — the run completed, some criteria could not be verified. `2` bad
+ * usage, or `acceptance_criteria` is empty — a legitimate state to report, not a crash,
+ * but not the same as "ran and found nothing wrong" either. `4` `-w`/`-b` named
+ * something this checkout's tracker does not have.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { repoRoot, divergenceWarning } from '../lib/run.js';
+import { planBead } from '../lib/accept.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-accept -w <workspace> -b <bead> [--list] [--timeout <s>] [--dir <root>]
+
+Runs every invocation the bead's acceptance_criteria field quotes, against this
+checkout's own bin/ — never whichever copy PATH would find. One block per criterion
+sentence: the sentence verbatim, then either what ran and its exit code, or why it
+did not run (no invocation quoted, a placeholder, or refused because the target is not
+declared @grant read).
+
+  -w, --workspace <name>   which tracker (required; one of the configured workspaces)
+  -b, --bead <id>          the bead whose acceptance_criteria to run (required)
+  --list                   resolve and report only; runs nothing
+  --timeout <s>            per-invocation deadline in seconds (default 30)
+  --dir <root>             run against this checkout instead of the caller's own`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const beadId = value('-b', '--bead');
+const LIST_ONLY = has('--list');
+const dirGiven = value('--dir');
+const timeoutArg = value('--timeout');
+
+function fail(msg, code = 2) {
+  console.error(`b7e-accept: ${msg}`);
+  process.exit(code);
+}
+
+if (!wsName) fail(`-w/--workspace is required\n${USAGE}`);
+if (!beadId) fail(`-b/--bead is required\n${USAGE}`);
+
+let timeoutMs = 30_000;
+if (timeoutArg !== undefined) {
+  const n = Number(timeoutArg);
+  if (!Number.isFinite(n) || n <= 0) fail(`--timeout wants a positive number of seconds, got "${timeoutArg}"`);
+  timeoutMs = Math.round(n * 1000);
+}
+
+const cfg = loadConfig();
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 4);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+let bead;
+try {
+  bead = await bd.show(ws, beadId);
+} catch (err) {
+  fail(`${ws.name} has no bead ${beadId}: ${String(err?.message || err).split('\n')[0]}`, 4);
+}
+if (!bead) fail(`${ws.name} has no bead ${beadId}`, 4);
+
+const root = path.resolve(dirGiven || repoRoot());
+if (!fs.existsSync(path.join(root, 'bin'))) fail(`${root} has no bin/ — is --dir pointed at a checkout?`);
+
+const plan = planBead(bead.acceptance_criteria, root);
+
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+
+if (plan.empty) {
+  console.log(`b7e-accept ${beadId} · ${ws.name}\n`);
+  console.log(amber(`${beadId} has an empty acceptance_criteria field — nothing to run.`));
+  process.exit(2);
+}
+
+console.log(`b7e-accept ${beadId} · ${ws.name} — ${root}${LIST_ONLY ? ' (--list, nothing will run)' : ''}\n`);
+console.error(`b7e-accept: root -> ${root}`);
+
+let ran = 0;
+let passed = 0;
+let failed = 0;
+let refused = 0;
+let notRunnable = 0;
+
+plan.criteria.forEach((c, i) => {
+  console.log(`[${i + 1}] ${c.text}`);
+  if (!c.invocation) {
+    notRunnable += 1;
+    console.log(`    ${dim('not runnable — ' + c.reason)}`);
+    console.log('');
+    return;
+  }
+  if (c.refused) {
+    refused += 1;
+    console.log(`    ${amber(c.reason)}`);
+    console.log('');
+    return;
+  }
+  if (!c.runnable) {
+    notRunnable += 1;
+    console.log(`    ${dim('not runnable — ' + c.reason)}`);
+    console.log('');
+    return;
+  }
+
+  const { invocation } = c;
+  const cmdLine = `${invocation.target} ${invocation.args.join(' ')}`.trim();
+  console.log(`    runs: ${cmdLine}`);
+  const warning = divergenceWarning(invocation.target, invocation.command);
+  if (warning) console.log(`    ${dim(warning)}`);
+
+  if (LIST_ONLY) {
+    console.log('');
+    return;
+  }
+
+  ran += 1;
+  const res = spawnSync(invocation.target, invocation.args, { encoding: 'utf8', timeout: timeoutMs });
+
+  if (res.error && res.error.code === 'ETIMEDOUT') {
+    failed += 1;
+    console.log(`    ${red(`timed out after ${timeoutMs / 1000}s`)}`);
+    console.log('');
+    return;
+  }
+  if (res.error) {
+    failed += 1;
+    console.log(`    ${red(`failed to run: ${res.error.message}`)}`);
+    console.log('');
+    return;
+  }
+
+  const exitCode = res.signal ? null : res.status;
+  const ok = exitCode === 0;
+  if (ok) passed += 1;
+  else failed += 1;
+
+  console.log(`    exit ${res.signal ? `killed by ${res.signal}` : exitCode} — ${ok ? green('ok') : red('not ok')}`);
+  const output = `${res.stdout || ''}${res.stderr ? `\n${res.stderr}` : ''}`.trim();
+  if (output) {
+    const lines = output.split('\n').slice(0, 10);
+    for (const line of lines) console.log(`    ${dim(line)}`);
+    if (output.split('\n').length > 10) console.log(`    ${dim('…')}`);
+  }
+  console.log('');
+});
+
+const total = plan.criteria.length;
+console.log(
+  `verdict: ${total} criteria — ${ran} run (${passed} ok, ${failed} failed), ${refused} refused, ${notRunnable} not runnable`,
+);
+
+if (failed > 0) process.exitCode = 1;
+else if (refused > 0) process.exitCode = 3;
+else process.exitCode = 0;

@@ -77,7 +77,10 @@ console.log('\na path that is not a source file is a refusal, not empty output')
 }
 
 {
-  const r = run(['lib/this-file-does-not-exist-anywhere.js']);
+  // Named after this suite rather than something generic: b7e-affected matches a quoted
+  // path literal, so a shared "does not exist" name silently disarms any *other* suite
+  // asserting that same path comes back unmatched. It did — see bc-sp2sz.
+  const r = run(['lib/b7esurface-no-such-file.js']);
   check('a missing path exits non-zero', r.status !== 0, `status was ${r.status}`);
   check('says no such file', /no such file/.test(r.stderr), r.stderr);
 }
