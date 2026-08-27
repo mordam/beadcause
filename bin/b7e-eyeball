@@ -21,6 +21,8 @@
  * Exit codes: `0` every cell clean. `1` a cell overflowed, never loaded, threw, or had a
  * `--measure` selector match nothing (`--strict` adds console/network problems). `2`
  * refused — bad usage, or no Chrome.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';
