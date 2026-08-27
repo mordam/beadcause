@@ -25,7 +25,7 @@
  * up"; `wake` is "hand the poll's answer to whichever section asked for it".
  *
  * It asks the *document* which one it is in — `panes.has('advocates')` — rather than
- * reading `location.pathname` or taking a flag. The eleven pages that are not the shell
+ * reading `location.pathname` or taking a flag. The nine pages that are not the shell
  * have no `window.beadcause.panes` at all, and a pane still marked `data-pending` answers
  * `has()` false, which is exactly the state this container was in until this bead. One
  * question covers both. `/monitor` and its eight siblings are still documents and still
@@ -103,7 +103,7 @@
    * Is this the shell's Advocates pane, or the `/monitor` document it also still is?
    *
    * Asked of the document rather than of a flag, and of `panes` rather than of the path:
-   * the eleven pages that are not the shell have no `window.beadcause.panes`, and a pane
+   * the nine pages that are not the shell have no `window.beadcause.panes`, and a pane
    * still marked `data-pending` answers `has()` false — which is the state this pane's own
    * container was in until this bead filled it. One question, both answers.
    */

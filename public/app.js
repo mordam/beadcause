@@ -11099,7 +11099,7 @@
     ⟳ is the app's now, not this view's — one button in the mark's menu, shared with every
     pane of the shell (bc-khoe.30.5). So it means "read the view I am looking at again",
     and each pane asks whether the press was its own before spending a sweep on it;
-    public/history.js asks the mirror of this line. On the eleven pages that have no panes
+    public/history.js asks the mirror of this line. On the nine pages that have no panes
     `showing()` is not there to ask, and the answer is the one it has always been.
   */
   $('#refresh').addEventListener('click', () => {
@@ -11748,7 +11748,7 @@
    * The scope survives a reload — it is a preference, not a session detail.
    *
    * Unless the URL asks for a kind it cannot produce. `/?kind=bead` is the `All Beads`
-   * pill tapped from one of the eleven other pages the row is on, and it outranks the
+   * pill tapped from one of the nine other pages the row is on, and it outranks the
    * stored scope for the reason the tap does on Home: it is a request for the beads, and
    * a scope that never fetches one would answer it with an empty list and the pill
    * unlit. It is settled here, before `mountFilters`, because the first `survey` is what

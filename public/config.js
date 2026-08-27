@@ -54,7 +54,7 @@
    * `/config.html`) document it also still is?
    *
    * Asked of the document rather than of a flag, and asked of `panes` rather than of
-   * the path, for the reason public/releases.js gives: the eleven pages that are not
+   * the path, for the reason public/montabs.js gives: the nine pages that are not
    * the shell have no `window.beadcause.panes` at all, and a pane still marked
    * `data-pending` answers `has()` false — which was this container's own state until
    * bc-khoe.60 filled it.
