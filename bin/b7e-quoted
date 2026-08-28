@@ -1,0 +1,305 @@
+#!/usr/bin/env node
+/**
+ * `b7e-quoted` — every file, sha, branch and count a bead quotes, checked against the
+ * tree it names.
+ *
+ *   b7e-quoted bc-dgx7.60                    this bead, against its own workspace's checkout
+ *   b7e-quoted bc-dgx7.60 -w deluvia         …against deluvia's checkout instead
+ *   b7e-quoted bc-khoe.67 --ref origin/main  …at a named ref rather than the delivery base
+ *   b7e-quoted bc-dgx7.58 --json             one JSON object per row
+ *   b7e-quoted bc-dgx7.57 --strict           exit 1 if anything it quotes has rotted
+ *
+ * bc-dgx7.74, filed by the session audit (`lib/sessionaudit.js`) against five sessions
+ * that each hand-walked this in a different direction and one of them expensively —
+ * `lib/quoted.js`'s docblock names all five and what each of them lost. This is the argv
+ * parsing, the tracker lookup and the printing; the extraction and the git are there.
+ *
+ * **Two workspaces, and they are usually the same one.** The bead is read from whichever
+ * tracker holds it; `-w` names the *checkout* its quotes are checked against. They differ
+ * exactly when a bead in one tracker is about another repo, which is the bc-dgx7.60 case
+ * — a `bc-` bead whose four claims are all about files in deluvia.
+ *
+ * Exit codes: `0` ran to completion — a rotted quote is an answer, not a failure, unless
+ * `--strict` says otherwise. `1` `--strict` and something has rotted. `2` refused: bad
+ * usage, an unknown workspace, a ref that does not resolve, or a bead no configured
+ * tracker has.
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { workspaceFor } from '../lib/claude.js';
+import { Bd } from '../lib/bd.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { resolveRef } from '../lib/count.js';
+import { quoted, findings } from '../lib/quoted.js';
+
+const USAGE = `usage: b7e-quoted <bead-id> [-w <workspace> | --dir <path>] [--ref <ref>]
+                  [--tracker <workspace>] [--json] [--strict]
+
+Every concrete artifact the bead's title, description, design, notes, acceptance criteria
+and comments name — file paths, commit shas, branch names and counts — checked against a
+real checkout at a real ref.
+
+  -w, --workspace <name>  check the quotes against this workspace's checkout
+                           (default: the workspace whose tracker holds the bead)
+  --dir <path>            check against this directory instead of a workspace — how this
+                           is tested; mutually exclusive with -w
+  --ref <ref>             the tree to check against (default: origin/main, falling back
+                           to main — "the delivery base")
+  --tracker <workspace>   which tracker holds the bead (default: this checkout's own
+                           workspace, then every other configured one, first hit wins)
+  --json                  one JSON object per row instead of the printed report
+  --strict                exit 1 when any quote has rotted
+
+Paths, shas and branches are checked. Counts are not — matching a figure to the census
+that produced it needs the pattern and the ref that were in the measuring session's head,
+and neither survives into prose. A count is surfaced with its sentence and, where the
+sentence names one literal, the b7e-count call that would settle it.`;
+
+const rawArgv = process.argv.slice(2);
+if (rawArgv.includes('--help') || rawArgv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let wsName = null;
+let dirGiven = null;
+let refGiven = null;
+let trackerName = null;
+let jsonMode = false;
+let strict = false;
+const positional = [];
+
+for (let i = 0; i < rawArgv.length; i += 1) {
+  const a = rawArgv[i];
+  const next = () => {
+    const v = rawArgv[i + 1];
+    i += 1;
+    return v;
+  };
+  switch (a) {
+    case '-w':
+    case '--workspace':
+      wsName = next();
+      break;
+    case '--dir':
+      dirGiven = next();
+      break;
+    case '--ref':
+      refGiven = next();
+      break;
+    case '--tracker':
+      trackerName = next();
+      break;
+    case '--json':
+      jsonMode = true;
+      break;
+    case '--strict':
+      strict = true;
+      break;
+    default:
+      if (a.startsWith('-')) {
+        console.error(`b7e-quoted: unrecognised flag: ${a}\n`);
+        console.error(USAGE);
+        process.exit(2);
+      }
+      positional.push(a);
+  }
+}
+
+if (wsName && dirGiven) {
+  console.error('-w/--workspace and --dir are mutually exclusive — pick one.');
+  process.exit(2);
+}
+if (positional.length !== 1) {
+  console.error(positional.length ? 'b7e-quoted takes exactly one bead id.\n' : 'need a bead id.\n');
+  console.error(USAGE);
+  process.exit(2);
+}
+const beadId = positional[0];
+
+const cfg = loadConfig();
+const workspaces = cfg.workspaces || [];
+const named = (name) => workspaces.find((w) => w.name === name);
+const knownNames = workspaces.map((w) => w.name).join(', ');
+
+if (wsName && !named(wsName)) {
+  console.error(`no workspace named ${wsName} — have: ${knownNames}`);
+  process.exit(2);
+}
+if (trackerName && !named(trackerName)) {
+  console.error(`no workspace named ${trackerName} — have: ${knownNames}`);
+  process.exit(2);
+}
+
+/* ------------------------------------------------------- which tracker holds the bead */
+
+/**
+ * The order trackers are asked in, and why it is not just `-w`.
+ *
+ * `-w` names the checkout, which for the bc-dgx7.60 case is a different repo from the
+ * one whose tracker holds the bead — so asking `-w` first and stopping there would have
+ * refused the command's own acceptance criteria. It is still asked first because when
+ * the two *are* the same (the ordinary case) that is one `bd` spawn rather than two, and
+ * a spawn against this tracker is the expensive part of the whole run.
+ */
+const trackerOrder = trackerName
+  ? [named(trackerName)]
+  : [named(wsName), named(workspaceFor(cfg, process.cwd())), ...workspaces].filter(Boolean);
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+let issue = null;
+let tracker = null;
+const tried = [];
+for (const ws of trackerOrder) {
+  if (tried.includes(ws.name)) continue;
+  tried.push(ws.name);
+  try {
+    const found = await bd.showWithComments(ws, beadId);
+    if (found) {
+      issue = found;
+      tracker = ws;
+      break;
+    }
+  } catch {
+    // A tracker that does not have this bead, or could not be read this second, is not
+    // an error while there are others left to ask — the refusal below is.
+  }
+}
+
+if (!issue) {
+  console.error(`b7e-quoted: no bead ${beadId} in ${tried.join(', ')}`);
+  process.exit(2);
+}
+
+/* ------------------------------------------------------------ which tree to check it against */
+
+let dir;
+if (dirGiven) {
+  dir = path.resolve(dirGiven);
+} else {
+  const checkoutWs = named(wsName) || tracker;
+  try {
+    dir = resolveSessionDir(cfg, checkoutWs);
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+}
+
+let ref;
+try {
+  ref = resolveRef(dir, refGiven);
+} catch (err) {
+  console.error(err.message);
+  process.exit(2);
+}
+
+const report = quoted(dir, ref, issue, { workspace: wsName || tracker?.name || null });
+const rotted = findings(report);
+
+/* ------------------------------------------------------------------------------ print */
+
+if (jsonMode) {
+  for (const group of ['paths', 'commits', 'branches', 'counts']) {
+    for (const row of report[group]) {
+      console.log(
+        JSON.stringify({
+          bead: report.bead,
+          tracker: tracker?.name || null,
+          dir: report.dir,
+          ref: report.ref,
+          branch: report.branch,
+          kind: row.kind,
+          value: row.value,
+          ...row.result,
+          quotes: row.quotes,
+        })
+      );
+    }
+  }
+} else {
+  const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+  const red = (s) => `\x1b[31m${s}\x1b[0m`;
+  const green = (s) => `\x1b[32m${s}\x1b[0m`;
+  const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+  const paint = (state) =>
+    state === 'present' || state === 'checked-out' || state === 'same-commit'
+      ? green(state.padEnd(11))
+      : state === 'unchecked'
+        ? dim(state.padEnd(11))
+        : red(state.padEnd(11));
+
+  console.log(`# ${report.bead} — ${report.title || ''}`.trimEnd());
+  console.log(
+    `# quoted against ${report.dir} @ ${report.ref}${report.branch ? `, checked out on ${report.branch}` : ', detached HEAD'}`
+  );
+  if (tracker && tracker.name !== (wsName || tracker.name)) console.log(`# bead read from the ${tracker.name} tracker`);
+
+  const quotesOf = (row) => row.quotes.map((q) => dim(`      ${q.field}: “${q.sentence}”`));
+
+  const section = (heading, rows, detail) => {
+    if (!rows.length) return;
+    console.log(`\n${heading}`);
+    for (const row of rows) {
+      console.log(`  ${paint(row.result.state)} ${row.value}`);
+      for (const line of detail(row)) console.log(`      ${line}`);
+      for (const line of quotesOf(row)) console.log(line);
+    }
+  };
+
+  section('PATHS', report.paths, (row) => {
+    const r = row.result;
+    if (r.state === 'renamed') {
+      const hops = (r.chain || []).map(
+        (c) =>
+          `${c.from} → ${c.to} in ${c.commit}${c.at ? ` (${c.at})` : ''}` +
+          (c.weak ? ` — ${c.similarity}% similar, below git's default rename threshold` : '')
+      );
+      return [amber(`renamed to ${r.to}`), ...hops.map((h) => dim(h))];
+    }
+    if (r.state === 'deleted') return [amber(`deleted in ${r.deletedIn}${r.at ? ` (${r.at})` : ''}`)];
+    if (r.state === 'absent') return [amber('nothing by that name has ever been in this tree')];
+    if (r.alsoAt?.length) return [`also at ${r.alsoAt.join(', ')}`];
+    if (r.at && r.at !== row.value) return [`at ${r.at}`];
+    return [];
+  });
+
+  section('COMMITS', report.commits, (row) => {
+    const r = row.result;
+    if (r.state !== 'present') return [amber(r.type ? `is a ${r.type}, not a commit` : 'no such object in this checkout')];
+    const head = `${r.short} “${r.subject}” — ${r.files} file${r.files === 1 ? '' : 's'}${r.at ? `, ${r.at}` : ''}`;
+    if (!r.checkedAgainst) return [head];
+    return [
+      head,
+      r.touches.length
+        ? green(`touches ${r.touches.join(', ')}`)
+        : red(`touches none of the ${r.checkedAgainst} path${r.checkedAgainst === 1 ? '' : 's'} this bead also names`),
+    ];
+  });
+
+  section('BRANCHES', report.branches, (row) => {
+    const r = row.result;
+    if (r.state === 'unknown') return [amber('no such branch or ref in this checkout')];
+    if (r.state === 'diverged')
+      return [amber(`diverged from ${r.current}: ${r.currentAhead} ahead / ${r.branchAhead} behind on this branch`)];
+    if (r.state === 'checked-out') return ['this is the branch the checkout is on'];
+    if (r.state === 'same-commit') return [`same commit as ${r.current}`];
+    return [];
+  });
+
+  section('COUNTS (not checked — recount before quoting)', report.counts, (row) =>
+    row.result.verify ? [dim(`verify: ${row.result.verify}`)] : [dim('no single literal in the sentence — recount by hand')]
+  );
+
+  const total = report.paths.length + report.commits.length + report.branches.length + report.counts.length;
+  if (!total) console.log('\nthis bead quotes no file, sha, branch or count.');
+  else console.log(`\n${rotted.length} of ${total} quoted thing${total === 1 ? '' : 's'} no longer holds.`);
+}
+
+// No `process.exit()` after those writes: stdout to a pipe is async in Node and an
+// explicit exit can cut a long report off at the 64KB buffer with a success status —
+// bc-dgx7.45, hit first in bin/b7e-census.
+process.exitCode = strict && rotted.length ? 1 : 0;
