@@ -20531,6 +20531,68 @@ read anything in `lib/grants.js` already classifies as one. `dispatch`, the one 
 this list actually governs, has no more use for a battery of another repo's checks than
 it does for running this one's own suite.
 
+### Which of this repo's gates actually read the file I changed — `b7e-covers`
+
+Six sessions in the deluvia workspace (`dv-afr.31`, `dv-52r.10`, `dv-5eu.21`,
+`dv-5eu.20`, `dv-gr6.70`, `dv-gr6.69`) each asked "does any gate cover the file I just
+touched" by hand, with a `grep` over `scripts/`, before deciding what to run — no two
+asked it the same way, and `dv-afr.31` and `dv-gr6.69` both concluded "nothing covers
+this" from an empty `grep` and then ran every gate anyway, because the answer was not
+trusted. `dv-gr6.70` is the case that shows `grep` cannot actually answer this: it
+added a new interlude file, `grep -rln "INTERLUDE" scripts/*.py` returned six files,
+and working out which one really governed the new file — `check_saga_audit.py`,
+through a per-book *count* in an `INVENTORY` dict that never spells the file's name —
+took five more calls and only surfaced once the gate was actually run and failed.
+
+```
+b7e-covers -w <workspace> <path>...          one or more repo-relative paths
+b7e-covers -w <workspace>                    the working tree diff vs the delivery base
+b7e-covers --dir <root> <path>...            a checkout directly, no workspace needed
+b7e-covers -w <workspace> --why <path>...    + the reason each gate matched
+b7e-covers -w <workspace> --json <path>...
+b7e-covers -w <workspace> --refresh <path>...   rebuild the coverage map, ignore the cache
+```
+
+**Coverage is measured, not grepped.** `lib/coversaudit.py` runs each of `lib/
+checks.js`'s discovered gates once under `sys.addaudithook`, recording every path the
+`open` event names and every directory an `os.listdir`/`os.scandir` event names — which
+`os.walk` and `glob.glob` both funnel through in CPython, so a gate that globs a
+directory is caught exactly as if it had listed it by hand. Recorded paths are kept
+only under the checkout root, so interpreter/stdlib startup noise never counts as
+coverage. A gate that raises or calls `sys.exit(1)` mid-run still contributes whatever
+it read before that point — the `dv-gr6.70` shape verbatim: the read that proves
+coverage and the failure that proves the gap happen on the same run.
+
+**Matching an ancestor directory is what makes a not-yet-created file findable.** A
+query path matches a gate two ways: `opens it`, an exact hit in what the gate read, or
+`walks its directory`, any recorded directory that is an ancestor of the query path —
+which is how `INTERLUDE_035.summary.md`, a file `check_saga_audit.py` has never once
+named in its own source, still comes back covered by it: the gate lists the book's
+directory to build its count, and that listing is on record whether or not the file
+existed when the coverage map was built.
+
+**Cached by the gate script's own content hash**, under `~/.config/beadcause/
+covers-cache/` — a rerun against an unchanged gate is a cache read, not a `python3`
+spawn, until the script itself is edited. This is deliberately not keyed by anything
+about the target file: what a gate reads depends on its own control flow, not on what
+currently lives in the directories it walks, so a file created after the cache was
+built is still covered without forcing a rebuild. `--refresh` ignores the cache
+regardless.
+
+**Plain mode is built to be piped straight into `b7e-checks --only`**, and follows
+`b7e-affected`'s all-or-nothing rule for the same reason: stdout carries nothing but
+matched gate names, one per line, unless at least one given path matched nothing, in
+which case stdout is left empty rather than a partial list — a narrowed `--only` is
+only safe once every path resolved to something. Each unmatched path still gets a loud
+line on stderr, so an empty answer reads as "nothing found," not "nothing to report."
+
+Exit codes: `0` every given path matched at least one gate. `1` at least one did not.
+`2` refused — bad usage, or no manifest recognises the repo.
+
+Not on `DEFAULT_TOOL_LIST` — same reason as `b7e-checks` just above, which this spawns
+every gate script under on a cold cache: the first call on a tree costs what a full
+`b7e-checks` run costs, and only a warm cache is cheap.
+
 ### Which file on disk is this book or chapter, and which variant is the live one — `b7e-chapter`
 
 Five sessions (`dv-afr.21`, `dv-afr.20`, `dv-5eu.19`, `dv-afr.15`, `dv-afr.17`) each

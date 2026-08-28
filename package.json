@@ -67,6 +67,7 @@
     "b7e-commit": "bin/b7e-commit",
     "b7e-count": "bin/b7e-count",
     "b7e-counterproof": "bin/b7e-counterproof.js",
+    "b7e-covers": "bin/b7e-covers",
     "b7e-def": "bin/b7e-def",
     "b7e-deliverbase": "bin/b7e-deliverbase",
     "b7e-derived": "bin/b7e-derived",
