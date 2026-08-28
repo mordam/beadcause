@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v105';
+const CACHE = 'beadcause-v106';
 const SHELL = [
   '/',
   '/index.html',

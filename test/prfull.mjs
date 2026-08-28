@@ -553,7 +553,7 @@ console.log('\none pull request, full screen\n');
 
   // What the session would be asked to do. The five things it must say are the five an
   // unattended session gets wrong when a brief is vague: which way the merge goes, where to
-  // stand, that it says so in the lock while it stands there, that the repo's own gate runs
+  // stand, that it says so in the lock while it stands there, what answers for the merge
   // afterwards, and that it stops at a push.
   const row = { number: 8, title: 'the conflicting one', repo: 'acme/widgets', branch: 'bead/zz-work', base: 'main', beads: [{ id: 'zz-work' }] };
   const brief = conflictPromptFor('demo', row, 'Adam');
@@ -567,8 +567,17 @@ console.log('\none pull request, full screen\n');
   // into a commit with two parents and an ordinary merge shape.
   check('it stands down on a merge somebody else started', /already mid-merge, stop/.test(brief), brief.slice(0, 900));
   check('and names the abort it must not run', /do \*\*not\*\* run `git merge --abort`/.test(brief), brief.slice(0, 900));
-  check('it runs the repo’s own gate afterwards', /CLAUDE\.md/.test(brief), brief);
-  check('and it stops at a push — the merge stays a tap', /Push the branch\. Then \*\*release the lock\*\*/.test(brief), brief.slice(-900));
+  // bc-cz5wx. It used to say "run the repo's own gate afterwards, then push", and the
+  // afterwards was the problem: this repo's gate serialises across every worktree, so a
+  // resolver could sit an hour on a queue for an answer .github/workflows/test.yml gives in
+  // a minute over the merge commit itself — and lib/mergeadvocate.js will not merge over a
+  // red rollup, a pending one, or a head commit with no checks (bc-ysqd.1), so the push
+  // cannot land unverified by being ignored. The brief still has to name the local gate,
+  // because a workspace with no CI is a real configuration and there it is the only one.
+  check('it points at the checks the push starts', /let its own checks be the gate/.test(brief), brief);
+  check('and does not have the session queue a local gate behind them', /Do not queue a local gate/.test(brief), brief);
+  check('while still naming the local gate for a workspace that has no CI', /CLAUDE\.md/.test(brief) && /no\*\* CI wired up/.test(brief), brief);
+  check('and it stops at a push — the merge stays a tap', /\*\*Push the branch, and let its own checks be the gate\.\*\*/.test(brief) && /\*\*Release the lock\*\* you took in step 2/.test(brief), brief.slice(-2600));
   // bc-7uie. The two checks above are only reachable if "somebody is in here" is visible at
   // all, and it was not: a resolver reusing an existing worktree entered it by path, and
   // `EnterWorktree` locks the trees it creates and only those — so `git worktree list` and
