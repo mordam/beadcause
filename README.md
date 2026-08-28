@@ -6613,6 +6613,47 @@ meant the acceptance criteria, the one part you close a bead against, were exact
 that. The description alone stays unlabelled, the way it is on the card, so a bead
 carrying none of the other three looks precisely as it did.
 
+#### The ⋮, and editing the bead you are looking at
+
+The sheet had no menu. Every action it offered was a row it had decided to draw — the
+owner buttons, the adopt picker on an orphan — so anything that was not one of those was
+not reachable from a phone at all, and the general-purpose bead reader was a reader only.
+
+It carries the inbox card's **⋮** now, left of ⤢ and ✕: what is about the *bead*, beside
+the two that are about the sheet. Same button, same popover, same CSS (`.kebab`, `.menu`,
+`.menu-item`) — the two surfaces that show a bead should not need learning twice. Behind
+it, one item: **Edit**, which swaps the sheet body for the six-field card the adjust form
+on `/endorse` already uses — `editHtml` in `public/endorse.js`, so `title`, `type`,
+`priority`, `description`, `acceptance` and `labels`, which is `EDITABLE` in
+`lib/verdict.js` — with Save and Cancel.
+
+Four things about it are decisions rather than details:
+
+- **It posts to [`/api/bead/edit`](#http-api), not to `/api/bead/adjust`.** The adjust
+  route is a verdict on a *proposal* and refuses anything no longer `unendorsed`; the
+  sheet is not a queue row drawn a minute ago, it is the bead in front of you, so it
+  inherits none of that. Nothing on this page endorses, revokes or moves any marker.
+- **Save repaints from `/api/bead`, not from the form.** The route answers what *moved*
+  (`{changed, fields[], …}`), which is not what the bead now says: `normalizeEdits`
+  clamps what it was sent, and the edit writes a line on the thread saying what changed.
+  Both of those are on screen a second later because the sheet re-read the bead. One
+  extra round trip, and the only version of this that cannot drift from what `bd` holds.
+- **Cancel repaints from the copy the last fetch left**, so it costs nothing and can
+  never show a bead assembled out of what you had typed.
+- **On a closed bead, Edit is greyed out with the reason under it.** The route answers a
+  closed bead with a `409` — its description is the record of what was done rather than
+  an instruction — and that is the one refusal a client can predict, because the sheet
+  already knows the status. Predicted as a *missing* item it would read as "this app has
+  no editor"; disabled, with the sentence, it is the same fact said out loud.
+
+**The labels the daemon owns are not in the box.** The card posts the label set it is
+showing, so "remove what I no longer see" is how a removal is expressed, and a protected
+label drawn there is one you can delete and watch come back. `isProtectedLabel` in
+`lib/verdict.js` is the authority and `public/graph.js` keeps a copy of it, because
+nothing under `public/` imports from `lib/`. `human` is hidden for a neighbouring reason
+— `normalizeEdits` filters it out of the *incoming* set, so the card can never send it —
+and what that costs is `bc-ka5y.46`. `complexity:` is deliberately still offered.
+
 #### How it ended — the close reason, and when
 
 The sheet drew the status pill, and the status pill said `closed`. What it never drew
