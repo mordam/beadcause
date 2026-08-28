@@ -15886,6 +15886,84 @@ Two halves, and the first is the fix:
 report and the per-bead clear, the second for the whole answer driven through
 `/api/respond` against a `bd` that enforces the refusal.
 
+##### A fix does not un-write the counters it was about
+
+The idle sweep closes a quiet window on purpose, and the shell in it writes `$?` on the
+way out — so the next `reconcile` found a done file and took the `ended` arm, whose whole
+premise is "it exited, closed nothing, delivered nothing and asked nothing; that is the
+one ending here nobody chose". Somebody chose it: this daemon. The next dispatch then
+resumed that same conversation rather than briefing a new one, it went quiet into the same
+silence, and the second park charged again. A bead could reach a cap of two having had
+**one** reading of its brief and one replay of that reading's silence.
+
+Both halves are fixed — `w.idleParked`, and the trip count riding on the worker so
+`carryOver` binds. **Neither fix touches a counter already written.** When they landed, 64
+beads in this workspace stood at the cap: 16 whose bead had closed under them, 10 epics
+that lose only their planning, and **36 live open work beads carrying no queue-excluding
+label** — about a third of the ready queue, every one of them in `bd ready` looking exactly
+like work about to be picked up. And the only lever that reached them was `forget`, which
+clears all 64 and would have re-armed the beads that genuinely do break every window they
+get.
+
+So the daemon recounts, and the recount is a proof rather than a guess. Every ending
+`reconcile` reaches writes one line through `finish`, and the sentence on it says which
+ending it was — so a bead's whole charge history is in `~/Library/Logs/beadcause.log`, in
+order, and `lib/attemptaudit.js` replays it twice:
+
+- **once under the rule that was in force when the lines were written.** If that lands on
+  the number the counter actually holds, the log explains the counter completely — nothing
+  charged it before the log begins and nothing charged it by a path the replay cannot read.
+  That equality is the *only* warrant for touching anything;
+- **and once withholding the charges for endings this daemon chose** — an `ended` arm that
+  followed a `parked worker <id>` line. That number is never larger, and where it is
+  smaller the difference is exactly the two shapes above.
+
+The verb in the park line is the discriminator and it is not cosmetic. **Parked** means the
+conversation reached the disk and today's `ended` arm skips the charge; **closed** means
+`carryOver` refused the trip, the transcript was thrown away, the next window gets a fresh
+brief and the charge is owed exactly as it always was. Reading the two the same way would
+forgive the one charge `maxResumes` exists to write.
+
+What the guard buys is the case that would otherwise have been cleared wrongly.
+`bc-khoe.21` holds 27 `the nightly maintenance window is closing the Mac down` endings in
+the log against a counter of 2, because that ending only started charging later and most
+of those lines predate it. Any heuristic reading — "it was never really given a fair go" —
+clears that bead. The equality refuses to, and says how far apart the two numbers are. On
+the day it landed the split was 38 repaired, 25 left retired, 1 refused.
+
+Three properties keep it cheap and keep it safe:
+
+- **it can only ever lower a counter.** The recount is accepted only where it is *below*
+  what is held, so the worst a misread log can do is give a bead one more window. The
+  other direction — a repair that retires something — is not reachable from the code at
+  all;
+- **the log is read once per bead, not once per tick.** `attemptAudited` in
+  `advocates.json` records which counters have been recounted and at what value, so a 39MB
+  file is opened only when a bead newly reaches the cap, and never on an ordinary tick.
+  Persisted for the reason `lastWindowSweepAt` is: this daemon is restarted by its own
+  merges several times a day;
+- **a log it cannot read repairs nothing.** Every sentence matched is one lib/advocate.js
+  writes, and `test/attemptaudit.mjs` pins all twenty-six of them against that file's
+  source — because when a template changes the module's own failure is *silence*, which is
+  indistinguishable from the healthy quiet pass it usually is.
+
+And the lever is now per bead. `rearm` had always done exactly one bead and had exactly one
+caller — `handBackWorkBead`, reachable only by answering **Request changes** or **Decline**
+on a delivery card — so a bead that *delivered* had a lever and a bead that never delivered
+had none, which is the whole population the cap actually retires. The console's advocate
+card grows a **Given up on** section directly above *Up next*, one row per bead with the id,
+what it is, how many windows it spent, and a **Give it a window** button beside it. A
+retired bead that is *claimed* is drawn without one and says which door instead: its lever
+is `Request changes` on its own card, which re-arms it on the way through.
+
+What is deliberately still not done: raising the cap, clearing the counter on a dead
+window, and reading `w.idleParked` in the `timeout` and `lapsed` arms — a park raced by the
+two-hour timeout still charges, and the recount is faithful to that rather than kinder than
+it. `test/attemptaudit.mjs` is the arithmetic and `test/attemptrepair.mjs` is the daemon
+half — the repair reaching `a.attempts` before anything reads it, surviving a restart, and
+`rearm` through `control` taking the charges off one bead where `forget` takes them off all
+of them.
+
 #### The claim a window leaves behind
 
 A worker claims its bead as its first act, because that is what stops a second window
