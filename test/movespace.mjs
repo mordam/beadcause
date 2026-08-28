@@ -157,6 +157,22 @@ check(() => assert.match(mintId('mt', 'beadcause', 'bc-ka5y.42'), /^mt-[a-z0-9]{
 }
 
 {
+  const out = remapRow(
+    rowFor('mv-a', {
+      status: 'in_progress',
+      assignee: 'somebody',
+      lease_expires_at: '2026-08-28T00:00:00Z',
+      heartbeat_at: '2026-08-28T00:00:00Z',
+    }),
+    new Map([['mv-a', 'mt-aaaaa']])
+  );
+  check(() => assert.equal('lease_expires_at' in out, false), 'a lease on a window in the old bead-space does not cross');
+  check(() => assert.equal('heartbeat_at' in out, false), 'and neither does its heartbeat');
+  check(() => assert.equal(out.status, 'in_progress'), 'the status does, because that is what the acceptance asks for');
+  check(() => assert.equal(out.assignee, 'somebody'), 'and so does who was working it — that is a fact about the work, not about a process');
+}
+
+{
   const rows = indexRows(
     [
       rowFor('mv-a', {
@@ -349,6 +365,30 @@ const parentSeenBy = (row) => String(row?.parent || '').trim();
   check(
     () => assert.deepEqual(originals.map((o) => supersededBy(o)), [`${to.name}/${map.get(bead)}`, `${to.name}/${map.get(child)}`]),
     'and each names its own successor'
+  );
+}
+
+/* -------------------------------------- move, with a descendant that is already finished */
+
+{
+  const bead = await make(from, { title: 'a bead with finished work under it' });
+  const done = await make(from, { parent: bead, title: 'work that is already finished' });
+  await bd.close(from, done, 'Landed as #1.');
+
+  const moved = await moveSpace(bd, { from, to, id: bead, children: 'move' });
+  const map = new Map(moved.map);
+  check(() => assert.deepEqual(moved.problems, []), `the move goes through cleanly (${JSON.stringify(moved.problems)})`);
+  check(() => assert.equal(moved.moving.length, 2), 'a closed descendant crosses too — the record of finished work is part of the family');
+
+  const copy = await show(to, map.get(done));
+  check(() => assert.equal(copy?.status, 'closed'), 'and it arrives closed');
+  check(() => assert.match(String(copy?.close_reason || ''), /Landed as #1/), 'still carrying the reason it actually closed for');
+
+  const original = await show(from, done);
+  check(() => assert.equal(supersededBy(original), `${to.name}/${map.get(done)}`), 'the closed original is marked all the same');
+  check(
+    () => assert.match(String(original?.close_reason || ''), /Landed as #1/),
+    'and it was not re-closed, so its own close reason still says what happened rather than that it moved'
   );
 }
 
