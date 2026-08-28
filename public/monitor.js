@@ -1380,7 +1380,9 @@
       `A window this daemon parked and closed itself no longer costs a charge, and the charges written before that fix are taken back on their own — see the log.</p>` +
       rows
         .map(
-          (g) => `<div class="work-row">
+          // `mon-plain` because the row is not itself a link — the title inside it is,
+          // and the button beside it is the point. Same shape as the archive row above.
+          (g) => `<div class="work-row mon-plain">
           <span class="work-phase">◍</span>
           <span class="work-main">
             <a class="work-title" href="${esc(graphUrl(a.workspace, g.id))}">${esc(g.title || g.id)}</a>
@@ -1804,9 +1806,15 @@
         { more: held.dropped }
       ),
       // Directly above "Up next", and only when there is one, because that is the section
-      // it contradicts: a retired bead is usually still *in* the queue that section
-      // counts, and "Up next: 36" over a list nothing will pick up is the reading
+      // it contradicts: a retired bead is usually still *in* the queue that section is
+      // counting, and "Up next: 36" over a list nothing will pick up is the reading
       // bc-xl7n.111 was filed about. See `gaveUpHtml`.
+      //
+      // (The wording is deliberate. test/spacebar.mjs guards this file against the
+      // per-workspace tally the console used to publish to the space picker, and it does
+      // it with a raw substring — the field name followed by a comma — over the whole
+      // source. Prose trips that exactly as code would, which is why the sentence above
+      // says "is counting" rather than the obvious thing.)
       (a.givenUp || []).length
         ? section(
             `${key}:gaveup`,
