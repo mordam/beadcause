@@ -25444,6 +25444,47 @@ GitHub or the phone) still gets no card either way, unchanged: that is a tap of 
 the comment on `announceLanding`'s own wiring says why it must not chime for it.
 (`test/mergequeue.mjs`.)
 
+**The follow-up parent is a bead with a life, and neither end of it was handled** —
+bc-xl7n.137. It is filed as a `task`, its body is a list of the reviewer's findings, its
+acceptance criteria are literally *every child is closed*, and it has no diff of its own for
+`bin/deliver.js` to push. So a worker window opened on it has nothing to do — which happened
+twice, both times about three minutes after the last child was delivered: bc-xl7n.131 at
+23:33:06Z and bc-xl7n.132 at 00:53:54Z. The hold that should have stopped it is
+`heldByChildren`'s, and it was real only while a child sat in `bd ready`: delivery parks a
+child behind its merge bead, which takes it out of that queue while leaving it open, and
+`finish` drops a delivered worker from the advocate's own list up to half a minute before its
+window actually exits. So both of the cheap checks went quiet at once, and the fourth — the
+one that asks `bd children` — was behind `if (bead.type !== 'epic') return null`.
+
+Both ends are now the same rule the epic already had, in the two files that own them:
+
+- **`heldByChildren` (`lib/advocate.js`) asks about any parent, not only an epic.** Check 1
+  never cared what a parent was typed as — *a parent and its child must not be launched in
+  the same tick* — so all this adds is the child that is open somewhere the queue cannot see
+  it. The cost is what kept the type test there, and the tick's own `bd export` is what pays
+  it: a `Set` of the parent edges' values answers *could this bead have children* with no
+  subprocess, and only a yes costs the `bd children` call. Measured here on 2026-08-28: 331
+  open beads, of which 5 are non-epics with any child at all.
+- **`sweepFinishedEpics` (`lib/finishedepic.js`) offers a follow-up parent the same one-tap
+  close card an epic gets**, in its own words rather than the epic's — nothing in it says
+  "theme". Without that half the fix is the worse one: the hold releases when the last child
+  closes, and the parent goes back into `bd ready` for ever, with `maxAttemptsPerBead`
+  retiring it into `givenUp` after the second wasted window and leaving it open and
+  unaskable.
+
+**The population is those two beads and no others, and the narrowing is deliberate.** The
+evidence — *every child this tracker knows about is closed* — is type-independent, but the
+conclusion is not: an ordinary task's body is usually the work, so its subtasks closing says
+nothing about whether it is done, and a card there would pull legitimately ready work out of
+the queue to ask a question with no answer. What the two have in common is that they say of
+themselves that their children are the work: an epic by its type, a follow-up parent by the
+keyed `review-followup:<repo>#<n>:r<round>` label, which is written to the parent and to
+nothing else (a finding child carries the plain label only). Labelling the parent `container`
+was the cheaper candidate and is wrong for the opposite reason — `container` means permanent
+furniture, `Bd.ready` filters it out unconditionally, and a bead that is *meant to end* would
+then be held out of the one queue that could end it. (`test/epicqueue.mjs`,
+`test/finishedepic.mjs`.)
+
 ### The notification with nothing to answer
 
 Every other push from beadcause is a decision arriving. This one is a decision that has
