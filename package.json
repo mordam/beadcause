@@ -72,6 +72,7 @@
     "b7e-derived": "bin/b7e-derived",
     "b7e-detach": "bin/b7e-detach",
     "b7e-diff": "bin/b7e-diff",
+    "b7e-dup": "bin/b7e-dup",
     "b7e-enroll": "bin/b7e-enroll",
     "b7e-entry": "bin/b7e-entry",
     "b7e-eyeball": "bin/b7e-eyeball",

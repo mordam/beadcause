@@ -1,0 +1,295 @@
+#!/usr/bin/env node
+/**
+ * `b7e-dup` — is this already filed? The open, or already-closed, bead that reads like
+ * it covers the same defect, checked before the first edit rather than found by hand
+ * after one.
+ *
+ *     b7e-dup -w deluvia -b dv-k4n.9              rank the tracker against that bead
+ *     b7e-dup -w deluvia -b dv-k4n.9 --also beadcause   and a second tracker too
+ *     b7e-dup -w beadcause --title "..."          rank against a title with no bead yet
+ *     b7e-dup -w beadcause --title "..." --files lib/x.js,lib/y.js
+ *     b7e-dup -w beadcause -b bc-x --json         one object per candidate
+ *     b7e-dup -w beadcause --title "..." --no-closed    live beads only
+ *
+ * `bc-dgx7.106`: four sessions each asked "has somebody already filed this?" and each
+ * built the answer differently — a full `bd list --status=all --json` dump eyeballed by
+ * hand, several `gh pr view`/`gh pr diff` calls, a `dolt sql` fallback against the
+ * embedded DB after a Dolt-lock timeout. Two of the four ended in `bin/supersede.js`.
+ * `lib/dup.js` does the ranking; this is the argv parsing and the printing around it,
+ * same split as every other `b7e-*` command that wraps a `lib/` module.
+ *
+ * `bc-dgx7.67` is the same question from the other end, and it is why closed beads are
+ * ranked here rather than filtered out: six sessions guessed words at `bd search` to find
+ * out whether a thing was already filed, and **four of the six answers were closed or
+ * superseded beads**. `bc-1tno1` ran two dead queries before one named `bc-xl7n.134`, the
+ * same bug filed 3h43m earlier; `bc-xl7n.131.1` found `bc-xl7n.133` already filed *and*
+ * already carrying `superseded-by:bc-beleq`, which only a `bd show` on the hit revealed.
+ * So every row prints what decides whether a closed hit is still the same job — the bead
+ * that superseded it, the reason it closed and the pull request named in that reason, and
+ * whether the two titles are near-verbatim by `lib/dupe.js`'s own `DUPE_THRESHOLD`. Pass
+ * `--no-closed` for the narrower, `lib/dupe.js`-shaped question.
+ *
+ * A ranked candidate is a lead, not a verdict — the caller (a worker, or a human reading
+ * `--json` output) still decides rival, narrower-sibling, or unrelated. This only says
+ * what already exists and how alike it reads.
+ *
+ * Exit codes: `0` ran to completion, whether or not anything ranked above the floor —
+ * an empty answer is the ordinary "nothing like this is filed", not a failure. `2` bad
+ * usage. `4` `-w`, `--also` or `-b` named something the tracker does not have. `5` the
+ * tracker could not be read at all — a Dolt lock, a timeout — which is a different answer
+ * from "no such bead" and must not be printed as one: `dv-gr6.64` spent two minutes on
+ * exactly that lock and then went looking for the bead by hand.
+ *
+ * @grant read
+ */
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { priorWork, isEmpty as priorEmpty } from '../lib/prior.js';
+import { queryFor, scoreAll, withSuccessors } from '../lib/dup.js';
+import { DUPE_THRESHOLD } from '../lib/dupe.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-dup -w <workspace> -b <bead> [--also <workspace>] [--json] [--limit <n>]
+       b7e-dup -w <workspace> --title <text> [--files <path,path,...>] [--json]
+
+Every bead in <workspace> (open and closed) ranked against the one named by -b, or
+against a bare --title/--files with no bead filed yet — by shared words, shared declared
+or guessed files, and shared \`quoted\` identifiers. Prints nothing and exits 0 when
+nothing ranks above the floor.
+
+  -w, --workspace <name>   the tracker to search (required)
+  -b, --bead <id>          rank against this bead's own text and files
+  --title <text>           rank against this text instead of an existing bead
+  --files <path,...>       declared files to compare, used with --title (or to override
+                            a bead's own declared/guessed surface)
+  --also <workspace>       search a second tracker too, in the same ranking
+  --closed / --no-closed   rank closed and superseded beads too (on by default)
+  --limit <n>              how many candidates to print (default 8)
+  --json                   one object per candidate instead of the printed report
+
+Exits 0 whether or not anything ranked, 2 on bad usage, 4 when a workspace or bead does
+not exist, 5 when the tracker could not be read.`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const beadId = value('-b', '--bead');
+const title = value('--title');
+const filesArg = value('--files');
+const alsoName = value('--also');
+const jsonMode = has('--json');
+// `--closed` is the default and the flag is accepted only so a caller can say so out
+// loud; `--no-closed` is the one that changes anything.
+const withClosed = !has('--no-closed');
+const limitArg = value('--limit');
+const limit = limitArg ? Number(limitArg) : 8;
+
+if (!wsName) {
+  console.error('b7e-dup: -w/--workspace is required');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (Boolean(beadId) === Boolean(title)) {
+  console.error(
+    beadId
+      ? 'b7e-dup: --bead and --title are two ways of saying what to rank against — pass one, not both'
+      : 'b7e-dup: nothing to rank against — pass --bead <id> or --title <text>'
+  );
+  console.error(USAGE);
+  process.exit(2);
+}
+if (!Number.isFinite(limit) || limit < 1) {
+  console.error(`b7e-dup: --limit must be a positive number, got ${JSON.stringify(limitArg)}`);
+  process.exit(2);
+}
+
+const cfg = loadConfig();
+const workspaceNamed = (name) => (cfg.workspaces || []).find((w) => w.name === name);
+
+const primaryWs = workspaceNamed(wsName);
+if (!primaryWs) {
+  console.error(`b7e-dup: no workspace named ${wsName}`);
+  process.exit(4);
+}
+let alsoWs = null;
+if (alsoName) {
+  alsoWs = workspaceNamed(alsoName);
+  if (!alsoWs) {
+    console.error(`b7e-dup: no workspace named ${alsoName} (--also)`);
+    process.exit(4);
+  }
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+/** Best-effort — a workspace this checkout cannot resolve a repo for still ranks, just
+ * without a guessed-file signal (declared files still work; see lib/dup.js `filesOf`). */
+function dirsFor(ws, bead = null) {
+  try {
+    const dir = resolveSessionDir(cfg, ws, bead);
+    return dir ? [dir] : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A tracker that cannot be read is not a tracker that says no.
+ *
+ * `Bd` rejects for both — a bead that does not exist and a Dolt lock the call waited out
+ * — and the two are told apart only by the wording bd puts on stderr. Reporting a lock as
+ * "no such bead" would send the caller looking for it by hand, which is `dv-gr6.64`'s two
+ * wasted minutes exactly.
+ */
+const MISSING = /no issue found|not found|does not exist/i;
+async function tracker(what, run) {
+  try {
+    return await run();
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (MISSING.test(msg)) return null;
+    console.error(`b7e-dup: could not read ${what} — ${msg.split('\n')[0]}`);
+    process.exit(5);
+  }
+  return null;
+}
+
+let queryRow;
+let queryDirs;
+if (beadId) {
+  queryRow = await tracker(`${primaryWs.name}/${beadId}`, () => bd.show(primaryWs, beadId));
+  if (!queryRow) {
+    console.error(`b7e-dup: ${primaryWs.name} has no bead ${beadId}`);
+    process.exit(4);
+  }
+  queryDirs = dirsFor(primaryWs, queryRow);
+} else {
+  queryRow = { id: null, title };
+  queryDirs = dirsFor(primaryWs, null);
+}
+const explicitFiles = filesArg
+  ? filesArg
+      .split(/[\s,]+/)
+      .map((f) => f.trim())
+      .filter(Boolean)
+  : null;
+const query = queryFor(queryRow, { files: explicitFiles, dirs: queryDirs });
+
+const primaryRows = ((await tracker(primaryWs.name, () => bd.listAll(primaryWs))) || []).map((r) => ({ ...r, workspace: primaryWs.name }));
+let pools = [{ rows: primaryRows, dirs: queryDirs }];
+if (alsoWs) {
+  const alsoRows = ((await tracker(alsoWs.name, () => bd.listAll(alsoWs))) || []).map((r) => ({ ...r, workspace: alsoWs.name }));
+  pools.push({ rows: alsoRows, dirs: dirsFor(alsoWs, null) });
+}
+
+let ranked = pools.flatMap(({ rows, dirs }) => scoreAll(query, rows, { dirs, closed: withClosed }));
+ranked.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+ranked = ranked.slice(0, limit);
+// The bead a hit was superseded onto is where the caller is actually being sent, so it
+// rides along after it rather than being cut by the limit — see `withSuccessors`.
+ranked = withSuccessors(ranked, pools.flatMap((p) => p.rows));
+
+// A ranked candidate is only worth acting on with what already exists for it — a branch
+// or pull request nobody has joined up yet, `lib/prior.js`'s own question. Best-effort
+// and only for what is actually printed: a full `priorWork` is a handful of git/gh
+// calls, worth paying for the top few candidates and not for a whole tracker.
+for (const c of ranked) {
+  // A bead the merge queue closed already names its pull request in its own close reason
+  // (`Merged #737 as bb322781.`), which `closedBy` has already lifted out — paying for a
+  // `priorWork` on top of that is a handful of git/gh calls to learn what is on the row.
+  if (c.closedBy?.pr || c.via) {
+    c.prior = null;
+    continue;
+  }
+  const ws = c.workspace === (alsoWs?.name ?? null) ? alsoWs : primaryWs;
+  const dir = (dirsFor(ws, null))[0];
+  if (!dir) {
+    c.prior = null;
+    continue;
+  }
+  try {
+    const found = await priorWork(dir, c.id);
+    c.prior = priorEmpty(found) ? null : found;
+  } catch {
+    c.prior = null;
+  }
+}
+
+if (jsonMode) {
+  for (const c of ranked) {
+    const { prior, ...rest } = c;
+    const out = {
+      ...rest,
+      branches: (prior?.branches || []).map((b) => b.branch),
+      pullRequests: (prior?.prs?.rows || []).map((p) => ({ number: p.number, state: p.state, url: p.url })),
+    };
+    console.log(JSON.stringify(out));
+  }
+  process.exitCode = 0;
+} else {
+  const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+  const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+  // Said once, out loud, rather than left as an empty stdout a caller reads as "the
+  // command did not work" and answers by guessing another three wordings — which is
+  // exactly the six-session failure in `bc-dgx7.67`.
+  if (!ranked.length) {
+    const what = beadId ? beadId : JSON.stringify(title);
+    const where = alsoWs ? `${primaryWs.name} or ${alsoWs.name}` : primaryWs.name;
+    console.log(
+      `Nothing in ${where} reads like ${what}${withClosed ? '' : ' (open beads only — drop --no-closed to include closed and superseded ones)'}.`
+    );
+    process.exitCode = 0;
+  }
+
+  for (const c of ranked) {
+    const ws = c.workspace ? `${c.workspace} ` : '';
+    const prio = c.priority === null || c.priority === undefined ? '' : ` P${c.priority}`;
+    if (c.via && c.missing) {
+      console.log(`${bold(c.id)} — superseded ${c.via}; not in ${alsoWs ? `${primaryWs.name}/${alsoWs.name}` : primaryWs.name}, look it up where it lives`);
+      continue;
+    }
+    if (c.via) {
+      console.log(`${bold(c.id)} ${ws}[${c.status}]${prio} — supersedes ${c.via} — ${c.title}`);
+    } else {
+      console.log(`${bold(c.id)} ${ws}[${c.status}]${prio}${c.assignee ? `, ${c.assignee}` : ''} — score ${c.score} — ${c.title}`);
+    }
+    if (c.verbatim) console.log(dim(`  near-verbatim title (${c.titleScore} >= ${DUPE_THRESHOLD}) — the same bead typed twice, by lib/dupe.js's own bar`));
+    if (c.supersededBy) console.log(dim(`  superseded by ${c.supersededBy} — read that one, not this`));
+    if (c.closedBy) {
+      // A close reason is free prose and some of them are a whole handover paragraph;
+      // what a reader is scanning for is the merge line, which is always at the front.
+      const reason = c.closedBy.reason.length > 180 ? `${c.closedBy.reason.slice(0, 180)}…` : c.closedBy.reason;
+      console.log(dim(`  closed: ${reason.split('\n').join(' ')}`));
+    } else if (c.closed) {
+      console.log(dim('  closed, with no reason recorded'));
+    }
+    // Rarest first out of `lib/dup.js`, so the cut keeps the discriminating terms and
+    // drops the wiring boilerplate every sibling bead shares.
+    const some = (list, n = 4) => (list.length > n ? [...list.slice(0, n), `+${list.length - n} more`] : list);
+    if (c.sharedFiles.length) console.log(dim(`  shares files: ${some(c.sharedFiles).join(', ')}`));
+    if (c.sharedQuoted.length) console.log(dim(`  shares: ${some(c.sharedQuoted).map((t) => (t.startsWith('+') ? t : `\`${t}\``)).join(', ')}`));
+    if (c.prior?.branches?.length) {
+      console.log(dim(`  ${c.prior.branches.length} branch${c.prior.branches.length === 1 ? '' : 'es'} already: ${c.prior.branches.map((b) => b.branch).join(', ')}`));
+    }
+    if (c.prior?.prs?.rows?.length) {
+      for (const p of c.prior.prs.rows) console.log(dim(`  #${p.number} [${p.state}] ${p.url}`));
+    }
+  }
+  process.exitCode = 0;
+}
