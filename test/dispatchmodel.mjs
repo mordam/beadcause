@@ -43,9 +43,15 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 const FAKE_BIN = path.join(tmp, 'fakebin');
 fs.mkdirSync(FAKE_BIN);
 const CAPTURE = path.join(tmp, 'argv.json');
+// The argv file is *renamed* into place rather than appended to, so it only ever exists
+// complete. Appending a line per argument made it exist from the first argument onwards,
+// and `waitForCapture` below polls for existence — so a reader arriving mid-loop read a
+// truncated argv and the assertion failed with "no --model in argv" over an argv that
+// simply had not finished being written. That is bc-a66ae: green on the machine this was
+// written on, red on CI the same day, on a suite about quoting rather than about timing.
 fs.writeFileSync(
   path.join(FAKE_BIN, 'claude'),
-  `#!/bin/sh\nprintf '%s\\n' "$*" > '${CAPTURE}'\nfor a in "$@"; do printf '%s\\n' "$a" >> '${CAPTURE}.lines'; done\necho '{"type":"result","result":"ok"}'\nexit 0\n`,
+  `#!/bin/sh\nprintf '%s\\n' "$*" > '${CAPTURE}'\n: > '${CAPTURE}.partial'\nfor a in "$@"; do printf '%s\\n' "$a" >> '${CAPTURE}.partial'; done\nmv '${CAPTURE}.partial' '${CAPTURE}.lines'\necho '{"type":"result","result":"ok"}'\nexit 0\n`,
   { mode: 0o755 }
 );
 process.env.PATH = `${FAKE_BIN}:${process.env.PATH || ''}`;
