@@ -1,0 +1,158 @@
+#!/usr/bin/env node
+/**
+ * What the failing suite actually printed — out of the run the gate already recorded,
+ * without running anything a second time.
+ *
+ *   b7e-why                   every failed suite of this worktree's most recent run
+ *   b7e-why <suite> ...       those suites only, whatever they did
+ *   b7e-why --run <id>        a specific run, from any worktree
+ *   b7e-why --json            the raw records
+ *   b7e-why --dir <root>      another tree
+ *
+ * bc-dgx7.66, filed by the session audit against five sessions (`bc-xl7n.131.1`,
+ * `bc-xl7n.132.1`, `bc-774a2`, `bc-eqn1.5`, `bc-xl7n.131.2`) that each ran the gate
+ * detached, got a verdict naming one or two reds, and then had to read the raw log to
+ * find out what the red said. No two did it the same way. `bc-xl7n.131.1` needed four
+ * calls: a `grep -A 25` to find the suite, a `sed` range piped through `cat -v` that
+ * died with `sed: RE error: illegal byte sequence`, an `LC_ALL=C sed` over the whole
+ * log into a second plain-text file, and finally a `sed` range over that.
+ * `bc-774a2` had to `grep -o` its own log for the runner's real log filename before it
+ * could start. `bc-xl7n.131.2` re-ran the same `grep -E` five times against a live run.
+ *
+ * The answer was already written down. `lib/gaterun.js`'s `appendResult` records
+ * `{ suite, status, elapsed, tail }` per suite, one JSONL line, and that file's header
+ * says in as many words that a reader never has to grep a log. But `b7e-watch` prints
+ * `r.failed.join(', ')` — the suite names and a blame tag, never the tail. So the one
+ * thing a session needs after a red was the one thing the command that reads that file
+ * did not print, and every session fell back to the log. This is `whyFor`, the read
+ * that answers it directly, wired to a CLI.
+ *
+ * **It never runs a suite, and it never can.** That is the whole economy of it — the
+ * tail was captured when the gate ran, so printing it costs a file read rather than the
+ * ten to twenty-five minutes a re-run costs here — and it is also what makes `@grant
+ * read` honest: every command in this family that can spawn a suite or cut a `git
+ * worktree` (`b7e-gate`, `b7e-watch`, `b7e-blame`, `b7e-triage`) is `@grant excluded`
+ * for that reason alone. So the blame tag the bead sketched as part of this output is
+ * deliberately NOT here: it is `lib/blame.js`'s, it costs a local run plus an
+ * `origin/main` one, and `b7e-watch` already prints it for the same run's same reds.
+ * This answers "what did it say"; `b7e-watch` answers "is it mine"; `b7e-triage`
+ * answers "is it real". One question each, at one price each.
+ *
+ * Exit codes: `0` nothing asked about failed; `1` at least one did (or a named suite
+ * never ran); `2` refused — bad usage, no run found, or a suite name that is not a
+ * suite in this repo at all.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import { runsDir, latestRunFor, readRun, runFile, worktreeSlug, whyFor } from '../lib/gaterun.js';
+import { discoverSuites } from '../lib/gate.js';
+
+function arg(...names) {
+  for (const n of names) {
+    const i = process.argv.indexOf(n);
+    if (i > -1) return process.argv[i + 1];
+  }
+  return undefined;
+}
+const has = (n) => process.argv.includes(n);
+
+const USAGE = `usage: b7e-why [<suite> ...] [--run <id>] [--json] [--dir <root>]
+
+With no suite named, prints what every failed suite of this worktree's most recent gate
+run (started by \`b7e-gate\`) actually printed — the recorded tail, ANSI stripped, no
+second run of anything. Name one or more suites to ask about those instead, whatever
+they did: one that passed says so, one the run never reached says that. --run <id>
+reads a specific run, started by any session in any worktree. --json prints one raw
+record per line. --dir <root> points at another tree entirely. Nothing here re-runs a
+suite — for whether a red is also origin/main's, which costs two runs, use \`b7e-watch\`.`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const cwd = has('--dir') ? arg('--dir') : process.cwd();
+const runId = arg('--run');
+const jsonMode = has('--json');
+const names = process.argv.slice(2).filter((a, i, all) => {
+  if (a.startsWith('-')) return false;
+  if (all[i - 1] === '--run' || all[i - 1] === '--dir') return false;
+  return true;
+});
+
+async function findFile() {
+  if (runId) {
+    const dir = await runsDir(cwd);
+    const f = runFile(dir, runId);
+    return fs.existsSync(f) ? f : null;
+  }
+  return latestRunFor(cwd);
+}
+
+const fmtElapsed = (sec) => (sec === null || sec === undefined ? '?' : `${Number(sec).toFixed(1)}s`);
+
+async function main() {
+  const file = await findFile();
+  if (!file) {
+    const dir = await runsDir(cwd);
+    console.error(
+      runId
+        ? `b7e-why: no run ${runId} found in ${dir}`
+        : `b7e-why: no gate run found for worktree ${await worktreeSlug(cwd)} in ${dir} — start one with \`b7e-gate\``
+    );
+    process.exit(2);
+  }
+  const run = readRun(file);
+
+  // A typo must not read as "never ran" — the same refusal `b7e-ran` makes, for the same
+  // reason: a real-sounding negative about a suite that was never a suite is worse than
+  // no answer. Only names given explicitly are checked; the default set comes out of the
+  // run's own record, which `b7e-gate` only ever populated from `discoverSuites`.
+  if (names.length) {
+    const repoSuites = new Set(discoverSuites(cwd));
+    const unknown = names.filter((n) => !repoSuites.has(n));
+    if (unknown.length) {
+      console.error(`b7e-why: not a suite in this repo: ${unknown.join(', ')}`);
+      process.exit(2);
+    }
+  }
+
+  const records = whyFor(run, names);
+
+  if (jsonMode) {
+    for (const r of records) console.log(JSON.stringify(r));
+  } else if (!records.length) {
+    console.log(`run ${run.runId}: nothing failed — no suite to explain`);
+  } else {
+    for (const r of records) {
+      if (!r.ran) {
+        console.log(`${r.suite}: never-ran (run ${r.runId})`);
+        continue;
+      }
+      if (r.verdict === 'ok') {
+        console.log(`${r.suite}: ran ok ${fmtElapsed(r.elapsed)} — nothing to explain (run ${r.runId})`);
+        continue;
+      }
+      console.log(`${r.suite}: ${r.verdict} ${fmtElapsed(r.elapsed)} (run ${r.runId})`);
+      // Indented, and deliberately NOT coloured. `b7e-triage` dims its own tail because
+      // it is printing alongside its verdicts; here the tail IS the output, it is
+      // routinely pasted into a bead comment or a pull-request body, and a colour code
+      // in a tracker field is the one thing `test/filter.mjs` fails this repo for. The
+      // acceptance criterion bc-dgx7.66 was filed with says "no escape sequences" —
+      // stripping the recorded ones and then adding new ones would be a joke.
+      const lines = r.why ? r.why.split('\n') : ['(no output was recorded for this suite)'];
+      for (const line of lines) console.log(`  ${line}`);
+    }
+  }
+
+  // `process.exit(N)` straight after a caller-sized `--json` write can cut the payload at
+  // the pipe buffer with a success status — bc-dgx7.45/bc-dgx7.53, the same trap
+  // `bin/b7e-triage` records. Falling off the end with `exitCode` set flushes instead.
+  process.exitCode = records.some((r) => !r.ran || (r.verdict && r.verdict !== 'ok')) ? 1 : 0;
+}
+
+main().catch((err) => {
+  console.error(`b7e-why: ${err.message}`);
+  process.exit(1);
+});

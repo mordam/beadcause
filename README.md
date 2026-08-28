@@ -6902,11 +6902,53 @@ have lied about:
   the same two beads, printed under two headings on the card. The far row is read before
   it is deleted, so a pair that holds a mention one way and something older the other
   keeps the older one.
-- **A refusal is asked once.** The retry test in `Bd.run` is a substring match on `lock`,
+- **A refusal is asked once.** The retry test in `Bd.run` was a substring match on `lock`,
   and bd's sentence ends `(requested "blocks")` — so every refused edge looked exactly
   like Dolt lock contention and spent five spawns and four seconds of backoff proving what
   the first millisecond already knew. Fine while a refused edge was an accident; not fine
-  on `/api/console/create`, which is a tap on a phone.
+  on `/api/console/create`, which is a tap on a phone. Answered here for that one sentence
+  and, since, for every sentence — see below.
+
+### Every refusal that says "blocks", not just the one that was in the way
+
+The line above was true of far more than edges, and the general half of it was left
+deliberately: narrowing the retry test touches **every** `bd` call in the daemon, which is
+not a change to make as a side effect of a bug fix about dependencies. It is made on its
+own terms now.
+
+`LOCK_RE` in `lib/bd.js` decides whether `run` asks again, and it read
+`/(lock|locked|another process|resource busy|database is busy)/i` — a substring match. Both
+*blocks* and *blocked* contain *lock*, and those are two of bd's commonest refusals: a
+`dep add` over a pair that already holds an edge, and a close over an open dependency
+(`cannot close bc-x: blocked by open issues […]`). Neither is contention and neither
+changes its mind, so a write with `retries: 4` spent five spawns and 400+800+1200+1600ms
+being told the same thing five times, and a sweep read spent three.
+
+**Nothing failed and nothing warned, which is why it lasted.** The rejection is identical
+either way, down to the sentence in it — the only observable difference is the spawn count
+and the wait, so it surfaced only when a fixture that expected two `dep add`s watched ten
+go past. `TERMINAL_RE` fixed the one sentence that had just become routine on a request
+path; this is the rest of them.
+
+The fix is one word boundary:
+
+```js
+const LOCK_RE = /(\block\w*|deadlock|another process|resource busy|database is busy)/i;
+```
+
+`\block\w*` still matches *lock*, *locked*, *locking* and *lockfile*, and does not match
+*blocks* or *blocked*, because the boundary fails after a `b`. `deadlock` is spelled out
+separately for the mirror-image reason — the *lock* in it is preceded by a word character,
+so `\block` can never reach it.
+
+**The way this comes back is not somebody deleting the boundary.** It is somebody adding a
+spelling beside it — putting bare `locked` or `locking` back as an alternative, which reads
+like a widening and is a silent revert, because *blocked* contains *locked*. So
+`test/lockword.mjs` checks the alternatives **one at a time**, each against bd's real
+refusal sentences, rather than checking the regex as a whole — the whole regex is exactly
+what a new alternative keeps passing. The rest of that suite drives `run` against a fake
+`bd` that prints one sentence and tallies a byte, and counts the spawns for each: the
+count is the assertion, because it is the only thing the two families disagree about.
 
 **And the rule reaches two writers that are not in the daemon at all.** `Bd.addDep` is
 the funnel for every declared edge the daemon writes, and it is `async` all the way down
@@ -22571,6 +22613,86 @@ and `git`/`gh` reads, nothing that writes anywhere. See `bin/b7e-prior`, `lib/pr
 and `test/b7eprior.mjs`.
 
 
+### Is this already filed — the bead that covers it, open or long closed — `b7e-dup`
+
+`bc-dgx7.67` and `bc-dgx7.106`, which are the same question asked from opposite ends. Ten
+sessions between them wanted to know whether the thing in front of them was already in a
+tracker, and every one of them invented the answer.
+
+`bc-dgx7.106`'s four went at it with different tools each time. `dv-k4n.9` dumped `bd list
+--status=all --json` into a Python one-liner and eyeballed 2,300 rows to find `dv-afr.19`,
+a bead describing the identical defect that had no branch, no pull request and no commits
+— invisible to anything that looks for prior *work*. `dv-5eu.11` spent roughly six calls
+(`gh pr view` twice, `gh pr diff`, a `gh pr list --json number,files` filter) to learn that
+two of its three items were already fixed in queued pull requests. `dv-k4n` wrote the same
+dump to a scratch file — 11,284,468 bytes — and ran a per-name collision check over ten
+candidate names. `dv-gr6.64` hit the Dolt single-writer lock, timed out at two minutes, and
+fell back to `dolt sql` against the embedded database.
+
+`bc-dgx7.67`'s six guessed *words* at `bd search`, and the guessing is the failure.
+`bc-1tno1` ran `"socket hang up"` (nothing), `"drain retired backend"` (nothing), then
+`"502"` — four hits, one of which was the same bug filed 3h43m earlier. `bc-xl7n.131` ran
+six queries in one loop and every single one answered "No issues found", then filed
+anyway. And **four of the six answers those sessions actually wanted were closed or
+superseded beads**, which is the half nothing else here can reach.
+
+```
+b7e-dup -w beadcause -b bc-dgx7.67                    rank the tracker against that bead
+b7e-dup -w beadcause --title "b7e-bd — ..."           rank a title with no bead filed yet
+b7e-dup -w beadcause --title "..." --files lib/x.js   compare a declared surface too
+b7e-dup -w deluvia -b dv-k4n.9 --also beadcause       search a second tracker in the same ranking
+b7e-dup -w beadcause -b bc-dgx7.67 --no-closed        live beads only, lib/dupe.js's own question
+b7e-dup -w beadcause -b bc-dgx7.67 --json             one object per candidate
+```
+
+**This is not `lib/dupe.js`, and the difference is the whole bead.** That module answers
+"is this proposed *title* a near-verbatim repeat of a live one" — a 0.9 Dice bar, strict
+enough to refuse a `Bd.create` unattended — and its `LIVE_STATUSES` is
+`open`/`in_progress`/`blocked` on purpose, because a closed bead is no reason to refuse a
+new one. Ranking has no such excuse. So closed and superseded beads are ranked here by
+default, and every row carries what decides whether a closed hit is still the same job: the
+bead that superseded it, the reason it closed, and the pull request named inside that
+reason (this repo's merge queue writes `Merged #737 as bb322781.`, so the number is already
+on the row and no `gh` call is owed). `titleVerdict` still reports `lib/dupe.js`'s own bar
+beside the ranking score, because "the same bead typed twice" and "about the same subject"
+are different findings and a caller deciding rival-or-distinct wants both.
+
+**A superseded hit is a signpost, so the chain is followed rather than printed.**
+`bc-1tno1`'s whole outcome was `bin/supersede.js` onto `bc-xl7n.134`; a ranking that names
+`bc-1tno1` and stops has named the dead end and called it the destination. `withSuccessors`
+walks `superseded-by` to the end and prints each hop after the row that pointed at it —
+*outside* `--limit`, since a successor is not a candidate the ranking found but where a
+candidate says to go, and dropping it to stay inside a limit loses exactly the id the
+caller came for. A successor this call did not list (superseded onto a bead in another
+tracker) is still named and marked, because a name is enough to go on. That is the
+acceptance criterion, and it holds live: `b7e-dup -w beadcause --title "GET /api/questions
+failed — HTTP 502 — api/questions"` names `bc-xl7n.134` and `#737` without being told the
+word `502`.
+
+**One weighted term vector, not three summed signals.** Words, declared-or-guessed files
+(`lib/beadfiles.js`) and backtick-quoted identifiers live in one TF-IDF cosine built fresh
+per run over whatever pool is being ranked. A first version summed them separately and put
+every other `bc-dgx7.*` skill bead at the top, because the whole family shares a
+copy-pasted "what shipping it takes" paragraph *and* that paragraph names real repo paths
+(`lib/toolbelt.js`, `test/lockfile.mjs`), so the file signal was reinforcing the false
+positive at 6× weight rather than correcting it. Per-run IDF fixes both without any
+stopword or "common infrastructure file" list — a term nearly every candidate has is
+evidence of nothing — and the printed `shares:` lines are ordered rarest-first for the same
+reason, so the cut keeps the discriminating term and drops the boilerplate.
+
+**An empty answer is said out loud, at exit 0.** "Nothing in beadcause reads like …" is the
+ordinary case, not a failure, and printing nothing is what leaves a caller guessing another
+three wordings. Exit `2` is bad usage, `4` is a workspace or bead that does not exist, and
+`5` is a tracker that could not be read at all — a lock or a timeout is a different answer
+from "no such bead" and must not print as one, which is the two minutes `dv-gr6.64` lost.
+
+`bin/b7e-dup` declares `@grant read` (`lib/tooldecl.js` reads it out of the header; there is
+nothing to add to `lib/toolbelt.js`), and every path through it is `bd show`/`bd list` plus
+the `git`/`gh` reads `lib/prior.js` already makes — and it skips even those for a candidate
+whose own close reason already names its pull request. See `bin/b7e-dup`, `lib/dup.js` and
+`test/b7edup.mjs`.
+
+
 ### The sibling bead that already did this shape of change, and the patch it made — `b7e-precedent`
 
 `bc-dgx7.64`. Four sessions each needed the same thing — what an earlier bead in their
@@ -25508,6 +25630,47 @@ the call `finish` takes from the queue path — a pull request merged outside th
 GitHub or the phone) still gets no card either way, unchanged: that is a tap of yours, and
 the comment on `announceLanding`'s own wiring says why it must not chime for it.
 (`test/mergequeue.mjs`.)
+
+**The follow-up parent is a bead with a life, and neither end of it was handled** —
+bc-xl7n.137. It is filed as a `task`, its body is a list of the reviewer's findings, its
+acceptance criteria are literally *every child is closed*, and it has no diff of its own for
+`bin/deliver.js` to push. So a worker window opened on it has nothing to do — which happened
+twice, both times about three minutes after the last child was delivered: bc-xl7n.131 at
+23:33:06Z and bc-xl7n.132 at 00:53:54Z. The hold that should have stopped it is
+`heldByChildren`'s, and it was real only while a child sat in `bd ready`: delivery parks a
+child behind its merge bead, which takes it out of that queue while leaving it open, and
+`finish` drops a delivered worker from the advocate's own list up to half a minute before its
+window actually exits. So both of the cheap checks went quiet at once, and the fourth — the
+one that asks `bd children` — was behind `if (bead.type !== 'epic') return null`.
+
+Both ends are now the same rule the epic already had, in the two files that own them:
+
+- **`heldByChildren` (`lib/advocate.js`) asks about any parent, not only an epic.** Check 1
+  never cared what a parent was typed as — *a parent and its child must not be launched in
+  the same tick* — so all this adds is the child that is open somewhere the queue cannot see
+  it. The cost is what kept the type test there, and the tick's own `bd export` is what pays
+  it: a `Set` of the parent edges' values answers *could this bead have children* with no
+  subprocess, and only a yes costs the `bd children` call. Measured here on 2026-08-28: 331
+  open beads, of which 5 are non-epics with any child at all.
+- **`sweepFinishedEpics` (`lib/finishedepic.js`) offers a follow-up parent the same one-tap
+  close card an epic gets**, in its own words rather than the epic's — nothing in it says
+  "theme". Without that half the fix is the worse one: the hold releases when the last child
+  closes, and the parent goes back into `bd ready` for ever, with `maxAttemptsPerBead`
+  retiring it into `givenUp` after the second wasted window and leaving it open and
+  unaskable.
+
+**The population is those two beads and no others, and the narrowing is deliberate.** The
+evidence — *every child this tracker knows about is closed* — is type-independent, but the
+conclusion is not: an ordinary task's body is usually the work, so its subtasks closing says
+nothing about whether it is done, and a card there would pull legitimately ready work out of
+the queue to ask a question with no answer. What the two have in common is that they say of
+themselves that their children are the work: an epic by its type, a follow-up parent by the
+keyed `review-followup:<repo>#<n>:r<round>` label, which is written to the parent and to
+nothing else (a finding child carries the plain label only). Labelling the parent `container`
+was the cheaper candidate and is wrong for the opposite reason — `container` means permanent
+furniture, `Bd.ready` filters it out unconditionally, and a bead that is *meant to end* would
+then be held out of the one queue that could end it. (`test/epicqueue.mjs`,
+`test/finishedepic.mjs`.)
 
 ### The notification with nothing to answer
 
@@ -39208,6 +39371,74 @@ report. `@grant read` in its own header docblock is what puts it on
 
 Exit codes: `0` `LIVE` is empty — nothing still asserts the retired figure. `1` `LIVE`
 is non-empty. `2` bad usage.
+
+### What the failing suite actually printed, out of a finished gate run — `b7e-why`
+
+`bc-dgx7.66`, filed by the session audit against five sessions (`bc-xl7n.131.1`,
+`bc-xl7n.132.1`, `bc-774a2`, `bc-eqn1.5`, `bc-xl7n.131.2`) that each ran `b7e-gate`
+detached, got a verdict naming one or two reds, and then had to read the raw log to find
+out what the red *said*. No two did it the same way. `bc-xl7n.131.1` took four calls: a
+`grep -A 25` to locate the suite, a `sed` range piped through `cat -v` that died with
+`sed: RE error: illegal byte sequence`, an `LC_ALL=C sed` over the whole log into a
+second plain-text file, and finally a `sed` range over *that*. `bc-774a2` had to
+`grep -o` its own log for the runner's real log filename before it could begin.
+`bc-xl7n.131.2` re-ran the same `grep -E` five times against a live run.
+
+The answer was already written down. `lib/gaterun.js`'s `appendResult` records
+`{ suite, status, elapsed, tail }` per suite, one JSONL line, and that file's header says
+in as many words that a reader never has to grep a log for it. But `b7e-watch` renders
+`r.failed.join(', ')` — the suite names and a blame tag, never the tail. So the one thing
+a session needs after a red was the one thing the command that reads that file did not
+print, and every session fell back to the log. `whyFor` is that read, wired to a CLI.
+
+```
+b7e-why                   every failed suite of this worktree's most recent run
+b7e-why <suite> ...       those suites only, whatever they did
+b7e-why --run <id>        a specific run, from any worktree
+b7e-why --json            the raw records
+b7e-why --dir <root>      another tree
+```
+
+**It never runs a suite, and that is the whole economy of it.** The tail was captured
+when the gate ran it, so printing it costs a file read rather than the ten to twenty-five
+minutes a re-run costs here. `test/b7ewhy.mjs` proves that the only way it can be proved:
+a run recorded as red on a suite whose file was never written at all still prints its
+tail — anything that tried to *run* it would have to report the missing file instead.
+
+**The blame tag the bead sketched as part of this output is deliberately not here.**
+Whether a red is also `origin/main`'s is `lib/blame.js`'s question and it costs a local
+run *plus* an `origin/main` one — which is why every command in this family that can
+spawn a suite or cut a `git worktree` (`b7e-gate`, `b7e-watch`, `b7e-blame`,
+`b7e-triage`) is `@grant excluded`. `b7e-watch` already prints that tag, for the same
+run's same reds. So: this answers "what did it say", `b7e-watch` answers "is it mine",
+`b7e-triage` answers "is it real" — one question each, at one price each, and only this
+one is free.
+
+**Nothing it prints is coloured, deliberately.** The recorded tail has ANSI in it — a
+suite's own green `✓` and red `✗` — and it comes off, because this output is routinely
+pasted into a bead comment or a pull-request body, and a control byte in a tracker field
+is the one thing `test/filter.mjs` fails this repo for. `b7e-triage` dims its tail
+because it is printing alongside its own verdicts; here the tail *is* the output, so
+stripping the recorded escapes and then adding new ones would be a joke. The stripper
+(`stripAnsi`, in `lib/gaterun.js`) takes a lone escape byte with nothing recognisable
+after it as well — the one a naive `s/ESC\[[0-9;]*m//` leaves behind, invisible in every
+reader.
+
+**A suite named that did not fail says so.** With no arguments the set is the run's own
+failed list; name a suite explicitly and it is answered whatever it did — `ran ok … —
+nothing to explain`, or `never-ran` for one the run never reached. A name that is not a
+suite in the repo at all is refused with exit `2` rather than reported as `never-ran`,
+the same refusal `b7e-ran` makes and for the same reason.
+
+**On `DEFAULT_TOOL_LIST`**: `@grant read` in the file's own header, which is what puts it
+there — see `b7e-tool-grant-is-now-a-self-declared-header-tag`. It reads one JSONL file
+and, only to refuse a typo, shells to `scripts/test.mjs --list`. It never spawns a suite
+and never builds a worktree, which is the `b7e-ran`/`b7e-stillred` reading rather than
+the `b7e-gate`/`b7e-watch`/`b7e-blame`/`b7e-triage` one.
+
+Exit codes: `0` nothing asked about failed; `1` at least one did, or a named suite never
+ran; `2` refused — bad usage, no run found, or a suite name that is not a suite in this
+repo at all.
 
 ### A book's chapter and interlude manifest, with the sequence checked — `b7e-manifest`
 
