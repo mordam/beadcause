@@ -39008,6 +39008,64 @@ topic is a legitimate, useful answer, not a failure. `2` bad usage — no `-w`, 
 topic nor `-b`. `4` `-w` named a workspace this checkout has no config for, or `-b` named
 a bead the workspace does not have.
 
+
+### Which occurrences of a retired figure are still an assertion, and which are the record of its own retirement — `b7e-retired`
+
+`bc-dgx7.129`, a session audit against four deluvia sessions (`dv-5i2.97`, `dv-5i2.92`,
+`dv-5i2.96`, `dv-5i2.98`) that each grepped a corpus for a superseded number and then
+hand-sorted the hits into "still a live assertion" versus "this occurrence *is* the
+record of the retirement" — and no two sorted them the same way, because the sorting,
+not the search, is where the calls went. A plain grep false-positives on: a table row
+that names the old figure *in order to retire it* ("Superseded figures (Entry 040)"); a
+`CHANGE_LOG.md` entry whose whole body is the decision text that did the retiring; a
+"Notes for Adam" worklog paragraph reporting that the drift was already found and
+filed; and a number that means something else entirely ("80–100 m wide" is a canal, not
+a sea level).
+
+```
+b7e-retired --value '80-100 m' --unit 'sea level'
+b7e-retired --value '80-100 m' --instead '~65 m' --unit 'sea level' reference/
+b7e-retired --value '80-100 m' --unit 'sea level' --datum-dir reference/regions/cycle1
+b7e-retired --value '4\'8"-5\'2"' --rev origin/main
+b7e-retired --value '80-100 m' --unit 'sea level' --json
+b7e-retired --dir <root> --value '80-100 m' --unit 'sea level'   another tree — this is how it is tested
+```
+
+**Four rules demote a match out of `LIVE`, checked in this order.** A `--datum-dir` the
+file sits under (deluvia's `reference/regions/cycle1/` is deliberately at a different
+standard from the rest of the corpus) — checked first because it is a fact about the
+whole file, not the sentence the match sits in. `--unit`: the noun the figure is
+supposed to modify does not appear within a short window of the match — "sea levels
+80–100 m lower" passes, "180 km long, 80–100 m wide" does not, same figure, a different
+thing being measured; skipped entirely (every match assumed on-unit) when `--unit` is
+not given. Inside a `CHANGE_LOG.md` entry body — reusing `entryHeadings` from
+`lib/changelog.js` rather than re-deriving a `## Entry NNN` span by line arithmetic, for
+the same reason `b7e-changelog` does: the numbering is non-contiguous. A markdown table
+row (or its header row), or a heading, naming Superseded/Retired/Entry NNN — the row
+*is* the record, not an assertion. A fifth, `--unit`, sits in that list too but is
+opt-in rather than always-on. A match under a "Notes for Adam" / worklog heading is
+demoted the same way — a session's own running report, not canon.
+
+`--value` matches punctuation drift by construction: every literal `-` stands for
+hyphen, en dash, em dash or minus (deluvia's region files use `–`, U+2013, throughout;
+the flag is typed with a plain `-`), and a run of spaces matches any whitespace. `--rev`
+reads through `git cat-file` (`lib/gitref.js`'s `readRefFile`), never the working tree,
+so a stray `.claude/worktrees/*` checkout is never read by accident; omitted, it reads
+the working tree directly off disk, uncommitted edits included — the point being that
+this is meant to be run against exactly what is about to be committed.
+
+`lib/retired.js` is the matching and the four-rule classification (`classify`,
+`classifyMatch`, `scanText`, plus the rule functions themselves, each exported and
+independently testable). `bin/b7e-retired` is the argv shell and the printed/`--json`
+report. `@grant read` in its own header docblock is what puts it on
+`DEFAULT_TOOL_LIST` — see `b7e-tool-grant-is-now-a-self-declared-header-tag`. See
+`test/b7eretired.mjs`, whose fixtures reproduce each of the four rules plus the plain
+`--unit` mismatch and the punctuation-drift matching, against a scratch directory via
+`--dir` rather than this repo's own tree.
+
+Exit codes: `0` `LIVE` is empty — nothing still asserts the retired figure. `1` `LIVE`
+is non-empty. `2` bad usage.
+
 ## Notes on bd
 
 - **`bd human respond` is broken in bd 1.1.2** — it dies with `storage is nil`.
