@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// b7e-register — apply the four registrations a new bin/ command owes (bc-dgx7.75).
+// b7e-register — apply the registrations a new bin/ command owes (bc-dgx7.75).
 //
 //   npm test
 //   node test/b7eregister.mjs
@@ -8,10 +8,18 @@
 // Same split as test/b7eenroll.mjs, whose checks this command is the applier for: the
 // edits are pure string functions, proved here against small fixtures in the real shape
 // of each file, and then the whole command is run for real against a fabricated
-// checkout — because four functions that agree with themselves are not the same claim
-// as four functions whose output satisfies b7e-enroll's own regexes. The last section
-// is the bead's acceptance criterion, run: on a tree with bin/b7e-x written and nothing
+// checkout — because functions that agree with themselves are not the same claim as
+// functions whose output satisfies b7e-enroll's own checks. The last section is the
+// bead's acceptance criterion, run: on a tree with bin/b7e-x written and nothing
 // registered, one call leaves only the README section and the test owed.
+//
+// The command is SMALLER than its bead describes, and that is the interesting thing to
+// keep pinned. bc-wbrhi deleted two of the four registries bc-dgx7.75 named — a tool
+// declares `@grant read|write|excluded` in its own header now and lib/tooldecl.js
+// derives DEFAULT_TOOL_LIST and the lib/grants.js classification from that — so the
+// check below that no b7e-* line is ever written into lib/grants.js is not paranoia:
+// test/tooldecl.mjs fails the repo for exactly that, and it is the shape this command
+// was originally specified to produce.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,6 +28,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { cleanupTmp } from './helpers/tmp.mjs';
 import * as enroll from '../lib/enroll.js';
+import { declarationsIn, KINDS } from '../lib/tooldecl.js';
+import { GRANTS } from '../lib/grants.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -102,28 +112,26 @@ const LOCK = `{
 }
 `;
 
-const TOOLBELT = `export const SOMETHING_ELSE = ['Bash(b7e-ghost:*)'];
+const TOOLDECL = `export const KINDS = Object.freeze(['read', 'write', 'excluded']);
 
-export const DEFAULT_TOOL_LIST = [
-  'Read',
-  // Read-only by construction.
-  'Bash(b7e-def:*)',
-  // b7e-gate is deliberately NOT on this list: it runs the suite.
-];
+/* ===================================================================================
+   The argument — why each of these is on the list, and why the rest are not.
+   =================================================================================== */
 
-export const DEFAULT_TOOLS = DEFAULT_TOOL_LIST.join(' ');
+  // Read-only by construction — it only ever reads. See bin/b7e-def.
+  //   → Bash(b7e-def:*) — declared \`@grant read\` in bin/b7e-def
 `;
 
-const GRANTS = `export const GRANTS = Object.freeze({
-  'Bash(npm test:*)': { kind: 'write', granted: ['merge-advocate'] },
-
-  /* ---------------------------------------------------------------- read tools */
-  Read: { kind: 'read' },
-  'Bash(b7e-def:*)': { kind: 'read' },
-
-  /* -------------------------------------------------------------- its own memory */
-  'Bash(beadcause-memory:*)': { kind: 'memory' },
-});
+// A brand-new command, as b7e-scaffold would leave it: a header docblock and no
+// declaration in it yet.
+const TOOL = `#!/usr/bin/env node
+/**
+ * Does the thing.
+ *
+ * Exit code: 0 when it worked.
+ */
+import fs from 'node:fs';
+console.log(fs.constants.F_OK);
 `;
 
 /* ===================================================================== *
@@ -161,7 +169,7 @@ check('the same name lands in a different place in the lock, because the lock is
 check('a beadcause-* name goes below the last beadcause-* key, leaving that block in its written order', () => {
   // The worker-tool block is NOT alphabetical, so nothing in it sorts after
   // beadcause-zebra and the rule falls through to "below the last of the family" —
-  // which is bin/file.js here, three lines above the b7e-* block, not the end of the map.
+  // which is bin/file.js here, not the end of the map.
   const entries = pkgEntries(PKG);
   const { index } = enroll.insertionIndex(entries, 'beadcause-zebra');
   assert.equal(entries[index - 1].key, 'beadcause-file');
@@ -217,7 +225,6 @@ check('the lock is edited under packages[""] and not under a dependency that als
   const next = enroll.insertBinKey(LOCK, 'b7e-register', 'bin/b7e-register', { lock: true });
   const parsed = JSON.parse(next);
   assert.equal(parsed.packages[''].bin['b7e-register'], 'bin/b7e-register');
-  assert.equal(parsed.packages['node_modules/acorn'].bin['b7e-register'], undefined);
   assert.deepEqual(Object.keys(parsed.packages['node_modules/acorn'].bin), ['acorn']);
 });
 
@@ -244,85 +251,72 @@ check('a key that is already there pointing somewhere else is corrected, not dup
 });
 
 /* ===================================================================== *
- * DEFAULT_TOOL_LIST and lib/grants.js
+ * the @grant line — check 6, and since bc-wbrhi the whole of the decision
  * ===================================================================== */
 
-console.log('\nDEFAULT_TOOL_LIST and lib/grants.js\n');
+console.log('\nthe @grant line in the tool own header\n');
 
-check('a read command gets a wrapped paragraph and the grant itself', () => {
-  const next = enroll.insertToolbeltEntry(TOOLBELT, 'b7e-register', { kind: 'read', why: 'It only reads.' });
-  assert.match(next, /\n {2}\/\/ It only reads\. See bin\/b7e-register\.\n {2}'Bash\(b7e-register:\*\)',\n\];/);
-});
+for (const kind of KINDS) {
+  check(`@grant ${kind} lands at the end of the header docblock, where lib/tooldecl.js reads it`, () => {
+    const next = enroll.insertGrantLine(TOOL, kind, 'It only ever reads.');
+    assert.deepEqual(declarationsIn(next), [kind]);
+    assert.match(next, new RegExp(` \\* @grant ${kind}\\n \\*/\\n`));
+  });
+}
 
-check('a withheld command gets the paragraph and no grant — which is as real a registration', () => {
-  const next = enroll.insertToolbeltEntry(TOOLBELT, 'b7e-register', { kind: 'withheld', why: 'It writes.' });
-  assert.ok(!next.includes("'Bash(b7e-register:*)'"), next);
-  assert.match(next, /b7e-register is deliberately NOT on this list\. It writes\. See bin\/b7e-register\./);
-  check('and b7e-enroll reads that comment as the decision it is', () =>
-    assert.equal(enroll.allowlistProblem('b7e-register', next, GRANTS), null)
-  );
-});
-
-check('the entry lands inside DEFAULT_TOOL_LIST, not in the other array above it', () => {
-  const next = enroll.insertToolbeltEntry(TOOLBELT, 'b7e-register', { kind: 'read', why: 'It only reads.' });
-  const listText = enroll.toolListText(next);
-  assert.ok(listText.includes('b7e-register'), listText);
-  assert.ok(!next.slice(0, next.indexOf('export const DEFAULT_TOOL_LIST')).includes('b7e-register'));
-});
-
-check('a long justification is wrapped rather than written as one very long line', () => {
-  const why = 'It only ever reads. '.repeat(20);
-  const next = enroll.insertToolbeltEntry(TOOLBELT, 'b7e-register', { kind: 'read', why });
-  const added = next.split('\n').filter((l) => l.startsWith('  // ') && !TOOLBELT.includes(l));
-  assert.ok(added.length > 3, `${added.length} comment lines`);
+check('the reason goes in beside it, wrapped, in the house form', () => {
+  const next = enroll.insertGrantLine(TOOL, 'read', 'It only ever reads. '.repeat(15));
+  const added = next.split('\n').filter((l) => l.startsWith(' * ') && !TOOL.includes(l));
+  assert.ok(added.length > 2, `${added.length} comment lines`);
   assert.ok(
-    added.every((l) => l.length <= 98),
+    added.every((l) => l.length <= 96),
     added.map((l) => l.length).join(',')
   );
 });
 
-check('a name already decided about is left alone, however it was decided', () => {
-  assert.equal(enroll.insertToolbeltEntry(TOOLBELT, 'b7e-def', { kind: 'read', why: 'x' }), TOOLBELT);
-  assert.equal(enroll.insertToolbeltEntry(TOOLBELT, 'b7e-gate', { kind: 'read', why: 'x' }), TOOLBELT);
+check('the code below the header is untouched', () => {
+  const next = enroll.insertGrantLine(TOOL, 'read', 'It only ever reads.');
+  assert.ok(next.endsWith("import fs from 'node:fs';\nconsole.log(fs.constants.F_OK);\n"), next.slice(-120));
+  assert.ok(next.startsWith('#!/usr/bin/env node\n/**\n * Does the thing.\n'), next.slice(0, 80));
 });
 
-check('a mention outside the array does not count as a decision', () => {
-  // 'Bash(b7e-ghost:*)' is in SOMETHING_ELSE above the array, which is exactly the
-  // slice toolListText exists to cut away.
-  const next = enroll.insertToolbeltEntry(TOOLBELT, 'b7e-ghost', { kind: 'read', why: 'It only reads.' });
-  assert.notEqual(next, TOOLBELT);
+check('a file that already declares is left alone — two @grant lines is a tooldecl problem', () => {
+  const once = enroll.insertGrantLine(TOOL, 'read', 'It only ever reads.');
+  assert.equal(enroll.insertGrantLine(once, 'excluded', 'Actually it writes.'), once);
+  assert.equal(declarationsIn(once).length, 1);
 });
 
-check('lib/grants.js gains the classification after the last read tool, before the memory block', () => {
-  const next = enroll.insertGrantsEntry(GRANTS, 'b7e-register');
-  assert.match(next, /'Bash\(b7e-def:\*\)': \{ kind: 'read' \},\n {2}'Bash\(b7e-register:\*\)': \{ kind: 'read' \},/);
-  assert.ok(next.indexOf('b7e-register') < next.indexOf('beadcause-memory'), next);
-});
-
-check('classifying twice is a no-op', () => {
-  const once = enroll.insertGrantsEntry(GRANTS, 'b7e-register');
-  assert.equal(enroll.insertGrantsEntry(once, 'b7e-register'), once);
+check('a file with no header docblock is an error rather than a guess at where to put it', () => {
+  assert.throws(() => enroll.insertGrantLine('#!/usr/bin/env node\nconsole.log(1);\n', 'read', 'x'), /docblock/);
 });
 
 /* ===================================================================== *
- * the sibling-name trap the array documents about itself
+ * the paragraph in lib/tooldecl.js
  * ===================================================================== */
 
-console.log('\nnaming a sibling in a justification\n');
+console.log('\nthe argument paragraph\n');
 
-check('a justification naming an undecided sibling is reported, because it would close that gap', () => {
-  assert.deepEqual(enroll.siblingsCleared('For the b7e-nobody reason above.', 'b7e-register', TOOLBELT), [
-    'b7e-nobody',
-  ]);
+check('a granted tool gets a paragraph and the arrow line saying where its entry comes from', () => {
+  const next = enroll.insertArgumentParagraph(TOOLDECL, 'b7e-x', 'read', 'It only ever reads.');
+  assert.match(next, /\n {2}\/\/ It only ever reads\. See bin\/b7e-x\.\n/);
+  assert.match(next, /\n {2}\/\/ {3}→ Bash\(b7e-x:\*\) — declared `@grant read` in bin\/b7e-x\n$/);
 });
 
-check('naming a sibling the array has already decided about is fine — half the real paragraphs do it', () => {
-  assert.deepEqual(enroll.siblingsCleared('For the b7e-gate reason above.', 'b7e-register', TOOLBELT), []);
-  assert.deepEqual(enroll.siblingsCleared('Read-only like b7e-def.', 'b7e-register', TOOLBELT), []);
+check('an excluded tool gets the paragraph and no arrow — there is no entry to point at', () => {
+  const next = enroll.insertArgumentParagraph(TOOLDECL, 'b7e-x', 'excluded', 'It writes.');
+  assert.match(next, /b7e-x is deliberately NOT on this list\. It writes\. See bin\/b7e-x\./);
+  // The fixture's own b7e-def block carries one, so only the appended part may not.
+  const appended = next.slice(TOOLDECL.replace(/\n+$/, '').length);
+  assert.ok(!appended.includes('→'), appended);
 });
 
-check('naming itself is not naming a sibling', () => {
-  assert.deepEqual(enroll.siblingsCleared('See bin/b7e-register.', 'b7e-register', TOOLBELT), []);
+check('it appends, leaving every existing paragraph byte-identical', () => {
+  const next = enroll.insertArgumentParagraph(TOOLDECL, 'b7e-x', 'read', 'It only ever reads.');
+  assert.ok(next.startsWith(TOOLDECL.replace(/\n+$/, '')), 'the existing run was rewritten');
+});
+
+check('a tool already argued for is left alone', () => {
+  assert.equal(enroll.insertArgumentParagraph(TOOLDECL, 'b7e-def', 'read', 'x'), TOOLDECL);
 });
 
 /* ===================================================================== *
@@ -358,6 +352,8 @@ check('the hunk header counts the lines the hunk actually holds', () => {
 
 console.log('\nend to end, on a fabricated checkout\n');
 
+const REGISTRIES = ['package.json', 'package-lock.json', 'lib/tooldecl.js', 'bin/b7e-x'];
+
 const makeCheckout = (name, { readme = '', testFile = null } = {}) => {
   const root = path.join(tmp, name);
   fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
@@ -365,17 +361,18 @@ const makeCheckout = (name, { readme = '', testFile = null } = {}) => {
   fs.mkdirSync(path.join(root, 'test'), { recursive: true });
   fs.writeFileSync(path.join(root, 'package.json'), PKG);
   fs.writeFileSync(path.join(root, 'package-lock.json'), LOCK);
-  fs.writeFileSync(path.join(root, 'lib', 'toolbelt.js'), TOOLBELT);
-  fs.writeFileSync(path.join(root, 'lib', 'grants.js'), GRANTS);
+  fs.writeFileSync(path.join(root, 'lib', 'tooldecl.js'), TOOLDECL);
   fs.writeFileSync(path.join(root, 'README.md'), readme);
   if (testFile) fs.writeFileSync(path.join(root, 'test', 'b7ex.mjs'), testFile);
-  fs.writeFileSync(path.join(root, 'bin', 'b7e-x'), '#!/usr/bin/env node\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(root, 'bin', 'b7e-x'), TOOL, { mode: 0o755 });
   fs.chmodSync(path.join(root, 'bin', 'b7e-x'), 0o755);
   return root;
 };
 
 const run = (root, args) =>
   spawnSync(process.execPath, [BIN, ...args, '--dir', root], { cwd: ROOT, encoding: 'utf8', timeout: 60000 });
+
+const readAll = (root) => REGISTRIES.map((f) => fs.readFileSync(path.join(root, f), 'utf8'));
 
 {
   const root = makeCheckout('bare');
@@ -387,7 +384,7 @@ const run = (root, args) =>
     assert.match(r.stdout, /test\/: no test spawns bin\/b7e-x/);
   });
 
-  check('and ONLY those two — the four it can write are written (the acceptance criterion)', () => {
+  check('and ONLY those two — everything a tool can write is written (the acceptance criterion)', () => {
     const owed = r.stdout.split('still owed —')[1].split('\n').filter(Boolean);
     assert.equal(owed.length, 2, r.stdout);
   });
@@ -401,25 +398,42 @@ const run = (root, args) =>
     assert.equal(lines.length, LOCK.split('\n').length + 1);
   });
 
-  check('the grant and its classification both landed, which is what test/grants.mjs wants', () => {
-    const toolbelt = fs.readFileSync(path.join(root, 'lib', 'toolbelt.js'), 'utf8');
-    const grants = fs.readFileSync(path.join(root, 'lib', 'grants.js'), 'utf8');
-    assert.ok(toolbelt.includes("'Bash(b7e-x:*)',"), toolbelt);
-    assert.ok(grants.includes("'Bash(b7e-x:*)': { kind: 'read' },"), grants);
-    assert.equal(enroll.allowlistProblem('b7e-x', toolbelt, grants), null);
+  check('the tool declares itself, which is what DEFAULT_TOOL_LIST is derived from', () => {
+    const src = fs.readFileSync(path.join(root, 'bin', 'b7e-x'), 'utf8');
+    assert.deepEqual(declarationsIn(src), ['read']);
+    // And b7e-enroll's own check 6/7 pair is satisfied, given a map that classifies it.
+    assert.equal(enroll.allowlistProblem('b7e-x', src, { 'Bash(b7e-x:*)': { kind: 'read' } }), null);
+  });
+
+  check('the paragraph landed in lib/tooldecl.js with its arrow line', () => {
+    const src = fs.readFileSync(path.join(root, 'lib', 'tooldecl.js'), 'utf8');
+    assert.match(src, /→ Bash\(b7e-x:\*\) — declared `@grant read` in bin\/b7e-x/);
+  });
+
+  check('NOTHING was written into a lib/grants.js — test/tooldecl.mjs fails the repo for that', () => {
+    // The registry this command was specified to write, and the one it must not: since
+    // bc-wbrhi the b7e half of lib/grants.js is spread from the declarations, and a
+    // hand-written 'Bash(b7e-*:*)': line there is a test failure rather than a
+    // registration. The fixture has no lib/grants.js at all, so a tool that still wanted
+    // to write one would have crashed above.
+    assert.ok(!fs.existsSync(path.join(root, 'lib', 'grants.js')));
+    for (const f of ['package.json', 'package-lock.json', 'lib/tooldecl.js']) {
+      const src = fs.readFileSync(path.join(root, f), 'utf8');
+      assert.ok(!/'Bash\(b7e-x:\*\)':/.test(src), `${f} carries a hand-written classification`);
+    }
   });
 
   check('running it a second time is a no-op that says so, and does not double any entry', () => {
-    const before = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
+    const before = readAll(root);
     const again = run(root, ['b7e-x', '--kind', 'read', '--why', 'It only ever reads and prints what it found.']);
-    assert.match(again.stdout, /already registered in all four/);
-    assert.equal(fs.readFileSync(path.join(root, 'package.json'), 'utf8'), before);
+    assert.match(again.stdout, /already registered everywhere a tool can write/);
+    assert.deepEqual(readAll(root), before);
   });
 
   check('--dry-run on an already-registered name prints an empty patch (the acceptance criterion)', () => {
     const dry = run(root, ['b7e-x', '--kind', 'read', '--why', 'x', '--dry-run']);
     assert.ok(!dry.stdout.includes('@@'), dry.stdout);
-    assert.match(dry.stdout, /already registered in all four/);
+    assert.match(dry.stdout, /already registered everywhere a tool can write/);
   });
 }
 
@@ -428,64 +442,58 @@ const run = (root, args) =>
     readme: '### Reads a thing — `b7e-x`\n\nWhat it does.\n',
     testFile: "const p = path.join(ROOT, 'bin', 'b7e-x');\n",
   });
-  const r = run(root, ['b7e-x', '--kind', 'withheld', '--why', 'It writes to the checkout it runs in.']);
+  const r = run(root, ['b7e-x', '--kind', 'excluded', '--why', 'It writes to the checkout it runs in.']);
   check('on a tree that already has its README section and its test, one call ends at nothing owed', () => {
     assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
     assert.match(r.stdout, /nothing owed/);
   });
-  check('and a withheld command is not classified in lib/grants.js — nothing granted it', () => {
-    const grants = fs.readFileSync(path.join(root, 'lib', 'grants.js'), 'utf8');
-    assert.ok(!grants.includes('b7e-x'), grants);
+  check('an excluded tool is a decision — declared, argued for, and not granted', () => {
+    const src = fs.readFileSync(path.join(root, 'bin', 'b7e-x'), 'utf8');
+    assert.deepEqual(declarationsIn(src), ['excluded']);
+    // Check 6 passes on an excluded tool with no classification anywhere, which is the
+    // whole point of `excluded` being a decision rather than an absence.
+    assert.equal(enroll.allowlistProblem('b7e-x', src, {}), null);
+    assert.ok(!fs.readFileSync(path.join(root, 'lib', 'tooldecl.js'), 'utf8').includes('→ Bash(b7e-x'));
   });
 }
 
 {
   const root = makeCheckout('dry');
-  const before = ['package.json', 'package-lock.json', 'lib/toolbelt.js', 'lib/grants.js'].map((f) =>
-    fs.readFileSync(path.join(root, f), 'utf8')
-  );
+  const before = readAll(root);
   const r = run(root, ['b7e-x', '--kind', 'read', '--why', 'It only ever reads.', '--dry-run']);
-  check('--dry-run prints a patch for all four and writes none of them', () => {
+  check('--dry-run prints a patch for all four files and writes none of them', () => {
     assert.equal(r.stdout.match(/^--- a\//gm).length, 4, r.stdout);
-    const after = ['package.json', 'package-lock.json', 'lib/toolbelt.js', 'lib/grants.js'].map((f) =>
-      fs.readFileSync(path.join(root, f), 'utf8')
-    );
-    assert.deepEqual(after, before);
+    assert.deepEqual(readAll(root), before);
   });
   check('and says outright that nothing was written', () => assert.match(r.stdout, /nothing was written/));
 }
 
 /* ===================================================================== *
- * refusals — the three things it will not decide for you
+ * refusals — the things it will not decide for you
  * ===================================================================== */
 
 console.log('\nrefusals\n');
 
 {
   const root = makeCheckout('refuse');
+  const before = readAll(root);
 
   check('no --kind is a refusal, not a default', () => {
     const r = run(root, ['b7e-x', '--why', 'It only reads.']);
     assert.equal(r.status, 2);
-    assert.match(r.stderr, /--kind read\|withheld is required and has no default/);
+    assert.match(r.stderr, /is required and has no default/);
   });
 
-  check('a --kind that is neither is refused the same way', () => {
-    const r = run(root, ['b7e-x', '--kind', 'maybe', '--why', 'It only reads.']);
+  check('a --kind outside @grant own vocabulary is refused the same way', () => {
+    const r = run(root, ['b7e-x', '--kind', 'withheld', '--why', 'It only reads.']);
     assert.equal(r.status, 2);
+    assert.match(r.stderr, /read\|write\|excluded/);
   });
 
-  check('no --why is a refusal — the paragraph is the registration', () => {
+  check('no --why is a refusal — it is what the registration says', () => {
     const r = run(root, ['b7e-x', '--kind', 'read']);
     assert.equal(r.status, 2);
     assert.match(r.stderr, /--why is required/);
-  });
-
-  check('a --why naming an undecided sibling is refused, with what to do instead', () => {
-    const r = run(root, ['b7e-x', '--kind', 'read', '--why', 'Read-only, for the b7e-nobody reason.']);
-    assert.equal(r.status, 2);
-    assert.match(r.stderr, /b7e-nobody/);
-    assert.match(r.stderr, /by description instead/);
   });
 
   check('a name with no file in bin/ is refused — it registers a command, it does not write one', () => {
@@ -494,10 +502,13 @@ console.log('\nrefusals\n');
     assert.match(r.stderr, /nothing there to register/);
   });
 
-  check('nothing was written by any of those five', () => {
-    assert.equal(fs.readFileSync(path.join(root, 'package.json'), 'utf8'), PKG);
-    assert.equal(fs.readFileSync(path.join(root, 'lib', 'toolbelt.js'), 'utf8'), TOOLBELT);
+  check('an unknown flag is refused with the usage rather than ignored', () => {
+    const r = run(root, ['b7e-x', '--kind', 'read', '--why', 'x', '--fabricate']);
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /unknown flag --fabricate/);
   });
+
+  check('nothing was written by any of those five', () => assert.deepEqual(readAll(root), before));
 
   check('a bare bin/ path is accepted as the name, the way b7e-enroll takes one', () => {
     const r = run(root, ['bin/b7e-x', '--kind', 'read', '--why', 'It only ever reads.']);
@@ -518,7 +529,7 @@ console.log('\nagainst this repo\n');
   // b7e-register registered itself with itself, so there is nothing left for it to do
   // here — and a non-empty result would mean the applier and this checkout disagree
   // about what a registration looks like.
-  const edits = enroll.registerEdits(ROOT, 'b7e-register', { kind: 'withheld', why: 'It writes.' });
+  const edits = enroll.registerEdits(ROOT, 'b7e-register', { kind: 'excluded', why: 'It writes.' });
   check('this repo is already registered by its own rules — no edit is outstanding', () =>
     assert.deepEqual(
       edits.map((e) => e.rel),
@@ -526,10 +537,25 @@ console.log('\nagainst this repo\n');
     )
   );
 
-  const ctx = enroll.loadContext(ROOT);
-  check('and b7e-enroll agrees, for the four this command writes', () => {
-    const owed = enroll.problemsFor('b7e-register', ctx);
+  check('and b7e-enroll agrees, for every one of the seven', () => {
+    const owed = enroll.problemsFor('b7e-register', enroll.loadContext(ROOT, enroll.derivedGrants(ROOT)));
     assert.deepEqual(owed, [], owed.join('\n'));
+  });
+
+  check('the derived map matches what lib/grants.js was built from — check 7 is not a second opinion', () => {
+    // Every granted b7e-* tool in this checkout, re-derived, must be exactly the set
+    // lib/grants.js already carries. If these ever disagree the wiring has come apart,
+    // which is the one thing check 7 exists to catch now that it is otherwise free.
+    const derived = Object.keys(enroll.derivedGrants(ROOT)).sort();
+    const live = Object.keys(GRANTS)
+      .filter((k) => /^Bash\(b7e-/.test(k))
+      .sort();
+    assert.deepEqual(derived, live);
+  });
+
+  check('it declares itself excluded, so nothing derives a grant for it', () => {
+    const src = fs.readFileSync(BIN, 'utf8');
+    assert.deepEqual(declarationsIn(src), ['excluded']);
   });
 }
 
