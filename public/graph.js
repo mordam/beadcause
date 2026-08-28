@@ -400,20 +400,11 @@
     svg.transition().duration(620).call(zoom.transform, to);
   }
 
-  /** Frame everything drawn so far, until the first pan or pinch. */
-  function fit() {
-    if (userMoved || !sim || !sim.nodes().length) return;
-    const nodes = sim.nodes();
-    const pad = 40;
-    const xs = nodes.map((n) => n.x);
-    const ys = nodes.map((n) => n.y);
-    const x0 = Math.min(...xs) - NODE_W / 2 - pad;
-    const x1 = Math.max(...xs) + NODE_W / 2 + pad;
-    const y0 = Math.min(...ys) - NODE_H / 2 - pad;
-    const y1 = Math.max(...ys) + NODE_H / 2 + pad;
-    const w = main.clientWidth;
-    const h = main.clientHeight;
-    if (!w || !h || x1 <= x0 || y1 <= y0) return;
+  /** Given a scene extent and a viewport, the scale to fit one inside the other, the
+   * scale-extent floor that follows it down, and the transform that centres the
+   * scene. Pure — no DOM, no simulation — so this is what test/graphfit.mjs pins;
+   * everything above it (measuring the scene) has to happen in a live SVG. */
+  function fitTransform(x0, y0, x1, y1, w, h, zoomMin, zoomMax) {
     // Never zoom past 1:1. Fitting a small graph to the viewport would otherwise
     // blow six beads up to fill the screen, which looks like a bug rather than a
     // fit — the point of this is to get everything *in*, not to magnify.
@@ -423,10 +414,33 @@
     // on a phone — opens on a view a finger can never get back to: the first
     // pinch out stops at 0.15 and half the graph is off screen for good. Let the
     // floor follow the fit down.
-    zoom.scaleExtent([Math.min(ZOOM_MIN, k), ZOOM_MAX]);
-    const t = d3.zoomIdentity
-      .translate(w / 2 - ((x0 + x1) / 2) * k, h / 2 - ((y0 + y1) / 2) * k)
-      .scale(k);
+    const scaleFloor = Math.min(zoomMin, k);
+    const tx = w / 2 - ((x0 + x1) / 2) * k;
+    const ty = h / 2 - ((y0 + y1) / 2) * k;
+    return { k, scaleFloor, tx, ty };
+  }
+
+  /** Frame everything drawn so far, until the first pan or pinch. */
+  function fit() {
+    if (userMoved || !sim || !sim.nodes().length) return;
+    const pad = 40;
+    // What is actually on screen, not what the box constant says it should be — a
+    // long title runs past NODE_W/2 (clip(d.title, 20) at font-size 10.5, ~line 517)
+    // and a claimed bead's pulse swells .gn-box's stroke to 4px, both landing only on
+    // whichever bead is outermost. getBBox() sees the title overrun and excludes the
+    // stroke (a client rect would include it), so pad only has to cover half of that
+    // 4px stroke — 40 already does.
+    const box = gNodes.node().getBBox();
+    const x0 = box.x - pad;
+    const x1 = box.x + box.width + pad;
+    const y0 = box.y - pad;
+    const y1 = box.y + box.height + pad;
+    const w = main.clientWidth;
+    const h = main.clientHeight;
+    if (!w || !h || x1 <= x0 || y1 <= y0) return;
+    const { k, scaleFloor, tx, ty } = fitTransform(x0, y0, x1, y1, w, h, ZOOM_MIN, ZOOM_MAX);
+    zoom.scaleExtent([scaleFloor, ZOOM_MAX]);
+    const t = d3.zoomIdentity.translate(tx, ty).scale(k);
     svg.transition().duration(280).call(zoom.transform, t);
   }
 
@@ -461,6 +475,11 @@
       // pulse can be a CSS animation, which the arrive animation already proved is
       // the only kind that survives on this page.
       .attr('class', (d) => `gn arrive${d.status === 'in_progress' ? ' now' : ''}${d.moved ? ' moved' : ''}`)
+      // Placed at its seeded (x, y) immediately, not left at the SVG default (0, 0)
+      // until the first tick. fit() reads gNodes' own drawn extent (below), and it
+      // runs synchronously right after this batch is painted — before any tick — so
+      // an untransformed node would drag that extent toward the origin for a frame.
+      .attr('transform', (d) => `translate(${d.x},${d.y})`)
       .style('cursor', 'pointer')
       .on('click', (e, d) => {
         e.stopPropagation();

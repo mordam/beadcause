@@ -183,17 +183,17 @@ await checkAsync('an untracked file edited in place, while it STAYS untracked, i
 });
 
 await checkAsync(
-  'a KNOWN, deliberate exception: an untracked file `git add`ed and committed with identical content still reads as moved',
+  'an untracked file `git add`ed and committed with identical content is NOT drift — bc-dgx7.49',
   async () => {
-    // `run.tree` only ever captures TRACKED content (`git stash create` cannot see an
-    // untracked file at all), so a path absent from it at run-start is absent from the
-    // comparison's tracked side no matter what happens to it later — `git diff
-    // --name-only` reports it as "added" once it is committed, regardless of whether
-    // its bytes match what the untracked-hash record says they were. This is a
-    // deliberately accepted false positive, not a bug: see the doc comment on
-    // `compareToTree` for why closing it (a merged tracked+untracked tree object) was
-    // left as a possible follow-up rather than built here. Pinned as a test so nobody
-    // "fixes" this file into asserting the opposite without reading why.
+    // The bug this bead closed, and the exact case bc-dgx7.39 hit dogfooding the tool on
+    // its own delivery: committing `bin/b7e-gated` itself, untouched since the gate ran,
+    // read as moved. `run.tree` only ever captures TRACKED content (`git stash create`
+    // cannot see an untracked file at all), so a path absent from it at run-start is
+    // absent from the comparison's tracked side no matter what happens to it later, and
+    // `git diff --name-only` calls it "added" the moment it is committed. `compareToTree`
+    // now nets that against the untracked hash it recorded at run start: same bytes, same
+    // blob, not drift. Committing right after a green gate is the ORDINARY next step, so
+    // a false "moved" here fires on almost every delivery this command exists to check.
     fs.writeFileSync(path.join(main, 'new-file.txt'), 'brand new, untracked at run start\n');
     const { file } = await gaterun.startRun(main, { suites: ['test/x.mjs'] });
     const r = gaterun.readRun(file);
@@ -202,8 +202,53 @@ await checkAsync(
     git(main, 'add', 'new-file.txt');
     git(main, 'commit', '-q', '-m', 'add new-file.txt, untouched since the run started');
     const cmp = await gaterun.compareToTree(r);
-    assert.equal(cmp.matches, false, `expected the known false positive, got changed=${JSON.stringify(cmp.changed)}`);
-    assert.deepEqual(cmp.changed, ['new-file.txt']);
+    assert.equal(cmp.matches, true, `crossing the tracked line with identical bytes is not drift, got changed=${JSON.stringify(cmp.changed)}`);
+    assert.deepEqual(cmp.changed, []);
+  }
+);
+
+await checkAsync(
+  'an untracked file `git add`ed with DIFFERENT content is still caught — the netting must not blanket-forgive a transition',
+  async () => {
+    // The other side of the same reconciliation, and the one worth pinning: it would be
+    // easy to close the false positive above by dropping any path that left the untracked
+    // list, which would silently forgive the real case — editing a brand-new file after
+    // the gate saw it and committing that. The comparison is blob-vs-recorded-hash, so
+    // this stays reported by name.
+    fs.writeFileSync(path.join(main, 'edited-then-added.txt'), 'content the gate saw\n');
+    const { file } = await gaterun.startRun(main, { suites: ['test/x.mjs'] });
+    const r = gaterun.readRun(file);
+
+    fs.writeFileSync(path.join(main, 'edited-then-added.txt'), 'content the gate never saw\n');
+    git(main, 'add', 'edited-then-added.txt');
+    git(main, 'commit', '-q', '-m', 'add edited-then-added.txt, edited since the run started');
+    const cmp = await gaterun.compareToTree(r);
+    assert.equal(cmp.matches, false, 'an untracked file edited before being added has really moved');
+    assert.deepEqual(cmp.changed, ['edited-then-added.txt']);
+  }
+);
+
+await checkAsync(
+  'the mirror image: a tracked file `git rm --cached`ed with identical content is not drift either — bc-dgx7.49',
+  async () => {
+    // A path can cross that line in both directions, and the tracked diff misreads it the
+    // same way going the other way (a "deletion" from `run.tree`, plus a "newly untracked"
+    // entry) while the bytes on disk never moved. Reconciled against the blob the run's
+    // own baseline held at that path.
+    const { file } = await gaterun.startRun(main, { suites: ['test/x.mjs'] });
+    const r = gaterun.readRun(file);
+    git(main, 'rm', '-q', '--cached', 'new-file.txt');
+    const cmp = await gaterun.compareToTree(r);
+    assert.equal(cmp.matches, true, `leaving the index with identical bytes is not drift, got changed=${JSON.stringify(cmp.changed)}`);
+
+    // ...but editing it once it is out there is, exactly as for any other untracked file.
+    fs.writeFileSync(path.join(main, 'new-file.txt'), 'edited after it left the index\n');
+    const cmpEdited = await gaterun.compareToTree(r);
+    assert.equal(cmpEdited.matches, false);
+    assert.deepEqual(cmpEdited.changed, ['new-file.txt']);
+
+    git(main, 'reset', '-q', 'HEAD'); // back into the index, where the checks below expect it
+    git(main, 'checkout', '-q', '--', 'new-file.txt');
   }
 );
 

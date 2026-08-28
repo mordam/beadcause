@@ -96,7 +96,7 @@
 
   /*
     The shell and nothing else. This file is in the service worker's precache and so is
-    loaded on the one page that has panes; on the eleven pages that are still documents
+    loaded on the one page that has panes; on the nine pages that are still documents
     there is nothing to adopt a pane into, and a pill for a view they cannot show would be
     a pill that navigates to `/v/…` and hops straight back. Cheaper to say no here.
   */
