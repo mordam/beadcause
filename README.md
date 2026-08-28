@@ -18325,6 +18325,29 @@ in some GUIs — everything else ignores them. And nothing is pushed unless you 
 `git push origin 'refs/beadcause/*:refs/beadcause/*'` and `refs/notes/beadcause` are
 explicit acts, and on a shared repo they should stay that way.
 
+**Which run filed a bead — `beadcause-whofiled`.** `created_by` cannot answer this: it
+is the git identity of the workspace directory, the same string for every session that
+has ever written there (bc-vlv9c). What can is a chain that already exists on every
+bead an agent has filed, and it is two hops rather than one: `filed-while:<bead>`
+(`lib/filing.js`) names the bead the filer was working, and *that* bead's own archive,
+above, carries the session. Assembling it by hand is three commands — `bd show` twice
+and a `git cat-file`; this is one:
+
+```bash
+beadcause-whofiled -w beadcause -b bc-abc123
+beadcause-whofiled -w beadcause -b bc-abc123 --json
+```
+
+A filer worked more than once — a stall, then a resumed session — archives more than
+one entry, and `lib/sessionlog.js#filerSession` picks the one whose own recorded
+window actually contains the moment of filing rather than whichever was archived
+last, flagging the answer `exact: false` on the rare entry where nothing's window
+confirms it and the nearest archive is the best guess this repo has. A bead with no
+`filed-while` label was not filed this way at all (exit `2`); one that has the label
+but whose filer bead was never archived — still running, or ended before a commit was
+there to archive — is the chain **not closing**, and it says so rather than printing
+nothing (exit `1`).
+
 ### The agent a session *ending* starts — reading the archive back for repeated work
 
 Every other agent here is started by work. A bead goes ready and an advocate opens a
