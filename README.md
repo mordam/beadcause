@@ -20156,6 +20156,71 @@ and `b7e-swbump` are, and it carries `@grant excluded` for the same reason their
 allowlist cannot see which argv a caller is about to pass, so it is deliberately left off
 rather than trusted read-only.
 
+### The delivery call checked against the branch, before it fires — `b7e-vouch`
+
+`bc-dgx7.130`, filed originally as `dv-5i2.119` in the deluvia tracker and moved here for
+the same reason `b7e-fresh` was: it describes beadcause tooling, not deluvia content. A
+session audit (`lib/sessionaudit.js`) found the same close in four deluvia deliveries —
+`dv-5i2.98`, `dv-5i2.97`, `dv-5i2.96`, `dv-5i2.92` — and no two ended it the same way:
+write a `--tests` string and a PR body from memory, run `git diff main...HEAD
+--name-only`, read the two against each other by eye, then fire `bin/deliver.js`.
+`dv-5i2.98`'s own eyeball read "Matches what I described" — true of the file list, false
+of a sentence three paragraphs earlier deciding `--review` that was never threaded back
+into the actual argv. It went to the auto-merge queue as PR #188, and the repair was a
+correction comment after the fact. The file list was never the risk; a claim written as
+prose is not re-checked the way an argument is.
+
+```
+b7e-vouch -w deluvia -b dv-5i2.98 --body pr-body.md -- --tests "…" --review
+b7e-vouch -w beadcause -b bc-dgx7.130 --body - < body.md    # stdin, no argv to check
+b7e-vouch -w deluvia -b dv-5i2.96 --body pr-body.md --ran run.log -- --tests "…"
+b7e-vouch ... --dir <root>      another checkout — this is how it is tested
+```
+
+Three independent checks, `lib/vouch.js`, each returning a finding or nothing:
+
+**Flags.** Every flag `bin/deliver.js` reads off its own argv, written literally as
+`--flag` in the body's prose, checked against the argv given after `--` on this
+command's own line — the exact argv a caller is about to hand `deliver.js`. Both
+directions for `--review` / `--no-merge` (the pair whose silent presence or absence
+actually changes what a delivery does — `deliver.js`'s own `review = has('--review') ||
+has('--no-merge')`); forward-only for the rest, since a body almost never spells out
+`--tests` or `--risk` by flag name and checking that direction there would be noise, not
+signal. Skipped entirely when no `--` is given at all — there is no argv to compare
+against, not an empty one.
+
+**Paths.** Every file the branch actually changed — `git diff <base>...HEAD --name-only`,
+the identical three-dot form `bin/deliver.js` runs for its own diffstat — against what
+the body names by full path, bare filename, or an identifier-shaped stem (`CHANGE_LOG`
+standing in for `CHANGE_LOG.md`; a plain lowercase word never does, so "regions" in an
+unrelated sentence about a *different* file's directory can't silently cover
+`regions.json`). The bead's own `description` and `acceptance_criteria` (`bd show`, via
+`-b`) are folded in as a fallback source of *mentions* — never of new claims to check —
+because a body is allowed to say "both files named in the bead's acceptance criteria"
+rather than repeat them, which `dv-5i2.96`'s real PR body does for exactly one of its
+three changed files. Claim-extraction (the reverse direction: a path the body names that
+is not in the diff) excludes `lib/prtext.js`'s own `**Tests:**` / `**Worth knowing:**` /
+`**Left undone:**` paragraphs and its auto-generated `<details>` diffstat block first —
+none of those are "files I changed" claims (a real `--tests` value routinely reads
+`scripts/check_entry040_funday.py . → PASS`, a path-shaped token this diff never
+touched), and the auto block is mechanically derived from the real diff so checking prose
+against it is checking `deliver.js` against itself.
+
+**Tests.** Only runs with both `--ran <file>` and a `--tests <value>` inside the given
+argv: script/suite names named in that value (`scripts/check_saga_audit.py`,
+`test/b7evouch.mjs`), checked against the raw content of `--ran` — a transcript, a
+`lib/gaterun.js` JSONL run, anything the real name would appear in verbatim. A name not
+found there did not run under that name — renamed, typo'd, or never run at all.
+
+Prints one line per disagreement, or nothing. Exit codes: `0` nothing to flag, `1` one or
+more disagreements printed, `2` bad usage — missing args, no such workspace, no such
+bead, or nothing to diff against. `-w`/`-b` resolve `bd show` (via `BEADS_DIR=<ws>.dir`,
+the same explicit override `bin/deliver.js` itself uses for a cross-workspace call — bare
+`bd` on `PATH`, like `b7e-notes`, not `cfg.bdBin`, which hardcodes real install locations
+ahead of `PATH` and would leave a test unable to substitute a fake) and the delivery base
+(`baseFor`, the same resolution `b7e-fresh` uses). Read-only throughout — a `git diff`,
+a `git fetch`, a `bd show`, and file reads.
+
 ### Whether the library is being used — the Skills view
 
 `/skills` (or `/candidates`) is the one screen the whole programme is visible from: the
@@ -39126,6 +39191,64 @@ Exit codes: `0` ran to completion, whether or not anything was found — no ruli
 topic is a legitimate, useful answer, not a failure. `2` bad usage — no `-w`, or neither a
 topic nor `-b`. `4` `-w` named a workspace this checkout has no config for, or `-b` named
 a bead the workspace does not have.
+
+
+### Which occurrences of a retired figure are still an assertion, and which are the record of its own retirement — `b7e-retired`
+
+`bc-dgx7.129`, a session audit against four deluvia sessions (`dv-5i2.97`, `dv-5i2.92`,
+`dv-5i2.96`, `dv-5i2.98`) that each grepped a corpus for a superseded number and then
+hand-sorted the hits into "still a live assertion" versus "this occurrence *is* the
+record of the retirement" — and no two sorted them the same way, because the sorting,
+not the search, is where the calls went. A plain grep false-positives on: a table row
+that names the old figure *in order to retire it* ("Superseded figures (Entry 040)"); a
+`CHANGE_LOG.md` entry whose whole body is the decision text that did the retiring; a
+"Notes for Adam" worklog paragraph reporting that the drift was already found and
+filed; and a number that means something else entirely ("80–100 m wide" is a canal, not
+a sea level).
+
+```
+b7e-retired --value '80-100 m' --unit 'sea level'
+b7e-retired --value '80-100 m' --instead '~65 m' --unit 'sea level' reference/
+b7e-retired --value '80-100 m' --unit 'sea level' --datum-dir reference/regions/cycle1
+b7e-retired --value '4\'8"-5\'2"' --rev origin/main
+b7e-retired --value '80-100 m' --unit 'sea level' --json
+b7e-retired --dir <root> --value '80-100 m' --unit 'sea level'   another tree — this is how it is tested
+```
+
+**Four rules demote a match out of `LIVE`, checked in this order.** A `--datum-dir` the
+file sits under (deluvia's `reference/regions/cycle1/` is deliberately at a different
+standard from the rest of the corpus) — checked first because it is a fact about the
+whole file, not the sentence the match sits in. `--unit`: the noun the figure is
+supposed to modify does not appear within a short window of the match — "sea levels
+80–100 m lower" passes, "180 km long, 80–100 m wide" does not, same figure, a different
+thing being measured; skipped entirely (every match assumed on-unit) when `--unit` is
+not given. Inside a `CHANGE_LOG.md` entry body — reusing `entryHeadings` from
+`lib/changelog.js` rather than re-deriving a `## Entry NNN` span by line arithmetic, for
+the same reason `b7e-changelog` does: the numbering is non-contiguous. A markdown table
+row (or its header row), or a heading, naming Superseded/Retired/Entry NNN — the row
+*is* the record, not an assertion. A fifth, `--unit`, sits in that list too but is
+opt-in rather than always-on. A match under a "Notes for Adam" / worklog heading is
+demoted the same way — a session's own running report, not canon.
+
+`--value` matches punctuation drift by construction: every literal `-` stands for
+hyphen, en dash, em dash or minus (deluvia's region files use `–`, U+2013, throughout;
+the flag is typed with a plain `-`), and a run of spaces matches any whitespace. `--rev`
+reads through `git cat-file` (`lib/gitref.js`'s `readRefFile`), never the working tree,
+so a stray `.claude/worktrees/*` checkout is never read by accident; omitted, it reads
+the working tree directly off disk, uncommitted edits included — the point being that
+this is meant to be run against exactly what is about to be committed.
+
+`lib/retired.js` is the matching and the four-rule classification (`classify`,
+`classifyMatch`, `scanText`, plus the rule functions themselves, each exported and
+independently testable). `bin/b7e-retired` is the argv shell and the printed/`--json`
+report. `@grant read` in its own header docblock is what puts it on
+`DEFAULT_TOOL_LIST` — see `b7e-tool-grant-is-now-a-self-declared-header-tag`. See
+`test/b7eretired.mjs`, whose fixtures reproduce each of the four rules plus the plain
+`--unit` mismatch and the punctuation-drift matching, against a scratch directory via
+`--dir` rather than this repo's own tree.
+
+Exit codes: `0` `LIVE` is empty — nothing still asserts the retired figure. `1` `LIVE`
+is non-empty. `2` bad usage.
 
 ## Notes on bd
 
