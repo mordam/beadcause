@@ -34,12 +34,22 @@
  * this" is a legitimate answer, not a failure; with several beads, `0` means at least
  * one of them was findable. `2` bad usage. `4` `-w` named a workspace this checkout's
  * tracker does not have, or (single-bead form only) `-b` named a bead it does not have.
+ * `1` the tracker itself could not be read for a bead (a Dolt lock, a timeout, an
+ * unreadable workspace) — see bd-show-rejects-for-a-missing-bead: `bd show` rejects
+ * identically for a genuinely missing bead and for a transient failure, so this is
+ * separated from `4` by matching `MISSING_RE` against the error text rather than
+ * treating every rejection as "not found".
  *
  * @grant read
  */
 import { loadConfig, loadState } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
 import { beadAnswer } from '../lib/beadanswer.js';
+
+// Same pattern lib/claimbead.js uses to tell "no such bead" apart from everything else
+// `bd show`/`bd showWithComments` reject with — a Dolt lock, a timeout, an unreadable
+// workspace all wear the same clothes as a missing id unless this is checked.
+const MISSING_RE = /no issues? found/i;
 
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
@@ -164,7 +174,11 @@ if (beadIds.length === 1) {
   try {
     first = await bd.show(ws, beadId);
   } catch (err) {
-    fail(`${ws.name} has no bead ${beadId}: ${String(err?.message || err).split('\n')[0]}`, 4);
+    const msg = String(err?.message || err).split('\n')[0];
+    if (MISSING_RE.test(msg)) {
+      fail(`${ws.name} has no bead ${beadId}: ${msg}`, 4);
+    }
+    fail(`${ws.name} could not be read for ${beadId} — a tracker failure (lock/timeout?), not "not found": ${msg}`, 1);
   }
   if (!first) fail(`${ws.name} has no bead ${beadId}`, 4);
 
@@ -193,7 +207,16 @@ if (beadIds.length === 1) {
     try {
       result = await beadAnswer(bd, ws, beadId, { family: FAMILY, answered });
     } catch (err) {
-      rows.push({ bead: beadId, notFound: true, error: String(err?.message || err).split('\n')[0] });
+      const msg = String(err?.message || err).split('\n')[0];
+      if (MISSING_RE.test(msg)) {
+        rows.push({ bead: beadId, notFound: true, error: msg });
+      } else {
+        // The tracker itself failed to answer for this bead — a Dolt lock, a timeout, an
+        // unreadable workspace. Reported distinctly from `notFound` so it isn't read as
+        // "beadcause has no record of this bead" when the truth is "beadcause could not
+        // ask" (bc-dgx7.109).
+        rows.push({ bead: beadId, trackerError: true, error: msg });
+      }
       continue;
     }
     if (!result.results.length) {
@@ -203,14 +226,21 @@ if (beadIds.length === 1) {
     }
   }
 
-  const found = rows.filter((r) => !r.notFound);
+  const found = rows.filter((r) => !r.notFound && !r.trackerError);
   const answeredCount = found.filter((r) => r.carrier).length;
+  const notFound = rows.filter((r) => r.notFound).length;
+  const trackerErrors = rows.filter((r) => r.trackerError).length;
 
   if (JSON_MODE) {
     console.log(JSON.stringify({ beads: beadIds, results: rows }, null, 2));
   } else {
     console.log(`b7e-answered ${beadIds.length} beads · ${ws.name}${FAMILY ? ' (each walked to its ancestors)' : ''}\n`);
     for (const r of rows) {
+      if (r.trackerError) {
+        console.log(red(`${r.bead} — tracker error, not a verdict (lock/timeout?): ${r.error}`));
+        console.log('');
+        continue;
+      }
       if (r.notFound) {
         console.log(red(`${r.bead} — ${r.error || `${ws.name} has no bead ${r.bead}`}`));
         console.log('');
@@ -223,10 +253,9 @@ if (beadIds.length === 1) {
       printVerdict(r.bead, r);
       console.log('');
     }
-    const notFound = rows.length - found.length;
     console.log(
-      `${answeredCount}/${found.length} answered${notFound ? amber(`, ${notFound} not found`) : ''}`,
+      `${answeredCount}/${found.length} answered${notFound ? amber(`, ${notFound} not found`) : ''}${trackerErrors ? red(`, ${trackerErrors} tracker error${trackerErrors === 1 ? '' : 's'}`) : ''}`,
     );
   }
-  process.exitCode = found.length ? 0 : 4;
+  process.exitCode = found.length ? 0 : (trackerErrors ? 1 : 4);
 }

@@ -13,6 +13,7 @@
 // shape, this is meant to go red — a b7e-surface that stops finding real exports is
 // worse than one that never shipped.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +21,25 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
 const BIN = path.join(ROOT, 'bin', 'b7e-surface');
+
+/**
+ * Where a method really is in lib/bd.js today, found without asking b7e-surface.
+ *
+ * The five line numbers below used to be written out as constants, and a constant is a
+ * fact about a file that rots the moment anything above it moves: bc-arj0.22 added a
+ * doc comment near the top of lib/bd.js and five checks here went red without
+ * b7e-surface being wrong about anything at all. What the checks are for is that the
+ * tool reports the **real** line rather than merely finding the name — so the number is
+ * derived from the file, by a scan that shares nothing with the tool's own parser
+ * (`bin/b7e-surface` walks the source; this reads the first definition line whole), and
+ * the assertion still fails if the two disagree.
+ */
+const BD_LINES = fs.readFileSync(path.join(ROOT, 'lib', 'bd.js'), 'utf8').split('\n');
+const bdLine = (definition) => {
+  const at = BD_LINES.findIndex((l) => l.trimStart().startsWith(definition));
+  assert.ok(at >= 0, `lib/bd.js no longer defines \`${definition}\` — this suite needs re-aiming, not re-numbering`);
+  return at + 1;
+};
 
 let failures = 0;
 const ok = (name) => console.log(`  \x1b[32m✓\x1b[0m ${name}`);
@@ -40,10 +60,12 @@ console.log("\na class-shaped surface — the query bc-bmry.10 ran against lib/b
   check('names the class Bd itself', /\bclass\s+Bd\b/.test(r.stdout), r.stdout);
   // bc-bmry.10's own grep: show(\|comments(\|update(\|appendNotes( — every one of
   // these is a method on Bd, at its real line number, not merely present anywhere.
-  check('show, with its line number', /669\s+method\s+async show\(workspace, id\)/.test(r.stdout), r.stdout);
-  check('comments, with its line number', /728\s+method\s+async comments\(workspace, id\)/.test(r.stdout), r.stdout);
-  check('update, with its line number', /1586\s+method\s+async update\(/.test(r.stdout), r.stdout);
-  check('appendNotes, with its line number', /2728\s+method\s+async appendNotes\(workspace, id, text\)/.test(r.stdout), r.stdout);
+  const at = (definition, printed) =>
+    new RegExp(`${bdLine(definition)}\\s+method\\s+${printed || definition.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+  check('show, with its line number', at('async show(workspace, id)').test(r.stdout), r.stdout);
+  check('comments, with its line number', at('async comments(workspace, id)').test(r.stdout), r.stdout);
+  check('update, with its line number', at('async update(', 'async update\\(').test(r.stdout), r.stdout);
+  check('appendNotes, with its line number', at('async appendNotes(workspace, id, text)').test(r.stdout), r.stdout);
   // A file whose surface is a class must not read as empty: it names module-level
   // guard functions too, not only the class.
   check('also names a plain export function above the class', /\bfunction\s+isClaimGuard\(err\)/.test(r.stdout), r.stdout);
@@ -77,7 +99,10 @@ console.log('\na path that is not a source file is a refusal, not empty output')
 }
 
 {
-  const r = run(['lib/this-file-does-not-exist-anywhere.js']);
+  // Named after this suite rather than something generic: b7e-affected matches a quoted
+  // path literal, so a shared "does not exist" name silently disarms any *other* suite
+  // asserting that same path comes back unmatched. It did — see bc-sp2sz.
+  const r = run(['lib/b7esurface-no-such-file.js']);
   check('a missing path exits non-zero', r.status !== 0, `status was ${r.status}`);
   check('says no such file', /no such file/.test(r.stderr), r.stderr);
 }
@@ -128,7 +153,11 @@ console.log('\na regex literal with a quote inside its own pattern does not corr
   // or not at all, because the embedded `"` was read as a string opening.
   const r = run(['lib/bd.js']);
   check('CLAIM_GUARD_RE itself is named', /\bCLAIM_GUARD_RE\b/.test(r.stdout), r.stdout);
-  check('a method defined hundreds of lines after it is still found, at its real line', /2734\s+method\s+addLabel\(workspace, id, label\)/.test(r.stdout), r.stdout);
+  check(
+    'a method defined hundreds of lines after it is still found, at its real line',
+    new RegExp(`${bdLine('addLabel(workspace, id, label)')}\\s+method\\s+addLabel\\(workspace, id, label\\)`).test(r.stdout),
+    r.stdout
+  );
 }
 
 console.log('\nno path, or --help, is a usage message rather than a crash');

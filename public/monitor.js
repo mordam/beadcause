@@ -541,6 +541,17 @@
    * least visibly held. The tooltip names each bead and the windows it spent, which is
    * exactly what `Forget attempts` in the controls below has never been able to say.
    *
+   * `heldByDept` is the fourteenth (bc-ogicx.6), and the only one a *repo* asked for.
+   * Every other pill here is this program's own arithmetic, another machine's claim, or a
+   * button somebody pressed; this one is a `capacity:` in a `.beadcause/relays.yaml` that a
+   * branch can change. It is safe to draw it as an ordinary hold for one reason worth
+   * knowing while reading it: a capacity can only ever *subtract* from `maxWorkers`, never
+   * add to it, so a repo can slow its own department and can never take a window from
+   * anybody else's. `relayProblems` beside it is the opposite kind of row and must not read
+   * as a hold: a checkout whose definition would not load dispatched all of its beads
+   * anyway, without a relay. Nothing is waiting; what is wrong is that a repo believes it
+   * has departments and has none, which nothing else on this screen can say.
+   *
    * `heldByLease` is the seventh (bc-bllw), and the first that is not about this laptop:
    * a bead another engineer's Mac has claimed in the shared tracker. `stoodDown` is its
    * other half — a window *this* Mac gave up because the other machine's claim won the
@@ -566,6 +577,8 @@
     const undecided = (a && a.heldByUndecided) || [];
     const owedRetry = (a && a.heldByOwed) || [];
     const gaveUp = (a && a.givenUp) || [];
+    const deptFull = (a && a.heldByDept) || [];
+    const relayBroken = (a && a.relayProblems) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -695,6 +708,31 @@
       // guess have helped?" can be answered from the screen rather than from a hunch.
       busyFiles.length
         ? `<span class="pill muted" title="${esc(busyFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${busyFiles.length} opened onto a busy file</span>`
+        : '',
+      // The fourteenth (bc-ogicx.6), and the only pill on this row that a *repo* asked
+      // for. Every other hold here is this program's arithmetic, another machine's claim
+      // or a button somebody pressed; this one is a `capacity:` written in a
+      // `.beadcause/relays.yaml` that a pull request can change. `muted`, with the holds
+      // that clear on their own — a department is full because its windows are working,
+      // and the next one to finish releases the bead with nothing to press. The tooltip
+      // names the department as well as the bead, because the department is where the
+      // number is, and the bead is not.
+      deptFull.length
+        ? `<span class="pill muted" title="${esc(deptFull.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${
+            deptFull.length
+          } waiting on a busy department</span>`
+        : '',
+      // And the one that is **not a hold**, which is the whole of what it has to say: a
+      // checkout whose own relay definition would not parse or would not validate. Its
+      // beads dispatched — without a relay, exactly as they did before anybody wrote the
+      // file — so nothing is waiting and nothing is owed. `p1` all the same, and it is the
+      // one place on this row where loudness is not about how long a wait is: a repo that
+      // believes it has departments and silently has none is a state nothing else here can
+      // report, and the file is one edit away.
+      relayBroken.length
+        ? `<span class="pill p1" title="${esc(relayBroken.map((p) => p.why).join('\n'))}">${
+            relayBroken.length === 1 ? 'a relay definition' : `${relayBroken.length} relay definitions`
+          } will not load</span>`
         : '',
       // Last, because it is the only pill on this row that is not work outstanding.
       // Everything above it is something still to do — open, ready, blocked, held one of
@@ -1312,6 +1350,61 @@
   }
 
   /**
+   * The beads this advocate will never open another window on, one per row, each with the
+   * verb beside it — bc-xl7n.149.
+   *
+   * `givenUp` has been the diagnosis since bc-xl7n.111 and it was drawn as a *count*: a
+   * pill on the domain row and a tooltip on `Forget attempts`. That said which beads, and
+   * the only thing you could do about any of them cleared all of them at once. The two do
+   * not match — `forget` is the right press for "I have read this list and none of these
+   * deserve it", and there was no press at all for the ordinary case, which is one bead
+   * you have just looked at while the rest keep their charges.
+   *
+   * **Rows rather than a longer tooltip, because the button has to be per bead.** A
+   * tooltip cannot carry one, and the whole difficulty this section is about was that the
+   * subject and the verb were on different controls.
+   *
+   * The `claimed` ones are drawn with the sentence that says so rather than filtered out:
+   * a retired *and* claimed bead is the one whose work is sitting in a delivered pull
+   * request, where answering the card promised a session that could not open (bc-xl7n.117).
+   * Its lever is `Request changes` on that card, which re-arms it on the way through — so
+   * the row says which door rather than offering the wrong one twice.
+   */
+  function gaveUpHtml(a) {
+    const rows = a.givenUp || [];
+    if (!rows.length) {
+      return '<p class="subtitle">It has not given up on anything.</p>';
+    }
+    return (
+      `<p class="subtitle">Beads at the attempt cap. Each is still in the tracker looking like ordinary ready work, and no tick will pick one up again. ` +
+      `A window this daemon parked and closed itself no longer costs a charge, and the charges written before that fix are taken back on their own — see the log.</p>` +
+      rows
+        .map(
+          // `mon-plain` because the row is not itself a link — the title inside it is,
+          // and the button beside it is the point. Same shape as the archive row above.
+          (g) => `<div class="work-row mon-plain">
+          <span class="work-phase">◍</span>
+          <span class="work-main">
+            <a class="work-title" href="${esc(graphUrl(a.workspace, g.id))}">${esc(g.title || g.id)}</a>
+            <span class="work-sub"><span class="pill id">${esc(g.id)}</span>
+              <span class="tag warn">${esc(plural(g.attempts, 'window'))} spent</span>
+              ${g.claimed ? '<span class="tag">claimed — answer its card with Request changes</span>' : ''}
+            </span>
+          </span>
+          ${
+            g.claimed
+              ? ''
+              : `<button class="adv-btn" data-rearm="${esc(a.workspace)}" data-id="${esc(g.id)}" title="${esc(
+                  `Take the ${g.attempts} attempt charge(s) off ${g.id} so a window can open on it again. Nothing else on this card changes.`
+                )}">Give it a window</button>`
+          }
+        </div>`
+        )
+        .join('')
+    );
+  }
+
+  /**
    * The survey agent thinking out loud.
    *
    * The one panel here that is not a report of state: it is the live transcript of
@@ -1712,6 +1805,25 @@
           : 'Waiting on you. Nothing will open a session on them until they are endorsed.',
         { more: held.dropped }
       ),
+      // Directly above "Up next", and only when there is one, because that is the section
+      // it contradicts: a retired bead is usually still *in* the queue that section is
+      // counting, and "Up next: 36" over a list nothing will pick up is the reading
+      // bc-xl7n.111 was filed about. See `gaveUpHtml`.
+      //
+      // (The wording is deliberate. test/spacebar.mjs guards this file against the
+      // per-workspace tally the console used to publish to the space picker, and it does
+      // it with a raw substring — the field name followed by a comma — over the whole
+      // source. Prose trips that exactly as code would, which is why the sentence above
+      // says "is counting" rather than the obvious thing.)
+      (a.givenUp || []).length
+        ? section(
+            `${key}:gaveup`,
+            'Given up on',
+            String(a.givenUp.length),
+            gaveUpHtml(a),
+            { tone: 'warn' }
+          )
+        : '',
       section(`${key}:next`, 'Up next', a.queue ? String(a.queue) : '', nextHtml(a), { tone: a.queue ? 'warn' : '' }),
       section(`${key}:log`, 'Thinking', '', thinkingHtml(a), {
         badge: a.surveying ? '<span class="tag live"><span class="spark"></span>live</span>' : '',
@@ -2418,6 +2530,42 @@
   }
 
   /**
+   * Take the attempt charges off one bead — bc-xl7n.149.
+   *
+   * Its own function rather than a sixth action through `control`, for the reason
+   * `epicControl` is: `control` sends `Number(value)`, deliberately, because every value
+   * it has ever carried has been a session count. A bead id through that arrives as `NaN`
+   * and the daemon is handed a re-arm with nothing to re-arm.
+   *
+   * There is nothing to remember afterwards and so no note. The repaint *is* the report:
+   * the bead leaves this section, the count in its head drops by one, and it is back in
+   * the queue the section above it draws. `rearm` clearing nothing cannot happen from
+   * here — the row exists because the counter does — but if it somehow did, the row
+   * simply stays, which is the honest picture.
+   */
+  async function rearmBead(ws, id, btn) {
+    const was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      await api('/api/advocate', {
+        method: 'POST',
+        body: JSON.stringify({ workspace: ws, action: 'rearm', value: id }),
+      });
+      await load();
+    } catch (err) {
+      btn.textContent = was;
+      btn.disabled = false;
+      // The card, not the row: `load()` repaints the section and the element this button
+      // is on is gone by the next frame, so a message appended to the row goes with it.
+      (btn.closest('.mon-card') || btn.closest('.mon-sec'))?.insertAdjacentHTML(
+        'beforeend',
+        `<div class="adv-note bad">${esc(err.message)}</div>`
+      );
+    }
+  }
+
+  /**
    * Move a stepper without writing anything.
    *
    * A pending number equal to the live one is *deleted* rather than stored, so stepping
@@ -2637,6 +2785,17 @@
       // epic and that one is about the whole repo, and a button that hit both would pause
       // the workspace as a side effect of pausing an epic in it.
       epicControl(epic.dataset.ws, epic.dataset.id, epic.dataset.epic, epic);
+      return;
+    }
+
+    const arm = e.target.closest('[data-rearm]');
+    if (arm) {
+      e.preventDefault();
+      // Before `[data-adv]` and carrying no `data-adv` of its own, for the reason
+      // `[data-epic]` is: this one is about one bead and `forget` is about the whole
+      // repo, and a button that hit both would clear every counter in the workspace as a
+      // side effect of re-arming one bead.
+      rearmBead(arm.dataset.rearm, arm.dataset.id, arm);
       return;
     }
 

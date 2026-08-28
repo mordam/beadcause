@@ -108,6 +108,46 @@ check(
 check('a model that is not one makes no label at all — never a bare "ran:"', ranLabel('<synthetic>') === '' && ranLabel('') === '');
 check('and the token behind it agrees', ranToken('<synthetic>') === '' && ranToken('claude-sonnet-5') === 'sonnet');
 
+console.log('a [1m] selection is a distinct label (bc-nc6o.14)');
+
+check(
+  'the family is unaffected by the bracket — it is a window, not a different model',
+  modelFamily('claude-opus-5[1m]') === 'opus' && modelFamily('sonnet[1m]') === 'sonnet'
+);
+check(
+  'longWindow widens the token rather than replacing it',
+  ranToken('claude-opus-5', { longWindow: true }) === 'opus-1m',
+  ranToken('claude-opus-5', { longWindow: true })
+);
+check(
+  'and the default is unchanged — nothing calls this yet without knowing the window',
+  ranToken('claude-opus-5') === 'opus'
+);
+check(
+  'so is the label',
+  ranLabel('claude-opus-5', { longWindow: true }) === 'ran:opus-1m' && ranLabel('claude-opus-5') === 'ran:opus'
+);
+check(
+  'a model naming no family still gets the suffix — it is a fact about the window, not the family',
+  ranLabel('claude-quartz-9', { longWindow: true }) === 'ran:claude-quartz-9-1m',
+  ranLabel('claude-quartz-9', { longWindow: true })
+);
+check('and a model that is not one still makes no label at all', ranLabel('<synthetic>', { longWindow: true }) === '');
+check(
+  'ranUpdate threads it through to every model in the run',
+  JSON.stringify(ranUpdate({ labels: [] }, ['claude-sonnet-5', 'claude-opus-5'], { longWindow: true }).addLabels) ===
+    '["ran:sonnet-1m","ran:opus-1m"]',
+  JSON.stringify(ranUpdate({ labels: [] }, ['claude-sonnet-5', 'claude-opus-5'], { longWindow: true }).addLabels)
+);
+check(
+  'a bead already carrying the 200k label still gets the 1m one — they are different labels',
+  JSON.stringify(ranUpdate({ labels: ['ran:opus'] }, ['claude-opus-5'], { longWindow: true }).addLabels) === '["ran:opus-1m"]'
+);
+check(
+  'and the reverse — already 1m, then a 200k run — adds the other',
+  JSON.stringify(ranUpdate({ labels: ['ran:opus-1m'] }, ['claude-opus-5']).addLabels) === '["ran:opus"]'
+);
+
 check('ours is recognisable', isRanLabel('ran:opus') && isRanLabel('RAN:opus'));
 check('and nothing else is', !isRanLabel('complexity:high') && !isRanLabel('running') && !isRanLabel(''));
 
@@ -368,7 +408,7 @@ console.log('through a real advocate tick');
  */
 const { createAdvocates } = await import('../lib/advocate.js');
 
-async function tick({ sessionLog, workerDir = dir }) {
+async function tick({ sessionLog, workerDir = dir, model = 'sonnet', sessionId = 'sess-moved-0001' }) {
   const cfgDir = process.env.BEADCAUSE_CONFIG_DIR;
   // `quiesce` + `removeTree` rather than a bare recursive `rmSync`: every write of
   // `advocates.json` schedules a common-repo commit 2000ms out whose `git init` lands in
@@ -414,7 +454,7 @@ async function tick({ sessionLog, workerDir = dir }) {
     JSON.stringify({
       alpha: {
         workers: [
-          { id: 'x-1', title: 'x-1', at: '2020-01-01T00:00:00Z', attempt: 1, sessionId: 'sess-moved-0001', dir: workerDir, model: 'sonnet', tier: 'low' },
+          { id: 'x-1', title: 'x-1', at: '2020-01-01T00:00:00Z', attempt: 1, sessionId, dir: workerDir, model, tier: 'low' },
         ],
         attempts: {},
       },
@@ -471,6 +511,34 @@ check(
   'an archive that fails still leaves the record on the bead — that is when it matters most',
   broken.added.join(' | ') === 'x-1 ran:sonnet | x-1 ran:opus',
   JSON.stringify(broken.added)
+);
+
+/**
+ * bc-nc6o.14 — a `[1m]` selection is a different `ran:` label than the 200k one.
+ *
+ * `message.model` never carries the marker (see the doc comment on `ranToken`), so this
+ * transcript's assistant turn is `claude-opus-5`, exactly like every 200k one above — the
+ * `usage` on it is what lets `sessionTokens` grade a real window, and it is the worker
+ * record's `model: 'opus[1m]'`, not anything in the transcript, that says which one.
+ */
+transcript(
+  'sess-longwindow-0001',
+  jsonl([
+    {
+      type: 'assistant',
+      message: {
+        model: 'claude-opus-5',
+        content: [],
+        usage: { input_tokens: 1000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 50 },
+      },
+    },
+  ])
+);
+const longWindow = await tick({ sessionLog: true, model: 'opus[1m]', sessionId: 'sess-longwindow-0001' });
+check(
+  'a session opened on the 1M window gets a label the 200k one never would',
+  longWindow.added.join(' | ') === 'x-1 ran:opus-1m | x-1 ctx:fit',
+  JSON.stringify(longWindow.added)
 );
 
 console.log(failures ? `\n${failures} failed` : '\nall good');

@@ -51,9 +51,13 @@ const die = (msg) => {
  */
 function corpus() {
   const dirs = [];
-  for (const name of Object.keys(cfg.workspaces || {})) {
+  // `cfg.workspaces` is an array of `{name, dir}` (discoverWorkspaces), not a map — so
+  // `Object.keys` here used to hand back array indices ('0', '1', …) instead of names,
+  // and even a correct name alone is not enough: resolveSessionDir needs `workspace.dir`
+  // too. Iterate the workspace objects themselves rather than rebuilding them from a key.
+  for (const ws of cfg.workspaces || []) {
     try {
-      dirs.push(resolveSessionDir(cfg, { name }));
+      dirs.push(resolveSessionDir(cfg, ws));
     } catch {
       // A workspace with no directory is not a place a corpus could be.
     }
@@ -67,6 +71,21 @@ function corpus() {
 }
 
 const short = (s) => String(s || '').slice(0, 8);
+
+/**
+ * The workspace **object** for a name, because that is what every `bd.*` call takes.
+ *
+ * Handing `bd.show` a bare string is bc-ygwa, and the guard in lib/bd.js refuses it by
+ * name rather than resolving it — a name is ambiguous the moment two installs disagree
+ * about where a workspace lives, and a tracker read against the wrong directory answers
+ * confidently and wrongly. So the resolution happens once, here, and an unknown name is a
+ * refusal that lists what this install actually has. (Same shape as bin/controls.js.)
+ */
+function workspaceNamed(name) {
+  const ws = (cfg.workspaces || []).find((w) => w.name === name);
+  if (!ws) die(`no workspace called ${name} — this install has ${(cfg.workspaces || []).map((w) => w.name).join(', ')}`);
+  return ws;
+}
 
 async function main() {
   if (!verb || verb === '--help' || verb === '-h') {
@@ -165,8 +184,12 @@ async function main() {
     const [workspace, bead] = rest;
     if (!workspace || !bead) die('usage: beadcause-requirements promote <workspace> <bead>');
     const c = corpus();
-    const bd = new Bd(cfg);
-    const issue = await bd.show(workspace, bead);
+    const ws = workspaceNamed(workspace);
+    // `Bd` takes four named fields, not the config object — `new Bd(cfg)` finds no `bin`
+    // and dies inside `execFile` with "the file argument must be of type string", naming
+    // neither the line nor the mistake (bc-eqn1.3.1, same bug hit in bin/controls.js).
+    const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+    const issue = await bd.show(ws, bead);
     if (!issue) die(`${workspace}/${bead} not found`);
     const { candidates } = readRequirements(issue, c);
     if (!candidates.length) die(`${bead} carries no candidate requirement`);
@@ -192,7 +215,7 @@ async function main() {
     // that exists. `readRequirements` collapses that on read; this makes it true on disk.
     const { ids } = readRequirements(issue, loadCorpus(c.dir));
     const keep = candidates.filter((k) => !applied.includes(`${k.token}.${k.name}`));
-    await bd.update(workspace, bead, {
+    await bd.update(ws, bead, {
       notes: withRequirements(issue.notes, { ids: [...new Set([...ids, ...applied])], candidates: keep }),
     });
     console.log(`${bead}: ${applied.join(', ')} ${applied.length === 1 ? 'is' : 'are'} now a requirement id`);
