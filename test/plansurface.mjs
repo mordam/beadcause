@@ -324,7 +324,7 @@ const bead = (id, over = {}) => ({
   ...over,
 });
 
-async function tick({ ready = [], overrides = {} } = {}) {
+async function tick({ ready = [], attempts = {}, overrides = {} } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   // `quiesce` + `removeTree` rather than a bare recursive `rmSync`: every write of
   // `advocates.json` schedules a common-repo commit 2000ms out whose `git init` lands in
@@ -360,6 +360,12 @@ async function tick({ ready = [], overrides = {} } = {}) {
     },
   };
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(cfg, null, 2));
+  // Written *before* the advocates are created, because `record()` restores `attempts`
+  // verbatim out of this file — which is the only way to stage a bead at the cap without
+  // running two ticks' worth of failed launches. Same seam test/givenup.mjs uses.
+  if (Object.keys(attempts).length) {
+    fs.writeFileSync(path.join(dir, 'advocates.json'), JSON.stringify({ alpha: { attempts } }, null, 2));
+  }
 
   const opened = [];
   const bd = {
@@ -461,6 +467,71 @@ await test('the note says so on the line that says what opened', async () => {
   });
   assert.equal(card.heldBySurface.length, 1);
   assert.match(card.note, /opening 1 session\(s\) · 1 deferred a tick behind the same files/, card.note);
+});
+
+/* ------------------------------- and a bead nothing will ever open reserves nothing */
+
+console.log('\na bead at maxAttemptsPerBead reserves no file (bc-nc6o.15)');
+
+await test('the bead behind one at the attempt cap opens, rather than waiting for ever', async () => {
+  // The pinned check: a queue of two beads declaring the same file, the first at the cap.
+  // Before the skip this tick opened nothing at all — the retired bead took `lib/plan.js`,
+  // the live one was told it "waits for the next tick", and the next tick said the same
+  // thing, because `2 < 2` is false for ever. Eighteen hours of it were measured on this
+  // Mac before the bead was filed.
+  const { opened, card } = await tick({
+    ready: [
+      bead('bc-1', { description: withBlock('lib/plan.js') }),
+      bead('bc-2', { description: withBlock('lib/plan.js') }),
+    ],
+    attempts: { 'bc-1': 2 },
+  });
+  assert.deepEqual(opened, ['bc-2'], 'the live bead gets its window; the retired one was never going to get one');
+  assert.deepEqual(deferredIds(card), [], 'and nothing is deferred behind a bead that cannot be opened');
+  assert.deepEqual(
+    (card.givenUp || []).map((g) => g.id),
+    ['bc-1'],
+    'the retired bead is still in the queue and still reported — by the one list whose job that is'
+  );
+  assert.doesNotMatch(card.note, /deferred a tick behind/, card.note);
+});
+
+await test('a bead at the cap is not held by a surface either, so it is never two pills', async () => {
+  // The other direction, and the double count the ordering comment in `candidates` is
+  // about: held-by-surface subtracts a bead from the queue, given-up counts one still in
+  // it, so a bead in both is drawn twice and reported as neither thing it is.
+  const { opened, card } = await tick({
+    ready: [
+      bead('bc-1', { description: withBlock('lib/plan.js') }),
+      bead('bc-2', { description: withBlock('lib/plan.js') }),
+    ],
+    attempts: { 'bc-2': 2 },
+  });
+  assert.deepEqual(opened, ['bc-1'], 'the live bead is in front and opens on its own merits');
+  assert.deepEqual(deferredIds(card), [], 'the retired one is not deferred — there is no tick it comes back on');
+  assert.deepEqual(
+    (card.givenUp || []).map((g) => g.id),
+    ['bc-2'],
+    'given up on, which is the whole and only truth about it'
+  );
+});
+
+await test('two live beads are still held apart when a retired one declares the same file', async () => {
+  // bc-42ow.4's rule is not being relaxed, only stopped from being spent on a bead nothing
+  // will open: the retired bead in front takes nothing, and the two live ones behind it
+  // still resolve against each other exactly as they would have with it absent.
+  const { opened, card } = await tick({
+    ready: [
+      bead('bc-1', { description: withBlock('lib/plan.js') }),
+      bead('bc-2', { description: withBlock('lib/plan.js') }),
+      bead('bc-3', { description: withBlock('lib/plan.js') }),
+    ],
+    attempts: { 'bc-1': 2 },
+  });
+  assert.deepEqual(opened, ['bc-2'], 'the first live bead wins the file');
+  assert.deepEqual(deferredIds(card), ['bc-3'], 'and the second live bead defers to it, as it always did');
+  assert.equal(card.heldBySurface[0].other, 'bc-2', 'behind the bead that really is being opened, never behind bc-1');
+  assert.match(card.heldBySurface[0].why, /next tick/, 'and now that sentence is true — bc-2 will have landed or claimed');
 });
 
 await test('holdCollidingSurfaces: false takes the whole filter out', async () => {
