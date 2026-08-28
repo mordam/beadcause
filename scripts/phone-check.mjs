@@ -91,25 +91,27 @@ const PROBE = `(() => {
   const trm = t.match(/translate\\(([-\\d.]+),\\s*([-\\d.]+)\\)/);
   const tr = trm ? [+trm[1], +trm[2]] : [0, 0];
   const W = main ? main.clientWidth : 0, H = main ? main.clientHeight : 0;
-  const box = main ? main.getBoundingClientRect() : { left: 0, top: 0, right: 0, bottom: 0 };
+  const clientBox = main ? main.getBoundingClientRect() : { left: 0, top: 0, right: 0, bottom: 0 };
   let on = 0, over = 0;
   for (const n of nodes) {
     const r = n.getBoundingClientRect();
-    if (r.right > box.left && r.left < box.right && r.bottom > box.top && r.top < box.bottom) on++;
-    over = Math.max(over, box.left - r.left, r.right - box.right, box.top - r.top, r.bottom - box.bottom);
+    if (r.right > clientBox.left && r.left < clientBox.right && r.bottom > clientBox.top && r.top < clientBox.bottom) on++;
+    over = Math.max(over, clientBox.left - r.left, r.right - clientBox.right, clientBox.top - r.top, r.bottom - clientBox.bottom);
   }
-  const pos = nodes.map(n => {
-    const m = (n.getAttribute('transform') || '').match(/translate\\(([-\\d.]+),\\s*([-\\d.]+)\\)/);
-    return m ? [+m[1], +m[2]] : [0, 0];
-  });
-  const xs = pos.map(p => p[0]), ys = pos.map(p => p[1]);
+  // The same box fit() itself now measures — gNodes' own drawn extent — rather than
+  // rebuilding one from node centres plus a hardcoded 132x40, which drifts from
+  // whatever fit() actually frames the moment the two stop being computed the same
+  // way. A bare width/height, with no pad: this line reports what is drawn, not the
+  // margin fit() adds around it.
+  const nodesGroup = document.querySelector('g.nodes');
+  const sceneBox = nodesGroup && nodesGroup.getBBox ? nodesGroup.getBBox() : { width: 0, height: 0 };
   return {
     nodes: nodes.length,
     onScreen: on,
     overflow: Math.round(over),
     k: +k.toFixed(4),
     viewport: [W, H],
-    box: xs.length ? [Math.round(Math.max(...xs) - Math.min(...xs)) + 132, Math.round(Math.max(...ys) - Math.min(...ys)) + 40] : [0, 0],
+    box: nodes.length ? [Math.round(sceneBox.width), Math.round(sceneBox.height)] : [0, 0],
     settled: (document.getElementById('growth') || {}).hidden === true,
     loupe: (() => {
       const rim = document.querySelector('.loupe-rim');
