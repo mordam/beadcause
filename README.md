@@ -16380,6 +16380,31 @@ this window stop" but *does a conversation with this agent still have somewhere 
 closed bead has nothing to answer, a stood-down window belongs to another Mac, and a session
 that timed out or went silent is not one to hand an answer to.
 
+**And the close this sweep performs costs the bead nothing.** It used to cost two, which was
+enough to retire it. The sweep closes the window on purpose; the shell in it writes `$?` on
+the way out; the next `reconcile` finds that exit status and takes the arm whose whole
+sentence is *"it exited, closed nothing, delivered nothing and asked nothing — that is the
+one ending here nobody chose, and it costs an attempt"*. Somebody chose it: this sweep did,
+one tick earlier, and wrote the conversation down so it could come back. The `gone` ending
+has had `carryOver` against exactly this since bc-y7l2m, and the two are the same event seen
+from either side — a window that stopped answering with a transcript worth resuming — so the
+guard now reaches the path that actually fires. Measured on `bc-xl7n.142`, 2026-08-27: one
+brief at 18:31, parked at 18:51, reaped and charged at 18:55, resumed at 19:04, parked at
+19:26, reaped and charged at 19:29. Two charges against a `maxAttemptsPerBead` of 2, on one
+brief and one replay of that brief's silence; `bc-xl7n.144` the same hour, and about a third
+of this repo's ready queue was sitting at the cap when it was found.
+
+**It is bounded by the same `maxResumes` the `gone` ending is**, and for the sharper version
+of the same reason. A `handback` waits on you and a `delivered` waits on a merge, so neither
+can run away — the loop needs a person in it. A window that simply stopped talking waits on
+nothing at all, so a park that ignored the trip count would resume the same transcript into
+the same silence for ever. The sweep therefore withholds the record from a conversation that
+has had its trips, closes the window anyway, and lets `reconcile` charge that ending the way
+it always did. Two quiet windows cost one attempt: not none, and not two. The count itself
+has to be handed over on the worker record, because the row this sweep holds is the
+*open-register* row and has never carried one — miss that line and every idle park is written
+down as the first trip, which is `maxResumes` never binding at all.
+
 **The resume happens at the dispatch seam, not at `/api/respond`.** Opening the window from
 the answer handler is tempting — the answer is right there — and it is wrong twice. Every
 gate that decides whether a window may open lives on the advocate's tick: attempts, claims,
@@ -33406,7 +33431,7 @@ to be one.
 | `advocates.checkinMinutes` | how long a session asked to check in has to answer before its slot goes back (default 10) — long enough for a turn in flight to land and run the command, short enough that pressing Reclaim sessions is worth doing at all |
 | `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
 | `advocates.goneMinutes` | how long a worker's window has to be **missing** from Claude Code's live-session list before it is finished as `gone` rather than left to `workerTimeoutMinutes` (default 3). Then the slot comes back, the claim is handed back, **no attempt is charged** and the conversation is parked so the next dispatch [brings the same agent back](#the-window-that-disappeared--and-the-conversation-that-comes-back-into-the-next-one) instead of briefing a stranger. Minutes rather than one tick because the evidence is an *absence*: one missed read is a list being rewritten, six in a row is a fact. `0` or `false` restores the two-hour wait |
-| `advocates.maxResumes` | how many times one conversation may be carried over into a new window after its own disappeared (default 1). The first disappearance is an accident and is repaired for free; a *resumed* window that also disappears is a pattern, so that one is charged an attempt and the next window gets the fresh brief. `0` keeps the `gone` ending and never carries a conversation over |
+| `advocates.maxResumes` | how many times one conversation may be carried over into a new window after its own **disappeared or was closed by the idle sweep** (default 1). The first one is an accident and is repaired for free; a *resumed* window that goes the same way is a pattern, so that one is charged an attempt and the next window gets the fresh brief. It bounds both because neither has anybody waiting in the loop — a `handback` or a `delivered` park is resumed because Adam did something, and cannot run away. `0` keeps both endings and never carries a conversation over |
 | `advocates.neverStartedSeconds` | how long a window is given to get past line 3 of its command before [the launch's own temp files are read as proof it never started](#the-window-that-opened-and-never-ran-its-command) (default 45). Then the slot comes back, the files are cleaned up, the claim is handed back and **no attempt is charged** — a launch that never ran is not an attempt at the work. Seconds rather than minutes because the point is answering before `workerTimeoutMinutes`; `0` or `false` asks nothing and restores the two-hour wait |
 | `advocates.batchEpicChildren` | [hand an epic's ready children to one worker as a batch](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window), instead of holding the epic back and letting each child take its own window on its own tick (default `true`). `false` falls back to `heldByChildren`'s suppression, which is what this did before |
 | `advocates.maxBatchBeads` | how many of an epic's ready children one worker is briefed on at once (default 5) — the overflow waits rather than racing its own siblings in a second window |

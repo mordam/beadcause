@@ -127,10 +127,30 @@ const openRow = (sessionId, over = {}) => ({
 });
 
 /**
+ * The exit status the shell in a window writes on its way out — `readDone` in
+ * lib/advocate.js, `$BEADCAUSE_CONFIG_DIR/workers/<workspace>-<bead>.done`.
+ *
+ * This is the whole of what makes `reconcile`'s `ended` arm fire, and 143 is what a
+ * window closed by lib/reap.js leaves behind: SIGTERM, from this daemon.
+ */
+function exited(bead, code = 143) {
+  const dir = path.join(process.env.BEADCAUSE_CONFIG_DIR, 'workers');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `alpha-${bead}.done`), String(code));
+}
+
+/**
  * One tick, with an open register already on disk and whatever live sessions the case
  * needs — and nothing else running.
+ *
+ * `then` is what makes the bc-xl7n.146 cases possible: the park and the charge are two
+ * ticks apart by construction — the sweep closes the window at the end of one tick and the
+ * exit status only exists once the shell has run — so a case that needs both has to run
+ * the tick twice with the world moving in between. Same advocate object both times, which
+ * is the point: a flag the sweep leaves on a worker row is only worth anything if the next
+ * tick's `reconcile` can still see it.
  */
-async function tick({ opened = {}, parked = {}, session = null, workers = null } = {}) {
+async function tick({ opened = {}, parked = {}, session = null, workers = null, options = {}, then = null } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   // A clean slate per case. `quiesce` + `removeTree` rather than a bare recursive
   // `rmSync`: every write of `advocates.json` schedules a common-repo commit 2000ms out
@@ -171,6 +191,7 @@ async function tick({ opened = {}, parked = {}, session = null, workers = null }
       askSuperseded: false,
       flagInMain: false,
       sessionLog: false,
+      ...options,
     },
   };
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(cfg, null, 2));
@@ -204,6 +225,10 @@ async function tick({ opened = {}, parked = {}, session = null, workers = null }
     terminals: () => [],
   });
   await advocates.tick();
+  if (then) {
+    await then();
+    await advocates.tick();
+  }
   // `persist()` runs at the end of every tick, so the slot list on disk is what this tick
   // decided about it — which is where a worker row that re-bound onto the wrong window is
   // visible, and the only place it is.
@@ -430,6 +455,109 @@ await check('a window that only quotes the worker’s bead in its title is not a
   const key = prKey('alpha', '617');
   assert.ok(state.parked[key], `the reviewer is parked under ${key} — got ${JSON.stringify(Object.keys(state.parked))}`);
   assert.equal(state.parked[key].sessionId, REVIEWER, 'and it is the reviewer’s conversation, not the worker’s');
+});
+
+/* ------------------------------------ bc-xl7n.146: the sweep's own close, charged back */
+
+/**
+ * The incident, and it is two ticks long because the defect is.
+ *
+ * `parkIdle` closes a quiet window on purpose and writes the conversation down. The shell
+ * writes `$?` on the way out, so the *next* `reconcile` finds a done file and takes the
+ * `ended` arm — "it exited, closed nothing, delivered nothing and asked nothing. That is
+ * the one ending here nobody chose, and it costs an attempt." The daemon chose it. Measured
+ * on `bc-xl7n.142` and `bc-xl7n.144` on 2026-08-27: one brief each, parked at 20 minutes,
+ * reaped, charged, resumed, parked, reaped, charged — two charges against a cap of two, and
+ * both beads left in `bd ready` looking like unstarted work no window will ever open on.
+ *
+ * Asserted against the `parkIdle` -> `reconcile` path deliberately: the `gone` path has had
+ * `carryOver` since bc-y7l2m and passes this already, which is exactly why the hole was
+ * invisible.
+ */
+await check('a window this daemon parked for being quiet costs the bead no attempt', async () => {
+  const { state, slots } = await tick({
+    opened: { [LIVE_ID]: openRow(LIVE_ID, { bead: 'x-8', title: 'x-8 the quiet one' }) },
+    session: { sessionId: LIVE_ID, status: 'idle', quietFor: 45 },
+    workers: [workerRow({ id: 'x-8', title: 'x-8 the quiet one' })],
+    // Between the ticks: lib/reap.js's SIGTERM has landed and the shell has recorded it.
+    then: () => exited('x-8', 143),
+  });
+
+  const key = beadKey('alpha', 'x-8');
+  assert.ok(state.parked[key], `the sweep parked it — got ${JSON.stringify(Object.keys(state.parked))}`);
+  assert.equal(
+    (slots.attempts || {})['x-8'],
+    undefined,
+    `no attempt charged for a window this daemon closed — got ${JSON.stringify(slots.attempts)}`
+  );
+  assert.ok(
+    !(slots.workers || []).some((w) => w.id === 'x-8'),
+    'and the slot is freed all the same — the ending is real, it just is not the bead’s fault'
+  );
+  // The half that makes the uncharged ending worth anything: `finish` is given `unfinished`,
+  // and `parkWorker` writes for three endings that are not it, so the record it must not
+  // touch is still there for the next dispatch to resume.
+  assert.equal(state.parked[key].sessionId, LIVE_ID, 'and the conversation is still the one that can come back');
+});
+
+/** The control, so the case above is not passing because nothing is ever charged. */
+await check('a window that died on its own still costs an attempt', async () => {
+  const { slots } = await tick({
+    // Busy right through the sweep, so nothing parks it — and then its process is gone.
+    // That is a session that fell over, which is the ending the charge was written for.
+    opened: { [LIVE_ID]: openRow(LIVE_ID, { bead: 'x-8', title: 'x-8 the busy one' }) },
+    session: { sessionId: LIVE_ID, status: 'busy', quietFor: 45 },
+    workers: [workerRow({ id: 'x-8', title: 'x-8 the busy one' })],
+    then: () => exited('x-8', 1),
+  });
+
+  assert.equal((slots.attempts || {})['x-8'], 1, `charged — got ${JSON.stringify(slots.attempts)}`);
+});
+
+/**
+ * And the bound, which is why this is not just "stop charging".
+ *
+ * lib/parked.js's `maxResumes` is the guard against "the same window reopens forever", and
+ * it binds through `carryOver` on both sides: the sweep withholds the record from a
+ * conversation that has had its trips, and `reconcile` then charges the ending the way it
+ * always did. So two quiet windows cost one attempt, not none and not two — the bead is
+ * still dispatchable, and a third silence is not free.
+ */
+await check('a conversation that has had its trips is closed without a park, and charged', async () => {
+  const { state, slots } = await tick({
+    opened: { [LIVE_ID]: openRow(LIVE_ID, { bead: 'x-8', title: 'x-8 back for the second time' }) },
+    session: { sessionId: LIVE_ID, status: 'idle', quietFor: 45 },
+    // `maxResumes` defaults to 1, so a worker already on its first carried-over trip is at it.
+    workers: [workerRow({ id: 'x-8', title: 'x-8 back for the second time', resumes: 1 })],
+    then: () => exited('x-8', 143),
+  });
+
+  assert.deepEqual(state.parked, {}, 'no record written, so nothing brings this conversation back a third time');
+  assert.equal(state.opened[LIVE_ID], undefined, 'the window is closed all the same — that is what the sweep is for');
+  assert.equal((slots.attempts || {})['x-8'], 1, `and the ending is charged — got ${JSON.stringify(slots.attempts)}`);
+});
+
+/**
+ * The trip count has to reach the record, or `maxResumes` never binds and the case above
+ * never happens.
+ *
+ * The row this sweep holds is the *open-register* row, which has never carried `resumes`,
+ * and a resume drops the park record it could otherwise be read back off — so every idle
+ * park was being written down as the first trip. The count rides on the worker in between,
+ * exactly as it does for `parkWorker`. `maxResumes: 2` so the park is still allowed and the
+ * number is what is under test rather than the withholding.
+ */
+await check('the trip count rides on the worker into the park record', async () => {
+  const { state } = await tick({
+    opened: { [LIVE_ID]: openRow(LIVE_ID, { bead: 'x-8', title: 'x-8 back for the second time' }) },
+    session: { sessionId: LIVE_ID, status: 'idle', quietFor: 45 },
+    workers: [workerRow({ id: 'x-8', title: 'x-8 back for the second time', resumes: 1 })],
+    options: { maxResumes: 2 },
+  });
+
+  const rec = state.parked[beadKey('alpha', 'x-8')];
+  assert.ok(rec, `parked — got ${JSON.stringify(Object.keys(state.parked))}`);
+  assert.equal(rec.resumes, 1, `the record knows this is the second trip — got ${rec.resumes}`);
 });
 
 /* --------------------------------------------------------------------- teardown */
