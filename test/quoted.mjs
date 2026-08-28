@@ -335,7 +335,12 @@ check("acceptance: a branch that exists reports as diverged from the checkout's 
   assert.equal(row.state, 'diverged');
   assert.equal(row.current, 'main');
   assert.ok(row.currentAhead > 0 && row.branchAhead > 0, `expected divergence both ways, got ${JSON.stringify(row)}`);
-  assert.match(REPORT.stdout, /diverged from main: \d+ ahead \/ \d+ behind/);
+  // Spelled out both ways round rather than "N ahead / M behind", which reads in
+  // opposite directions depending on which branch you think you are standing on.
+  assert.match(
+    REPORT.stdout,
+    /diverged from main, the branch this checkout is on: main has \d+ commits? atlas\/public-launch does not, and atlas\/public-launch has \d+ main does not/
+  );
 });
 
 check('a branch pointing at the same commit as the checkout is not a finding', () => {

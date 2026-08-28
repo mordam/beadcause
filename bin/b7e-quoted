@@ -284,7 +284,13 @@ if (jsonMode) {
     const r = row.result;
     if (r.state === 'unknown') return [amber('no such branch or ref in this checkout')];
     if (r.state === 'diverged')
-      return [amber(`diverged from ${r.current}: ${r.currentAhead} ahead / ${r.branchAhead} behind on this branch`)];
+      return [
+        amber(
+          `diverged from ${r.current}, the branch this checkout is on: ` +
+            `${r.current} has ${r.currentAhead} commit${r.currentAhead === 1 ? '' : 's'} ${row.value} does not, ` +
+            `and ${row.value} has ${r.branchAhead} ${r.current} does not`
+        ),
+      ];
     if (r.state === 'checked-out') return ['this is the branch the checkout is on'];
     if (r.state === 'same-commit') return [`same commit as ${r.current}`];
     return [];
