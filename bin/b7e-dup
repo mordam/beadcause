@@ -272,8 +272,10 @@ if (jsonMode) {
     if (c.verbatim) console.log(dim(`  near-verbatim title (${c.titleScore} >= ${DUPE_THRESHOLD}) — the same bead typed twice, by lib/dupe.js's own bar`));
     if (c.supersededBy) console.log(dim(`  superseded by ${c.supersededBy} — read that one, not this`));
     if (c.closedBy) {
-      const pr = c.closedBy.pr ? ` (#${c.closedBy.pr})` : '';
-      console.log(dim(`  closed: ${c.closedBy.reason}${pr && !c.closedBy.reason.includes('#') ? pr : ''}`));
+      // A close reason is free prose and some of them are a whole handover paragraph;
+      // what a reader is scanning for is the merge line, which is always at the front.
+      const reason = c.closedBy.reason.length > 180 ? `${c.closedBy.reason.slice(0, 180)}…` : c.closedBy.reason;
+      console.log(dim(`  closed: ${reason.split('\n').join(' ')}`));
     } else if (c.closed) {
       console.log(dim('  closed, with no reason recorded'));
     }
