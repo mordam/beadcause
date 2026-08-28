@@ -1,0 +1,195 @@
+#!/usr/bin/env node
+/**
+ * `b7e-chapter` — which file on disk is this book or chapter, and which variant of it
+ * governs, in one call instead of a `grep`-then-`find`-then-`ls` chain re-derived by
+ * hand five times (bc-dgx7.123). See lib/chapter.js for the resolution and the naming
+ * convention it assumes.
+ *
+ *     b7e-chapter -w deluvia 2                 # book 2's OVERVIEW/SUMMARY/CHAPTER_MAP
+ *     b7e-chapter -w deluvia 3 1                # book 3 chapter 1's variants
+ *     b7e-chapter -w deluvia                    # the whole map: every book, what it has
+ *     b7e-chapter --dir <root> 3 1 --variant propagated
+ *     b7e-chapter -w deluvia 3 1 --variant current --path-only
+ *
+ * `--variant summary|prose|propagated|current` (chapter mode only) narrows the result
+ * to one variant — `current` means whichever one a canon gate marks canon-current, and
+ * is an empty result (exit 1) when no gate covers this chapter. `--path-only` prints
+ * just the resolved absolute paths, one per line, nothing else — for splicing into
+ * another command. `--json` prints the structure `lib/chapter.js`'s `resolveChapter`/
+ * `mapBooks` returns.
+ *
+ * Exit codes: `0` resolved at least one non-archived result. `1` nothing resolved (book
+ * not found, chapter not found, or `--variant` narrowed to nothing). `2` bad usage —
+ * missing `-w`/`--dir`, both given, or no workspace by that name.
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { mapBooks, resolveChapter } from '../lib/chapter.js';
+
+const USAGE = `usage: b7e-chapter -w <workspace> | --dir <root> [<book> [<chapter>]] [options]
+
+  -w, --workspace <name>   a beadcause workspace whose checkout has the novel/ tree
+  --dir <root>             a checkout directly, instead of a workspace name
+  <book>                   book number; omitted prints the whole map
+  <chapter>                chapter number within that book; omitted prints book docs
+  --variant <name>         summary|prose|propagated|current — one variant, chapter mode only
+  --path-only              print just the resolved absolute path(s), one per line
+  --json                   print the structure instead of the plain report`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+const has = (f) => argv.includes(f);
+
+const wsName = value('-w', value('--workspace', null));
+const dirArg = value('--dir', null);
+const VARIANT = value('--variant', null);
+const PATH_ONLY = has('--path-only');
+const JSON_MODE = has('--json');
+
+if (!wsName && !dirArg) {
+  console.error('b7e-chapter: one of -w/--workspace or --dir is required');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (wsName && dirArg) {
+  console.error('b7e-chapter: -w/--workspace and --dir are mutually exclusive');
+  process.exit(2);
+}
+if (VARIANT && !['summary', 'prose', 'propagated', 'current'].includes(VARIANT)) {
+  console.error(`b7e-chapter: --variant must be summary|prose|propagated|current, got ${JSON.stringify(VARIANT)}`);
+  process.exit(2);
+}
+
+const positional = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '-w' || a === '--workspace' || a === '--dir' || a === '--variant') {
+    i++;
+    continue;
+  }
+  if (a.startsWith('-')) continue;
+  positional.push(a);
+}
+const bookArg = positional[0] != null ? Number(positional[0]) : null;
+const chapterArg = positional[1] != null ? Number(positional[1]) : null;
+if (positional[0] != null && !Number.isInteger(bookArg)) {
+  console.error(`b7e-chapter: <book> must be an integer, got ${JSON.stringify(positional[0])}`);
+  process.exit(2);
+}
+if (positional[1] != null && !Number.isInteger(chapterArg)) {
+  console.error(`b7e-chapter: <chapter> must be an integer, got ${JSON.stringify(positional[1])}`);
+  process.exit(2);
+}
+if (VARIANT && bookArg == null) {
+  console.error('b7e-chapter: --variant needs a <book> (and a <chapter> to do anything with)');
+  process.exit(2);
+}
+
+let ROOT;
+if (dirArg) {
+  ROOT = path.resolve(dirArg);
+} else {
+  const cfg = loadConfig();
+  const ws = cfg.workspaces.find((w) => w.name === wsName);
+  if (!ws) {
+    console.error(`b7e-chapter: no workspace named "${wsName}"`);
+    console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+    process.exit(2);
+  }
+  try {
+    ROOT = resolveSessionDir(cfg, ws);
+  } catch (err) {
+    console.error(`b7e-chapter: ${err.message}`);
+    process.exit(2);
+  }
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+
+function printRow(label, row) {
+  console.log(bold(row.relPath));
+  console.log(`  path: ${row.path}`);
+  if (label) console.log(`  ${label}`);
+  console.log(`  lines: ${row.lineCount ?? dim('unknown')}`);
+  console.log(`  last commit: ${row.lastCommit ?? dim('none')}`);
+  console.log('');
+}
+
+function printArchive(archive) {
+  if (archive.length === 0) return;
+  console.log(bold('ARCHIVE'));
+  for (const row of archive) console.log(`  ${row.path}`);
+  console.log('');
+}
+
+if (bookArg == null) {
+  const books = mapBooks(ROOT);
+  if (JSON_MODE) {
+    console.log(JSON.stringify({ books }, null, 2));
+  } else if (PATH_ONLY) {
+    for (const b of books) console.log(path.join(ROOT, b.relDir));
+  } else {
+    if (books.length === 0) console.log(dim('no novel/ books found'));
+    for (const b of books) console.log(`${bold(`Book ${b.number}`)}  ${b.relDir}  [${b.kinds.join(', ') || dim('no docs')}]`);
+  }
+  process.exit(books.length > 0 ? 0 : 1);
+}
+
+const result = resolveChapter(ROOT, bookArg, chapterArg);
+
+if (!result.book) {
+  console.error(`b7e-chapter: no book ${bookArg} found under ${path.join(ROOT, 'novel')}`);
+  process.exit(1);
+}
+
+if (result.mode === 'book') {
+  let { docs, archive } = result;
+  if (JSON_MODE) {
+    console.log(JSON.stringify(result, null, 2));
+    process.exit(docs.length > 0 ? 0 : 1);
+  }
+  if (PATH_ONLY) {
+    for (const d of docs) console.log(d.path);
+    process.exit(docs.length > 0 ? 0 : 1);
+  }
+  if (docs.length === 0) console.log(dim(`no BOOK_${bookArg}_* docs found`));
+  for (const d of docs) printRow(`kind: ${d.kind}`, d);
+  printArchive(archive);
+  process.exit(docs.length > 0 ? 0 : 1);
+}
+
+// chapter mode
+let { variants, archive } = result;
+if (VARIANT === 'current') variants = variants.filter((v) => v.canonCurrent);
+else if (VARIANT) variants = variants.filter((v) => v.variant === VARIANT);
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ ...result, variants }, null, 2));
+  process.exit(variants.length > 0 ? 0 : 1);
+}
+if (PATH_ONLY) {
+  for (const v of variants) console.log(v.path);
+  process.exit(variants.length > 0 ? 0 : 1);
+}
+if (variants.length === 0) console.log(dim(`no CHAPTER_${chapterArg} files found for book ${bookArg}`));
+for (const v of variants) {
+  const canon = v.canonCurrent ? green(`canon-current (${v.canonReason})`) : dim('not canon-current');
+  printRow(`variant: ${v.variant}  —  ${canon}`, v);
+}
+printArchive(archive);
+process.exit(variants.length > 0 ? 0 : 1);

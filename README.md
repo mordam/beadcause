@@ -20483,6 +20483,61 @@ read anything in `lib/grants.js` already classifies as one. `dispatch`, the one 
 this list actually governs, has no more use for a battery of another repo's checks than
 it does for running this one's own suite.
 
+### Which file on disk is this book or chapter, and which variant is the live one — `b7e-chapter`
+
+Five sessions (`dv-afr.21`, `dv-afr.20`, `dv-5eu.19`, `dv-afr.15`, `dv-afr.17`) each
+located a deluvia document by hand, none the same way, because deluvia's naming is not
+uniform: `novel/Deluvia Book 1|2/BOOK_N_OVERVIEW.md` but `novel/Deluvia Book 3|4|5|6/
+BOOK_N_SUMMARY.md`, some books additionally carry `BOOK_N_CHAPTER_MAP.md`, a chapter
+exists as up to three files (`.summary.md`, `.text.draft.md`, `.propagated.md`), and
+archive twins live both under a book's own `_archive_pre-restructure/` and under
+`.claude/worktrees-retired/`. `dv-afr.21`'s `grep` hit "No such file or directory" and
+fell back to a `find` that also surfaced a retired duplicate, left to be picked by eye;
+`dv-5eu.19` spent three Bash calls and a memory lookup finding out that a canon-gate
+script, not recency, decides which of three CHAPTER_1 variants for Book 3 is the one
+that governs. `bc-dgx7.123` is that lookup, once.
+
+```
+b7e-chapter -w <workspace> <book>                every BOOK_N_* doc for that book
+b7e-chapter -w <workspace> <book> <chapter>       every CHAPTER_N.* variant, canon marked
+b7e-chapter -w <workspace>                        the whole map: every book, what it has
+b7e-chapter --dir <root> <book> [<chapter>]       a checkout directly, no workspace needed
+b7e-chapter … --variant summary|prose|propagated|current   narrow to one variant
+b7e-chapter … --path-only                         just the resolved absolute path(s)
+b7e-chapter … --json
+```
+
+**The convention, in `lib/chapter.js`.** A book is `<root>/novel/<dir>`, where `<dir>`
+carries the book number as a standalone token (`\bBook\s*0*N\b`, so a query for book `1`
+never matches `Book 12`). Its book-level docs are `BOOK_N_OVERVIEW.md` or
+`BOOK_N_SUMMARY.md` (OVERVIEW preferred when a book somehow has both) plus an optional
+`BOOK_N_CHAPTER_MAP.md` alongside either — this is why `-w deluvia 2` names only the
+OVERVIEW and `-w deluvia 5` names both the SUMMARY and the CHAPTER_MAP, never a SUMMARY
+next to an OVERVIEW. A chapter file is `CHAPTER_N.<infix>.md`; the infix classifies the
+variant — `propagated`, `summary`, `draft`/`text` (reported as `prose`), anything else as
+`other` rather than dropped.
+
+**A canon gate is discovered, never assumed.** `<root>/scripts/check_ch<start>_<end>_canon.py`
+governs chapters `start`..`end` of whichever book's directory name its own source text
+names verbatim; among that chapter's variants, the one whose classifying keyword appears
+in the gate's source is canon-current, cited by the gate's path. A chapter no gate's
+range covers has **no** canon-current variant — not the newest file, not the prose one,
+nothing — because guessing is exactly the extra step `dv-5eu.19` took three calls to
+avoid making. This is why `-w deluvia 3 1` marks `.propagated.md` canon-current, citing
+`check_ch1_11_canon.py`, and a Book 3 chapter above 11 marks nothing.
+
+**Archive twins are always listed, never a result.** Anything otherwise matching either
+pattern under a path segment starting `_archive` (case-insensitive) or anywhere under
+`.claude/worktrees-retired/` is collected into a separate `ARCHIVE` section by path —
+visible, so a caller who greps a filename does not silently land on the retired copy the
+way `dv-afr.21`'s `find` did, but never a candidate a plain result or `--path-only` can
+return.
+
+Tested against a fixture built with `lib/fixture.js`'s `buildFixture` (`test/b7echapter.mjs`)
+— a synthetic `novel/` tree with a Book 2 (OVERVIEW-only, plus an archived twin and a
+retired-worktree twin), a Book 5 (SUMMARY + CHAPTER_MAP) and a Book 3 chapter with all
+three variants and a `check_ch1_11_canon.py` — so the suite depends on none of deluvia.
+
 ### Turn a gate's own "expected X — got Y" into the edit — `b7e-rebaseline`
 
 `b7e-checks` just above runs a workspace repo's gate scripts and tells you which are red.
