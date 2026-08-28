@@ -274,6 +274,12 @@ await check('a log that is not there repairs nothing and throws nothing', async 
   const { advocates, saved } = await stand({ log: false });
   await advocates.tick();
   assert.deepEqual(saved().attempts, CHARGED, 'counters must survive a log that cannot be read');
+  // And spends nobody's one look on it. A read that never happened recorded as an answer
+  // would skip every one of these beads for good the moment the log came back.
+  assert.deepEqual(saved().attemptAudited || {}, {}, 'a missing log must not count as having looked');
+  writeLog();
+  await advocates.tick();
+  assert.equal(saved().attempts['bc-parked'], undefined, 'the log coming back should have been read');
 });
 
 await check('a workspace with nothing at the cap never opens the log at all', async () => {
