@@ -34313,6 +34313,8 @@ to be one.
 | `slowRequestMs` | a request past this is named in the log with where its time went (default `1000` — the page-load budget itself, so a line means "this missed the budget" rather than "this was slower than its neighbours"). `0` turns **the log** off and nothing else: the per-route figures behind `/api/timings` are always collected. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | `sync.enabled` | keep a shared tracker shared — `bd dolt pull` then `bd dolt push`, per workspace, on a timer (default `true`). It is on for everybody and it does nothing at all on a workspace with no Dolt remote, which is every workspace until you add one. See [A tracker two Macs share](#a-tracker-two-macs-share) |
 | `sync.seconds` | how often (default 120, floor 30). **Not a performance knob** — it is the width of the window in which two machines can act on stale information, which is why it is a setting and not a constant. There is deliberately no list of *which* workspaces sync: a Dolt remote is that list |
+| `dossier.sources` | the ordered glob list `b7e-dossier` reads when a workspace has no set of its own (default: `reference/`, `docs/`, `compendium/`, then every remaining `.md`). Ordered, because the order is what makes the first block canon and a later one a draft — see [every canon assertion about one named thing](#every-canon-assertion-about-one-named-thing-with-its-source-line--b7e-dossier) |
+| `dossier.sourcesPerWorkspace` | the workspaces with their own shelves, keyed by name like `pr.basePerWorkspace` — either an ordered glob list, or an object keyed by `--kind` (`character`, `place`, `species`, ...) with a `default` beside them. deluvia ships one; a name that is absent falls through to `dossier.sources`, so nothing has to be configured for the command to work |
 | `publication.seconds` | how often the daemon publishes what this install can say about itself (default 3600, floor 60). It does nothing at all on an install with the management system off, which is every install by default. There is deliberately **no `publication.enabled`** beside it: a cadence is a setting, and whether an install with the layer on publishes at all is not — see [Publishing on a clock nobody has to remember](#publishing-on-a-clock-nobody-has-to-remember--libpublishsweepjs-testpublishsweepmjs) |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
 | `sharedServer` | leave `false` — see the note below |
@@ -39776,6 +39778,79 @@ plain `b7e-graph <predicate>` from inside a project just works).
 **Never a write.** Every `dolt` invocation this makes is `dolt sql -r json -q <select>`;
 `test/beadsnapshot.mjs` asserts this directly, over every call the cache path makes, not
 just by description.
+
+### Every canon assertion about one named thing, with its source line — `b7e-dossier`
+
+`bc-dgx7.101`, filed by the session audit against six sessions (`dv-gr6.5`, `dv-5eu.1.3`,
+`dv-nsy.2`, `dv-2uu.5`, `dv-b5d.28`, `dv-b5d.32`) that each opened by reconstructing what
+canon already says about one entity — a character, a place, a species — before deciding
+anything, and no two did it the same way. `dv-gr6.5` typed eight greps and four `sed`
+ranges at Korgath and found a real contradiction (Book 3 Ch. 5 made him 43 where
+`reference/CHARACTER_CONCURRENCY.md:54` says 173) only because one grep in that hand-typed
+list happened to be the right one. `dv-b5d.32` ran the same sweep as an audit, found three
+stale height statements, and had nothing to tell it there were only three. `dv-5eu.1.3`
+lost two of its calls outright to `grep` refusing a name with parentheses in it. This is
+the lookup all six were doing before the judgement, done the same way every time.
+
+```
+b7e-dossier -w deluvia Korgath
+b7e-dossier -w deluvia Othen --kind species
+b7e-dossier -w deluvia Korgath --at 3f2a91c     read a git ref, not the working tree
+b7e-dossier -w deluvia Korgath Kazran           two spellings of one subject, not two queries
+b7e-dossier --dir /path/to/checkout Korgath     read a tree no workspace names
+```
+
+**Not `b7e-claims`, and the difference is the axis.** `b7e-claims` takes a *file* and asks
+what other files assert about it. This takes a *name*. The contradictions it surfaces are
+between two sources neither of which is the file under edit — Ch. 5 against
+`CHARACTER_CONCURRENCY.md`, with the session sitting in a third file entirely — which is
+exactly the shape a per-file tool cannot see.
+
+**The source set is config, in order, never hardcoded.** `dossier.sourcesPerWorkspace` is
+an ordered list of globs per workspace, optionally keyed by `--kind` (`character`,
+`place`, `species`, or whatever that corpus's shelves are called) with a `default` beside
+them; a workspace with no entry falls through to `dossier.sources`. The *order* is the
+answer, not a formatting choice: it is what makes the first block canon and a later one a
+draft, and a disagreement is only a finding because one of the two sources outranks the
+other. A file is listed once, under the first glob that claims it, so a catch-all can sit
+at the end without re-printing what came before it.
+
+**A hit is a line, not a section.** Every line that names the subject, with its enclosing
+heading and line number — plus every line carrying a field value inside a section whose
+*heading* names the subject, which is the half a grep cannot do: `### §8 — Othens`
+followed by a bare `- Height: 12'0"–15'0"` states the species' height and never repeats
+the species' name. A line inside such a section earns its place only by asserting
+something.
+
+Then two summaries. **FIELDS** is every value found for each field that recurs: the four
+shapes prose states without a label — an age, a lifespan, a height, a death — plus any
+`Label: value` at the head of a line that two or more sources write. **DISAGREES** is the
+subset whose sources contradict one another. Two numbers disagree unless one *contains*
+the other, so `15 ft` inside `12–15 ft` is one source being more specific rather than a
+contradiction, while `15–25 ft` against `12–15 ft` is two incompatible claims. It is a
+shortlist to look at, never a verdict — which is why a disagreement does not change the
+exit code.
+
+**Numbers are read in both spellings.** Reference files write `173 years old`; a drafted
+chapter writes `a hundred and seventy-three years old`. The disagreement this command is
+named for is a digit against a word-run, so a reader that only understood digits would
+miss the one finding the bead exists to reproduce.
+
+**`--at <ref>` reads a git ref instead of the working tree**, which is what makes the
+audit case work at all: by the time anyone asks "how many stale statements were there",
+some of them have been fixed, and the answer only exists at the commit before the fix.
+
+`lib/dossier.js` is the read — the glob ordering, the tree walk (reusing `lib/corpus.js`'s
+`collectAll` for the working-tree half), the field readers, and the two summaries.
+`bin/b7e-dossier` is the argv shell and the printing. `--dir` reads a directory directly
+rather than through the workspace's checkout — this is how it is tested, the same escape
+hatch `bin/b7e-claims` and `bin/b7e-ruled` already use.
+
+Exit codes: `0` at least one source says something about the name — a disagreement is a
+finding, not a failure, so it does not change this. `1` nothing in the source set names it,
+said in one line on stderr, because that is usually a misspelling or a source set that does
+not reach the file. `2` bad usage. `4` `-w` named a workspace this checkout has no config
+for. `5` the tree could not be read — a `--at` ref that does not resolve.
 
 ## Notes on bd
 
