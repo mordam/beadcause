@@ -1,0 +1,198 @@
+#!/usr/bin/env node
+/**
+ * `b7e-graph` — the workspace's beads and comments as one local snapshot you can
+ * actually query, read straight off Dolt rather than through `bd`.
+ *
+ *   b7e-graph -w deluvia --title-match "Entry 107" --with-comments
+ *   b7e-graph -w deluvia --assignee neadamthal@gmail.com --status open,in_progress
+ *   b7e-graph -w deluvia --label burrow --json
+ *   b7e-graph --parent dv-b5d.49            # ambient workspace, from $BEADS_DIR
+ *
+ * bc-dgx7.98, moved here from deluvia (filed there as dv-b5d.49) because every
+ * deliverable it names — this file, lib/beadsnapshot.js, README.md — lives in this
+ * repo. Six sessions each hand-rolled the same `bd list --json | python3 -c ...`
+ * pipeline before this existed; see lib/beadsnapshot.js's header for the full case,
+ * and in particular for what "reads the workspace's beads" does and does not mean
+ * here — this is not a faithful `bd list --json` clone, it is a fast local read of
+ * what `issues`/`labels`/`comments` actually store.
+ *
+ * `-w` resolves a name against the beadcause config's registered workspaces, same as
+ * `b7e-census`. With no `-w`, it falls back to `$BEADS_DIR` — the workspace the calling
+ * shell is already scoped to — so a plain `b7e-graph <predicate>` run from inside a
+ * project just works.
+ *
+ * Exit codes: `0` the call answered (zero matches included). `1` a bad flag, an
+ * unknown workspace, or no workspace resolvable at all. `2` the Dolt read itself
+ * failed (bad `.beads` layout, `dolt` missing, corrupt output).
+ *
+ * @grant read
+ */
+import { loadConfig } from '../lib/config.js';
+import { loadSnapshot, filterIssues, formatTable, forJson } from '../lib/beadsnapshot.js';
+
+const USAGE = `usage: b7e-graph [-w <workspace>] [predicate] [output]
+
+workspace:
+  -w, --workspace <name>   a workspace registered in beadcause's own config
+                            (default: $BEADS_DIR, the ambient shell workspace)
+
+predicate (all optional; a bead must satisfy every one given):
+  --title-match <text>     title contains this, case-insensitive
+  --assignee <name>        exact assignee match
+  --label <name>           carries this label, repeatable — ANDed
+  --status <s>[,<s>...]    one of these statuses (default: every status, closed included)
+  --parent <id>            is a direct child of this bead (the one parent-child edge)
+  --closed-reason <text>   close_reason contains this, case-insensitive
+
+output:
+  --with-comments          inline each matching bead's comments (always read; only
+                            printing is gated on this flag)
+  --json                   the matching rows as one JSON array (default: a table)
+
+cache:
+  --max-age <mins>         serve a cached snapshot up to this old (default: 5)
+  --refresh                ignore the cache and re-read Dolt now, whatever its age`;
+
+const rawArgv = process.argv.slice(2);
+if (rawArgv.includes('--help') || rawArgv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let wsName = null;
+let titleMatch = null;
+let assignee = null;
+let closedReason = null;
+let parent = null;
+const label = [];
+let statusArg = null;
+let withComments = false;
+let jsonMode = false;
+let maxAgeMinutes = 5;
+let refresh = false;
+
+const FLAG_VALUES = new Set([
+  '-w',
+  '--workspace',
+  '--title-match',
+  '--assignee',
+  '--label',
+  '--status',
+  '--parent',
+  '--closed-reason',
+  '--max-age',
+]);
+
+for (let i = 0; i < rawArgv.length; i += 1) {
+  const a = rawArgv[i];
+  const next = () => {
+    if (i + 1 >= rawArgv.length || (rawArgv[i + 1].startsWith('-') && FLAG_VALUES.has(rawArgv[i + 1]))) {
+      console.error(`b7e-graph: ${a} needs a value`);
+      process.exit(1);
+    }
+    i += 1;
+    return rawArgv[i];
+  };
+  switch (a) {
+    case '-w':
+    case '--workspace':
+      wsName = next();
+      break;
+    case '--title-match':
+      titleMatch = next();
+      break;
+    case '--assignee':
+      assignee = next();
+      break;
+    case '--label':
+      label.push(next());
+      break;
+    case '--status':
+      statusArg = next();
+      break;
+    case '--parent':
+      parent = next();
+      break;
+    case '--closed-reason':
+      closedReason = next();
+      break;
+    case '--max-age':
+      maxAgeMinutes = Number(next());
+      if (!Number.isFinite(maxAgeMinutes) || maxAgeMinutes < 0) {
+        console.error('b7e-graph: --max-age needs a non-negative number of minutes');
+        process.exit(1);
+      }
+      break;
+    case '--refresh':
+      refresh = true;
+      break;
+    case '--with-comments':
+      withComments = true;
+      break;
+    case '--json':
+      jsonMode = true;
+      break;
+    default:
+      console.error(`b7e-graph: unrecognised argument "${a}"`);
+      console.error(USAGE);
+      process.exit(1);
+  }
+}
+
+let beadsDir = null;
+let wsLabel = null;
+if (wsName) {
+  const cfg = loadConfig();
+  const ws = (cfg.workspaces || []).find((w) => w.name === wsName);
+  if (!ws) {
+    console.error(`b7e-graph: no workspace named "${wsName}"`);
+    console.error(`configured workspaces: ${(cfg.workspaces || []).map((w) => w.name).join(', ') || 'none'}`);
+    process.exit(1);
+  }
+  beadsDir = ws.dir;
+  wsLabel = ws.name;
+} else if (process.env.BEADS_DIR) {
+  beadsDir = process.env.BEADS_DIR;
+  wsLabel = beadsDir;
+} else {
+  console.error('b7e-graph: no -w/--workspace given and $BEADS_DIR is not set — nothing to read');
+  console.error(USAGE);
+  process.exit(1);
+}
+
+let snapshot;
+try {
+  snapshot = loadSnapshot(beadsDir, { maxAgeMs: maxAgeMinutes * 60 * 1000, force: refresh });
+} catch (err) {
+  console.error(`b7e-graph: ${err.message}`);
+  process.exit(2);
+}
+
+if (!snapshot.prefixes.length) {
+  console.error(`b7e-graph: no Dolt database found under ${beadsDir}/embeddeddolt — is "${wsLabel}" a beads workspace?`);
+  process.exit(2);
+}
+
+const matched = filterIssues(snapshot.issues, {
+  titleMatch,
+  assignee,
+  label,
+  status: statusArg ? statusArg.split(',').map((s) => s.trim()).filter(Boolean) : [],
+  parent,
+  closedReason,
+});
+
+if (jsonMode) {
+  console.log(JSON.stringify(forJson(matched, { withComments }), null, 2));
+} else {
+  console.log(formatTable(matched));
+  if (withComments) {
+    for (const issue of matched) {
+      if (!issue.comments.length) continue;
+      console.log(`\n${issue.id} comments:`);
+      for (const c of issue.comments) {
+        console.log(`  [${c.created_at}] ${c.author}: ${c.text}`);
+      }
+    }
+  }
+}
