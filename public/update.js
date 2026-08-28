@@ -300,7 +300,7 @@
    * The ask, over the top bar.
    *
    * Its own element rather than one of the page's, because this script is loaded onto
-   * eleven pages that agree about almost nothing else in their markup — and because
+   * six pages that agree about almost nothing else in their markup — and because
    * whatever is underneath it is somebody's work, which a modal would interrupt and this
    * does not.
    */

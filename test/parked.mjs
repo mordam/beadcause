@@ -90,7 +90,7 @@ const {
 } = await import(LIB('parked.js'));
 const { continuityFlag, sessionCommand } = await import(LIB('session.js'));
 const { decide } = await import(LIB('reap.js'));
-const { mainOf, resumePrompt } = await import(LIB('resume.js'));
+const { mainOf, resumePrompt, interruptedPrompt } = await import(LIB('resume.js'));
 
 console.log('\na window waiting on you, parked and resumed\n');
 
@@ -205,6 +205,36 @@ check('the ending is recorded, so the resume knows which turn to write', () => {
 check('a record from before endings were kept reads as null, never as gone', () => {
   const p = recordPark({}, 'beadcause/bc-1', REC, NOW);
   assert.equal(parkedAt(p, 'beadcause/bc-1').ending, null, 'and null takes the answering turn, which is what those were');
+});
+
+/**
+ * bc-xl7n.147. `interruptedPrompt` covers two endings now — `gone` (a window closed by
+ * hand, killed, or lost with its terminal) and `idle` (the sweep closed a quiet one on
+ * purpose) — and only the opening line differs, because only it makes a claim about *why*
+ * the window is not there. Everything below it (do not start over, reclaim, main has
+ * moved) is true of both.
+ */
+check('the opening line is honest about which of the two endings this was', () => {
+  const gone = interruptedPrompt({ owner: 'Adam', bead: 'bc-2uj4.5', parkedAt: ago(3600e3) });
+  assert.match(gone, /Your window disappeared/);
+  assert.doesNotMatch(gone, /went quiet/i);
+
+  const idle = interruptedPrompt({ owner: 'Adam', bead: 'bc-2uj4.5', parkedAt: ago(3600e3), reason: 'idle' });
+  assert.match(idle, /went quiet/i);
+  assert.doesNotMatch(idle, /disappeared/, 'nothing disappeared — the daemon closed it on purpose');
+
+  // And what does not change between them: neither ending has anything waiting on Adam.
+  for (const text of [gone, idle]) {
+    assert.match(text, /Nothing was answered/i);
+    assert.doesNotMatch(text, /answered\.\*\*/, 'never the turn that delivers an answer');
+    assert.match(text, /bd update bc-2uj4\.5 --claim/, 'the claim was forced off either way');
+    assert.match(text, /Do not start over/);
+  }
+});
+
+check('`reason` defaults to `gone`, for every call site written before `idle` existed', () => {
+  const text = interruptedPrompt({ owner: 'Adam', bead: 'bc-2uj4.5' });
+  assert.match(text, /Your window disappeared/);
 });
 
 check('dropping is what happens after the window is open, and it is complete', () => {

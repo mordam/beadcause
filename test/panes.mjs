@@ -39,7 +39,7 @@
  *    to the thing it is showing rather than only to itself, and the failure is silent: the
  *    back button walks and the pane goes on drawing what it drew.
  *
- * 5. **The row is on twelve pages and only one has panes.** Every other page must draw
+ * 5. **The row is on ten pages and only one has panes.** Every other page must draw
  *    exactly what it drew before, which means `window.beadcause.panes` being absent has to
  *    be an ordinary answer rather than a `TypeError`. The last section runs the row with no
  *    panes at all and asserts every pill is the link it was.
@@ -434,8 +434,7 @@ await check('and no other page loads it — the row asks, it does not require', 
 
 await check('the row reaches for panes with ?. and for the grammar flat', () => {
   // The asymmetry is the whole reason a v81 phone survives this branch: a page with no
-  // grammar is broken and should say so, a page with no panes is eleven pages out of
-  // twelve.
+  // grammar is broken and should say so, a page with no panes is nine pages out of ten.
   assert.ok(/window\.beadcause\?\.panes/.test(VIEWBAR), 'viewbar.js requires panes to exist');
   assert.ok(/const route = window\.beadcause\.route;/.test(VIEWBAR), 'the grammar stopped being required');
 });
@@ -766,7 +765,7 @@ await check('a pill whose container is still pending is a link to the document i
   assert.equal(pill(nav, 'config').href, '/config');
   // And the other three are not, because bc-khoe.30.5, bc-khoe.4 and bc-khoe.30.14 filled
   // theirs. This is the whole of what filling a container changes at the row: nothing in
-  // viewbar.js moved for any of them, and the `href` in `PILLS` stays — eleven pages that
+  // viewbar.js moved for any of them, and the `href` in `PILLS` stays — nine pages that
   // have no panes still draw this row and still need the link.
   for (const id of ['history', 'advocates', 'releases']) {
     assert.equal(pill(nav, id).tag, 'button', `${id} still loads a document this page has open`);
@@ -842,9 +841,9 @@ await check('a narrowing chosen while another pane is up is waiting when Home co
   assert.equal(pills(nav).find((p) => p.current).id, 'bead');
 });
 
-/* ================================================ the eleven pages without panes */
+/* ================================================ the nine pages without panes */
 
-console.log('\nthe eleven pages that have no panes');
+console.log('\nthe nine pages that have no panes');
 
 await check('with no panes at all, every pill is the link it always was', () => {
   // /flow, /requirements, /endorse, /admin, /console — and, until bc-khoe.30.5 and .30.6,

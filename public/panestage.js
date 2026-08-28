@@ -64,7 +64,7 @@
   ## What a pane registers, and what happens if it does not
 
   `register` is called by a pane's own script as it loads, and it answers **whether the
-  stager took it**. A page with no panes — eleven of the twelve that draw the pill row —
+  stager took it**. A page with no panes — nine of the ten that draw the pill row —
   never loads this file at all, so the call is `window.beadcause?.stage?.register?.(…)`,
   comes back `undefined`, and the script builds itself the way it always did. That
   fallback is not a nicety: it is what keeps a phone holding a service-worker cache from

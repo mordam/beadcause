@@ -196,5 +196,36 @@ await rebuildFrom(repo);
 check('a rebuild over a correct index changes nothing', JSON.stringify(await everything()) === once);
 check('what the notes cannot restore is only what was never noted', Object.keys(beforeWipe).length > Object.keys(after).length);
 
+/* --------------------------------------------------- the one command that writes */
+
+console.log('\nthe promote path, where a bad call is invisible until somebody runs it');
+
+// Three real bugs, all hit writing bc-eqn1.3 (bin/controls.js was copied from this file
+// and inherited the first two verbatim; the third — corpus() — is native to this file and
+// blocks `promote` before it ever reaches Bd). None fails anywhere a suite would notice,
+// because nothing drives this CLI: `new Bd(cfg)` finds no `bin` and dies inside `execFile`
+// with "the file argument must be of type string", naming neither the line nor the
+// mistake; a bare workspace *name* is refused by lib/bd.js's own guard (bc-ygwa); and
+// `Object.keys(cfg.workspaces || {})` on an *array* (discoverWorkspaces) hands back
+// indices ('0','1',…) instead of names, so every workspace directory silently fails to
+// resolve and the corpus is never found. Asserted statically because the alternative is a
+// fake daemon for a few lines of wiring — see bc-eqn1.3.1.
+const cli = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'requirements.js'), 'utf8');
+check(
+  'Bd is built from the four named fields, not handed the config object',
+  /new Bd\(\{\s*bin: cfg\.bdBin/.test(cli),
+  (cli.match(/new Bd\([^)]*\)/) || ['no Bd construction found'])[0]
+);
+check(
+  'and every bd call takes the workspace object the config named',
+  /const ws = workspaceNamed\(workspace\)/.test(cli) && !/bd\.(show|update)\(workspace\b/.test(cli),
+  (cli.match(/bd\.(show|update)\([^)]*\)/g) || []).join(' · ')
+);
+check(
+  'and corpus() walks the workspace objects, not their re-keyed indices',
+  /for \(const ws of cfg\.workspaces \|\| \[\]\)/.test(cli) && !/Object\.keys\(cfg\.workspaces/.test(cli),
+  (cli.match(/for \([^)]*cfg\.workspaces[^)]*\)/) || ['no workspace loop found'])[0]
+);
+
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');
 process.exit(failed ? 1 : 0);
