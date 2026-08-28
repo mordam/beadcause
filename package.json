@@ -78,6 +78,7 @@
     "b7e-field": "bin/b7e-field",
     "b7e-filed": "bin/b7e-filed.js",
     "b7e-fixture": "bin/b7e-fixture",
+    "b7e-flake": "bin/b7e-flake",
     "b7e-fresh": "bin/b7e-fresh",
     "b7e-gate": "bin/b7e-gate",
     "b7e-gated": "bin/b7e-gated",
