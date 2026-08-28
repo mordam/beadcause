@@ -286,6 +286,23 @@ await check('a window quiet for longer than the grace is parked', async () => {
   );
 });
 
+/**
+ * bc-xl7n.147. The open-register row this sweep parks from carries no `ending` — only
+ * `parkWorker` ever wrote that field, for its own three kinds — so before this record
+ * `state.parked[key].ending` came out `null` here, which `resumeFor` in lib/advocate.js
+ * reads as "not gone" and hands the resumed agent `resumePrompt`: **Adam answered**, with
+ * nothing under the key `answeredBefore` looks up. Nobody had answered anything.
+ */
+await check('the idle sweep records its own ending, so a resume knows nobody answered', async () => {
+  const { state } = await tick({
+    opened: { [LIVE_ID]: openRow(LIVE_ID, { bead: 'x-1', title: 'x-1 the quiet one' }) },
+    session: { sessionId: LIVE_ID, status: 'idle', quietFor: 45 },
+  });
+
+  const key = beadKey('alpha', 'x-1');
+  assert.equal(state.parked[key].ending, 'idle', 'so `resumeFor` routes it to `interruptedPrompt`, not `resumePrompt`');
+});
+
 /** The half that had two dead resolvers stranded in the live state file for hours. */
 await check('a window whose process is gone is dropped from the open register', async () => {
   const { state } = await tick({
