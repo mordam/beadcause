@@ -108,6 +108,7 @@
     "b7e-readme": "bin/b7e-readme",
     "b7e-rebaseline": "bin/b7e-rebaseline",
     "b7e-recard": "bin/b7e-recard",
+    "b7e-register": "bin/b7e-register",
     "b7e-retired": "bin/b7e-retired",
     "b7e-ruled": "bin/b7e-ruled",
     "b7e-run": "bin/b7e-run",
