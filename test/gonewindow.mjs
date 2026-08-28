@@ -72,6 +72,7 @@ for (const d of [SESSIONS, PROJECTS, REPO]) fs.mkdirSync(d, { recursive: true })
 
 const { createAdvocates } = await import(LIB('advocate.js'));
 const { slugFor } = await import(LIB('transcript.js'));
+const { beadKey } = await import(LIB('parked.js'));
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -396,6 +397,50 @@ await check('and it is told nothing was answered — never that Adam answered', 
   // the "claim it first" line lives in the fresh brief this agent is deliberately not sent.
   assert.match(said, /--claim/, 'so the turn has to ask for it');
   assert.match(said, /Do not start over/, 'the whole reason resuming beats re-briefing');
+});
+
+/**
+ * bc-xl7n.147. `gone` is not the only ending that reaches this branch — `parkIdle`
+ * (lib/advocate.js) writes `idle` for exactly the same reason: nobody answered, nobody
+ * decided anything. Before this fix its record carried no `ending` at all, which
+ * `resumeFor` read as "not gone" and handed the resumed agent `resumePrompt` — **Adam
+ * answered** — quoting an answer that was never given. Seeded directly into `parked`
+ * rather than produced by a real idle sweep: that mechanism is test/parkidle.mjs's, this
+ * is about what the *dispatch* does with the record once it exists.
+ */
+await check('an idle park is told nothing was answered — never that Adam answered', async () => {
+  transcript(GONE_ID);
+  const key = beadKey('alpha', 'x-1');
+  const a = await tick({
+    beads: [bead('x-1', { status: 'open' })],
+    parked: {
+      [key]: {
+        at: minutesAgo(20),
+        sessionId: GONE_ID,
+        dir: REPO,
+        workspace: 'alpha',
+        bead: 'x-1',
+        kind: 'worker',
+        title: 'x-1',
+        waitingOn: 'it went quiet — nothing has come back to it',
+        ending: 'idle',
+        resumes: 0,
+      },
+    },
+  });
+  const back = a.opened.find((o) => o.id === 'x-1');
+  assert.ok(back, `the bead was dispatched — got ${JSON.stringify(a.opened)}`);
+  assert.ok(back.resume, 'and as a resume, not a fresh brief');
+  const said = back.resume.prompt;
+  assert.match(said, /went quiet/i, said.slice(0, 120));
+  assert.match(said, /Nothing was answered/i, 'the fact the whole turn turns on');
+  assert.doesNotMatch(said, /Adam answered/, 'the exact failure bc-xl7n.147 is about');
+  assert.doesNotMatch(
+    said,
+    /Your window disappeared/,
+    'that sentence is true only of `gone` — this window was closed on purpose, not lost'
+  );
+  assert.match(said, /--claim/, 'the claim was forced off the same as `gone`, so the turn asks for it back');
 });
 
 await check('a park with no transcript behind it opens fresh, and says so', async () => {

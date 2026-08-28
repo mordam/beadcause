@@ -1,0 +1,198 @@
+#!/usr/bin/env node
+/**
+ * `b7e-vouch` — the delivery call checked against the branch, before it fires.
+ *
+ *     b7e-vouch -w deluvia -b dv-5i2.98 --body pr-body.md -- --tests "…" --review
+ *     b7e-vouch -w beadcause -b bc-dgx7.130 --body - < body.md    # stdin, no argv to check
+ *     b7e-vouch -w deluvia -b dv-5i2.96 --body pr-body.md --ran run.log -- --tests "…"
+ *     b7e-vouch ... --dir <root>      another checkout — this is how it is tested
+ *
+ * bc-dgx7.130 (re-filed from dv-5i2.119, found by the session audit — lib/sessionaudit.js
+ * — reading four deluvia deliveries, dv-5i2.98/.97/.96/.92). All four ended the same way
+ * and none of them ended it the same way twice: write a `--tests` string and a PR body
+ * from memory, run `git diff main...HEAD --name-only`, read the two against each other by
+ * eye, then fire `bin/deliver.js`. dv-5i2.98's own eyeball read "Matches what I described"
+ * — true of the file list, false of a sentence three paragraphs earlier deciding
+ * `--review` that was never threaded back into the actual argv. It went to the auto-merge
+ * queue as PR #188, and the repair was a correction comment after the fact. The file list
+ * was never the risk; a claim written as prose is not re-checked the way an argument is.
+ *
+ * `lib/vouch.js` has the three checks, each pure and independently tested; this is the
+ * argv parsing, the `git diff` and `bd show` calls that feed them, and the printing.
+ *
+ * **Flags.** Every flag on `bin/deliver.js`'s own surface, written literally as `--flag`
+ * in the body, checked against the argv given after `--` on this command's own line — the
+ * exact argv a caller is about to hand `deliver.js`. Both directions for `--review` /
+ * `--no-merge`, the two whose silent presence or absence changes what a delivery does;
+ * forward-only for the rest, since a body almost never spells out `--tests` by name and
+ * checking that direction there would be noise. Skipped entirely if no `--` is given —
+ * there is no argv to compare against, not an empty one.
+ *
+ * **Paths.** Every file the branch actually changed (`git diff <base>...HEAD --name-only`
+ * — the identical three-dot form `bin/deliver.js` runs for its own diffstat) against what
+ * the body names, with the bead's own `description` and `acceptance_criteria` folded in as
+ * a fallback source of *mentions* (never of new claims to check) — a body is allowed to
+ * say "both files named in the bead's acceptance criteria" instead of repeating them, and
+ * dv-5i2.96's own real PR body does exactly that.
+ *
+ * **Tests.** Only runs with both `--ran <file>` and a `--tests <value>` inside the given
+ * argv: script/suite names named in that `--tests` value, checked against the raw content
+ * of `--ran` (a transcript, a `lib/gaterun.js` JSONL run — anything the real name would
+ * appear in verbatim). A name not found there did not run under that name.
+ *
+ * `-w`/`-b` resolve `bd show` (via `BEADS_DIR=<workspace>.dir`, the same explicit override
+ * `bin/deliver.js` itself uses for a cross-workspace call) and the delivery base
+ * (`lib/prbase.js`'s `baseFor`, the same resolution `bin/b7e-fresh` uses) — both required,
+ * since without a workspace there is no base to diff against and no bead to fold in.
+ *
+ * Exit codes: `0` nothing to flag (silence is the clean answer), `1` one or more
+ * disagreements printed, `2` bad usage — missing args, no such workspace, no such bead, or
+ * `dir` is not a checkout of anything comparable to `base`.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { loadConfig } from '../lib/config.js';
+import { baseFor } from '../lib/prbase.js';
+import { git, ok } from '../lib/gitref.js';
+import { checkFlags, checkPaths, checkTests } from '../lib/vouch.js';
+
+const rawArgv = process.argv.slice(2);
+const sepAt = rawArgv.indexOf('--');
+const head = sepAt === -1 ? rawArgv : rawArgv.slice(0, sepAt);
+const deliverArgv = sepAt === -1 ? null : rawArgv.slice(sepAt + 1);
+
+const has = (f) => head.includes(f);
+const value = (...names) => {
+  for (const name of names) {
+    const at = head.indexOf(name);
+    if (at > -1) return head[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-vouch -w <workspace> -b <bead> --body <file|-> [--base <ref>] [--ran <file>]
+                 [--dir <root>] [--json] [-- <the deliver argv as typed>]
+
+The delivery call checked against the branch, before it fires: flags the body claims
+against the argv that is actually about to run, files the body names against what the
+branch actually changed, and gate names in a claimed --tests value against a recorded
+run. Prints one disagreement per line, or nothing.
+
+  -w, --workspace <name>   which workspace's base and bead tracker to use
+  -b, --bead <id>          the bead this delivery is for — its description and
+                            acceptance criteria are folded in as a fallback source of
+                            file mentions
+  --body <file|->          the free-form prose body — the same file/stdin a caller
+                            would hand to deliver.js
+  --base <ref>             what to diff against (defaults to the workspace's own
+                            delivery base, resolved the way deliver.js resolves it)
+  --ran <file>             the recorded gate run to check a claimed --tests value
+                            against — skipped if omitted
+  --dir <root>             another checkout instead of this one's own tree
+  --json                   one object on stdout instead of the printed lines
+  -- <argv>                the deliver.js argv as typed — everything after this is
+                            read literally, never parsed`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const die = (msg, code = 2) => {
+  console.error(`b7e-vouch: ${msg}`);
+  process.exit(code);
+};
+
+const wsName = value('-w', '--workspace');
+const beadId = value('-b', '--bead');
+const bodyArg = value('--body');
+const baseFlag = value('--base');
+const ranFile = value('--ran');
+const dirGiven = value('--dir');
+const jsonMode = has('--json');
+
+if (!wsName || !beadId || !bodyArg) {
+  console.error(USAGE);
+  process.exit(2);
+}
+
+const dir = path.resolve(dirGiven || process.cwd());
+
+let body;
+try {
+  body = bodyArg === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(bodyArg, 'utf8');
+} catch (err) {
+  die(`cannot read --body ${bodyArg}: ${err.message}`);
+}
+
+const cfg = loadConfig();
+const ws = (cfg.workspaces || []).find((w) => w.name === wsName);
+if (!ws) die(`no workspace named "${wsName}"\nconfigured workspaces: ${(cfg.workspaces || []).map((w) => w.name).join(', ') || 'none'}`);
+
+/** `bd show <id> --json` against this workspace's own tracker — `BEADS_DIR` set
+ * explicitly to `ws.dir`, the same override `bin/deliver.js` uses, so this never depends
+ * on the ambient shell having resolved the right workspace for wherever `dir` happens to
+ * be (a caller running from beadcause's own checkout to vouch for a deluvia delivery is
+ * the ordinary case, not the exception). Bare `bd`, resolved on `PATH` — `lib/config.js`'s
+ * `cfg.bdBin` hardcodes a handful of real install locations ahead of `PATH`, which is
+ * exactly the well an isolated test cannot dig itself out of; `bin/b7e-notes` takes the
+ * same bare-`bd`-on-`PATH` route for the same reason. */
+function bdShow(id) {
+  const env = { ...process.env, BEADS_DIR: ws.dir };
+  let out;
+  try {
+    out = execFileSync('bd', ['show', id, '--json'], { encoding: 'utf8', env, maxBuffer: 16 * 1024 * 1024 });
+  } catch (err) {
+    throw new Error(`${err.stderr || ''}${err.stdout || ''}`.trim() || err.message);
+  }
+  const parsed = JSON.parse(out);
+  return (Array.isArray(parsed) ? parsed : []).find((r) => r.id === id) || null;
+}
+
+let bead;
+try {
+  bead = bdShow(beadId);
+  if (!bead) throw new Error(`no issue found matching "${beadId}"`);
+} catch (err) {
+  die(err.message);
+}
+
+const base = baseFlag || (await baseFor(cfg, ws.name, dir));
+
+await ok(git(dir, ['fetch', 'origin', base, '--quiet'])); // best-effort, offline is not fatal
+const hasOriginBase = (await ok(git(dir, ['rev-parse', '--verify', '--quiet', `origin/${base}`]))) !== null;
+const hasLocalBase = (await ok(git(dir, ['rev-parse', '--verify', '--quiet', base]))) !== null;
+const upstream = hasOriginBase ? `origin/${base}` : hasLocalBase ? base : null;
+if (!upstream) die(`no origin/${base} and no local ${base} — nothing to diff against`);
+
+const diffOut = await ok(git(dir, ['diff', '--name-only', `${upstream}...HEAD`]));
+const diffFiles = diffOut ? diffOut.trim().split('\n').filter(Boolean) : [];
+
+const context = [bead.description, bead.acceptance_criteria].filter(Boolean).join('\n');
+
+const findings = [...checkFlags(body, deliverArgv), ...checkPaths(body, context, diffFiles)];
+
+if (ranFile && deliverArgv) {
+  const testsAt = deliverArgv.indexOf('--tests');
+  const testsValue = testsAt > -1 ? deliverArgv[testsAt + 1] : null;
+  if (testsValue) {
+    let ranContent;
+    try {
+      ranContent = fs.readFileSync(ranFile === '-' ? 0 : ranFile, 'utf8');
+    } catch (err) {
+      die(`cannot read --ran ${ranFile}: ${err.message}`);
+    }
+    findings.push(...checkTests(testsValue, ranContent, ranFile));
+  }
+}
+
+if (jsonMode) {
+  console.log(JSON.stringify({ bead: beadId, workspace: wsName, base: upstream, findings }));
+} else {
+  for (const f of findings) console.log(`[b7e-vouch] ${f.message}`);
+}
+
+process.exit(findings.length ? 1 : 0);

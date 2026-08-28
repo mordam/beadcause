@@ -10379,9 +10379,15 @@ down six things, because an unattended session with a vague scope invents one:
    run `git merge --abort`. That one is the second layer under the de-duplication below,
    for the two resolvers that are already up rather than the second one that must not be
    opened;
-5. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
-   working tree;
-6. **push the branch, release the lock, then stop** — the merge stays a tap here.
+5. **push, and let the pull request's own checks be the gate** — a clean merge of two
+   working branches is not a working tree, so the suite has to run over the merge, but the
+   resolver does not have to be what runs it. The push starts the checks on the merge commit
+   itself and `lib/mergeadvocate.js` will not merge over a red rollup, a pending one or a
+   head commit nothing ran on at all (`bc-ysqd.1`), so an unverified push cannot land by
+   being ignored — where sitting on the local gate instead means an hour behind `3 gates
+   ahead of you` for the answer GitHub gives in a minute. The local gate is still named, for
+   a workspace with no CI wired up: there it is the only one;
+6. **release the lock, then stop** — the merge stays a tap here.
 
 It is armed like merge, because it starts something unattended. It refuses unless GitHub
 reports the pull request `CONFLICTING` *right now*, asked again at the moment of the press
@@ -15880,6 +15886,84 @@ Two halves, and the first is the fix:
 report and the per-bead clear, the second for the whole answer driven through
 `/api/respond` against a `bd` that enforces the refusal.
 
+##### A fix does not un-write the counters it was about
+
+The idle sweep closes a quiet window on purpose, and the shell in it writes `$?` on the
+way out — so the next `reconcile` found a done file and took the `ended` arm, whose whole
+premise is "it exited, closed nothing, delivered nothing and asked nothing; that is the
+one ending here nobody chose". Somebody chose it: this daemon. The next dispatch then
+resumed that same conversation rather than briefing a new one, it went quiet into the same
+silence, and the second park charged again. A bead could reach a cap of two having had
+**one** reading of its brief and one replay of that reading's silence.
+
+Both halves are fixed — `w.idleParked`, and the trip count riding on the worker so
+`carryOver` binds. **Neither fix touches a counter already written.** When they landed, 64
+beads in this workspace stood at the cap: 16 whose bead had closed under them, 10 epics
+that lose only their planning, and **36 live open work beads carrying no queue-excluding
+label** — about a third of the ready queue, every one of them in `bd ready` looking exactly
+like work about to be picked up. And the only lever that reached them was `forget`, which
+clears all 64 and would have re-armed the beads that genuinely do break every window they
+get.
+
+So the daemon recounts, and the recount is a proof rather than a guess. Every ending
+`reconcile` reaches writes one line through `finish`, and the sentence on it says which
+ending it was — so a bead's whole charge history is in `~/Library/Logs/beadcause.log`, in
+order, and `lib/attemptaudit.js` replays it twice:
+
+- **once under the rule that was in force when the lines were written.** If that lands on
+  the number the counter actually holds, the log explains the counter completely — nothing
+  charged it before the log begins and nothing charged it by a path the replay cannot read.
+  That equality is the *only* warrant for touching anything;
+- **and once withholding the charges for endings this daemon chose** — an `ended` arm that
+  followed a `parked worker <id>` line. That number is never larger, and where it is
+  smaller the difference is exactly the two shapes above.
+
+The verb in the park line is the discriminator and it is not cosmetic. **Parked** means the
+conversation reached the disk and today's `ended` arm skips the charge; **closed** means
+`carryOver` refused the trip, the transcript was thrown away, the next window gets a fresh
+brief and the charge is owed exactly as it always was. Reading the two the same way would
+forgive the one charge `maxResumes` exists to write.
+
+What the guard buys is the case that would otherwise have been cleared wrongly.
+`bc-khoe.21` holds 27 `the nightly maintenance window is closing the Mac down` endings in
+the log against a counter of 2, because that ending only started charging later and most
+of those lines predate it. Any heuristic reading — "it was never really given a fair go" —
+clears that bead. The equality refuses to, and says how far apart the two numbers are. On
+the day it landed the split was 38 repaired, 25 left retired, 1 refused.
+
+Three properties keep it cheap and keep it safe:
+
+- **it can only ever lower a counter.** The recount is accepted only where it is *below*
+  what is held, so the worst a misread log can do is give a bead one more window. The
+  other direction — a repair that retires something — is not reachable from the code at
+  all;
+- **the log is read once per bead, not once per tick.** `attemptAudited` in
+  `advocates.json` records which counters have been recounted and at what value, so a 39MB
+  file is opened only when a bead newly reaches the cap, and never on an ordinary tick.
+  Persisted for the reason `lastWindowSweepAt` is: this daemon is restarted by its own
+  merges several times a day;
+- **a log it cannot read repairs nothing.** Every sentence matched is one lib/advocate.js
+  writes, and `test/attemptaudit.mjs` pins all twenty-six of them against that file's
+  source — because when a template changes the module's own failure is *silence*, which is
+  indistinguishable from the healthy quiet pass it usually is.
+
+And the lever is now per bead. `rearm` had always done exactly one bead and had exactly one
+caller — `handBackWorkBead`, reachable only by answering **Request changes** or **Decline**
+on a delivery card — so a bead that *delivered* had a lever and a bead that never delivered
+had none, which is the whole population the cap actually retires. The console's advocate
+card grows a **Given up on** section directly above *Up next*, one row per bead with the id,
+what it is, how many windows it spent, and a **Give it a window** button beside it. A
+retired bead that is *claimed* is drawn without one and says which door instead: its lever
+is `Request changes` on its own card, which re-arms it on the way through.
+
+What is deliberately still not done: raising the cap, clearing the counter on a dead
+window, and reading `w.idleParked` in the `timeout` and `lapsed` arms — a park raced by the
+two-hour timeout still charges, and the recount is faithful to that rather than kinder than
+it. `test/attemptaudit.mjs` is the arithmetic and `test/attemptrepair.mjs` is the daemon
+half — the repair reaching `a.attempts` before anything reads it, surviving a restart, and
+`rearm` through `control` taking the charges off one bead where `forget` takes them off all
+of them.
+
 #### The claim a window leaves behind
 
 A worker claims its bead as its first act, because that is what stops a second window
@@ -16373,6 +16457,31 @@ you" about the first would send you looking for a button that is not there. The 
 this window stop" but *does a conversation with this agent still have somewhere to go*: a
 closed bead has nothing to answer, a stood-down window belongs to another Mac, and a session
 that timed out or went silent is not one to hand an answer to.
+
+**And the close this sweep performs costs the bead nothing.** It used to cost two, which was
+enough to retire it. The sweep closes the window on purpose; the shell in it writes `$?` on
+the way out; the next `reconcile` finds that exit status and takes the arm whose whole
+sentence is *"it exited, closed nothing, delivered nothing and asked nothing — that is the
+one ending here nobody chose, and it costs an attempt"*. Somebody chose it: this sweep did,
+one tick earlier, and wrote the conversation down so it could come back. The `gone` ending
+has had `carryOver` against exactly this since bc-y7l2m, and the two are the same event seen
+from either side — a window that stopped answering with a transcript worth resuming — so the
+guard now reaches the path that actually fires. Measured on `bc-xl7n.142`, 2026-08-27: one
+brief at 18:31, parked at 18:51, reaped and charged at 18:55, resumed at 19:04, parked at
+19:26, reaped and charged at 19:29. Two charges against a `maxAttemptsPerBead` of 2, on one
+brief and one replay of that brief's silence; `bc-xl7n.144` the same hour, and about a third
+of this repo's ready queue was sitting at the cap when it was found.
+
+**It is bounded by the same `maxResumes` the `gone` ending is**, and for the sharper version
+of the same reason. A `handback` waits on you and a `delivered` waits on a merge, so neither
+can run away — the loop needs a person in it. A window that simply stopped talking waits on
+nothing at all, so a park that ignored the trip count would resume the same transcript into
+the same silence for ever. The sweep therefore withholds the record from a conversation that
+has had its trips, closes the window anyway, and lets `reconcile` charge that ending the way
+it always did. Two quiet windows cost one attempt: not none, and not two. The count itself
+has to be handed over on the worker record, because the row this sweep holds is the
+*open-register* row and has never carried one — miss that line and every idle park is written
+down as the first trip, which is `maxResumes` never binding at all.
 
 **The resume happens at the dispatch seam, not at `/api/respond`.** Opening the window from
 the answer handler is tempting — the answer is right there — and it is wrong twice. Every
@@ -17956,6 +18065,19 @@ file:
 - **It says so on the card**, as its own pill with its own reason, because a bead that
   quietly never opens is indistinguishable from a bead nobody wants. The pill names the
   other bead, which is all there is to look at — there is no window and no branch yet.
+- **And a bead at `maxAttemptsPerBead` reserves nothing**, because the first bullet is only
+  true if the winner really is being opened. This filter is the last stage of the survey and
+  [the attempt filter](#a-bead-it-has-given-up-on-says-so) is the first stage of the pick,
+  so a bead the advocate has already given up on is still in the queue here: it sorted in
+  pick order, it took every file it declared, and it was then dropped before any window
+  opened. The counter is a floor nothing decrements, so the bead behind it was not deferred a
+  tick — it was withheld for ever, waiting on work that could never come up. Measured at
+  eighteen hours over one file, and with 38 retired beads in a single tick that was not a
+  corner: the cap had stopped being a per-bead retirement and become a repo-wide lock on
+  every surface any of them had ever named. A retired bead is now skipped before it is
+  compared, so it neither reserves nor is reserved against — it stays in the queue, where
+  "given up on" is the one list whose job it is to report it, and it is kept out of the pill
+  above, because a bead drawn as retired *and* as held behind a file is one bead as two.
 
 **And one tick earlier still, a plan may not create the collision at all.** A plan is the
 one document in this system where somebody decides, in one sitting, what several windows
@@ -18305,6 +18427,29 @@ Two caveats. `git log --all` **does** walk `refs/*`, so these commits appear the
 in some GUIs — everything else ignores them. And nothing is pushed unless you ask:
 `git push origin 'refs/beadcause/*:refs/beadcause/*'` and `refs/notes/beadcause` are
 explicit acts, and on a shared repo they should stay that way.
+
+**Which run filed a bead — `beadcause-whofiled`.** `created_by` cannot answer this: it
+is the git identity of the workspace directory, the same string for every session that
+has ever written there (bc-vlv9c). What can is a chain that already exists on every
+bead an agent has filed, and it is two hops rather than one: `filed-while:<bead>`
+(`lib/filing.js`) names the bead the filer was working, and *that* bead's own archive,
+above, carries the session. Assembling it by hand is three commands — `bd show` twice
+and a `git cat-file`; this is one:
+
+```bash
+beadcause-whofiled -w beadcause -b bc-abc123
+beadcause-whofiled -w beadcause -b bc-abc123 --json
+```
+
+A filer worked more than once — a stall, then a resumed session — archives more than
+one entry, and `lib/sessionlog.js#filerSession` picks the one whose own recorded
+window actually contains the moment of filing rather than whichever was archived
+last, flagging the answer `exact: false` on the rare entry where nothing's window
+confirms it and the nearest archive is the best guess this repo has. A bead with no
+`filed-while` label was not filed this way at all (exit `2`); one that has the label
+but whose filer bead was never archived — still running, or ended before a commit was
+there to archive — is the chain **not closing**, and it says so rather than printing
+nothing (exit `1`).
 
 ### The agent a session *ending* starts — reading the archive back for repeated work
 
@@ -19937,6 +20082,145 @@ read-only in the same construction sense: nothing here writes a ref, a commit or
 working-tree file, which is what put `Bash(b7e-deliverbase:*)` on `DEFAULT_TOOL_LIST` in
 `lib/toolbelt.js` and `read` in `lib/grants.js` beside `b7e-base`.
 
+### Is my worktree's base current, and what will actually land — `b7e-fresh`
+
+`bc-dgx7.127`, filed originally as `dv-b5d.52` in the deluvia tracker and moved here
+because it describes beadcause tooling and has nothing to do with deluvia content. Eight
+deluvia sessions each ran a freshness check as their first command and no two ran the
+same one — some compared a bare `git log --oneline -1` against a remembered sha in
+prose, which is not a real comparison; one wrote the honest `merge-base --is-ancestor`
+form by hand and was refused by the worktree sandbox for being too complex a one-liner
+to verify, and gave up rather than splitting it into plain commands. The same ambiguity
+recurs at delivery time: `git diff main...HEAD` and `git log origin/main..HEAD`
+disagree the moment a branch carries a commit cherry-picked in from elsewhere, which is
+exactly what `dv-b5d.46`'s branch did.
+
+```
+b7e-fresh                 infer the workspace and base from where you are standing
+b7e-fresh -w deluvia      the base a named workspace delivers into, not the inferred one
+b7e-fresh --base develop  compare against a literal ref instead of resolving one
+b7e-fresh --reset         fast-forward once confirmed behind, with a clean tree
+b7e-fresh --json          one object on stdout, for a caller
+```
+
+**A combine, not a rebuild.** `b7e-base` (above) already answers "is HEAD
+current/behind/diverged vs origin/`<base>`"; `b7e-deliverbase` (also above) already
+resolves the *actual* delivery base the way `bin/deliver.js` does. Neither combines
+"which ref do I actually deliver into" with "is my branch current against it" in one
+call — a caller had to run both and reconcile them by hand — and neither splits a
+branch's own commits into **authored-here** vs **cherry-picked in from another branch's
+stranded work**, which is the shape `dv-b5d.46`'s branch actually carried: one commit of
+its own, plus `ef099508` cherry-picked in from `dv-b5d.26`'s stranded branch. That split
+matters because a merge later resolves against the branch's own work, not against a
+patch it already got credit for landing once.
+
+**The base is resolved exactly the way a real delivery would resolve it**, with no
+network call of its own: the workspace is inferred from where this is run —
+`mainCheckout` normalises a worktree back to the checkout `ownWorkspace`
+(`lib/deploy.js`) can actually match, the same two-step `bin/beadcause-changes` already
+takes — and `baseFor` (`lib/prbase.js`) resolves that workspace's real base, the same
+call `b7e-deliverbase` makes. An unresolved workspace (no config on this Mac, or more
+than one and none of them this checkout) falls back to the literal `main`, `b7e-base`'s
+own standalone default. `-w` names a workspace directly and skips the inference; `--base`
+overrides both with a literal ref, never asked of GitHub, the same override
+`bin/deliver.js` itself takes.
+
+Reports one block: the branch, the resolved base and its sha, and whether HEAD is
+**current**, **behind**, or **diverged** against it — `b7e-base`'s own report, against a
+base resolved `b7e-deliverbase`'s way, fetching `origin/<base>` first for the same reason
+both tools already do: a local branch can carry commits nobody has pushed, or miss ones
+somebody else has, and only fetching first tells the two apart. Then, for this branch's
+own commits, a **provenance** split: each is `[authored-here]` or `[cherry-picked from
+<sha>, by trailer]` (a `(cherry picked from commit …)` trailer — what `git cherry-pick
+-x` leaves) or `[cherry-picked from <sha> on <branch>, by patch-id]` (no trailer, but the
+identical patch exists on some other local branch — a cherry-pick made without `-x`, or a
+manual re-application). The file list reported alongside it is `git diff --name-only
+<base>...HEAD` — the identical three-dot invocation `bin/deliver.js` runs for its own
+diffstat, so what this reports as "what will land" is never a second opinion that could
+drift from what a delivery actually pushes.
+
+**`--reset`** fast-forwards once `behind` is confirmed safe: nothing of this branch's own
+would be discarded (`ahead === 0`) and the working tree is clean (nothing uncommitted
+would be silently carried into the merge). It refuses a dirty tree or a genuine
+divergence rather than guessing what was meant, and reports exactly why. `--no-provenance`
+skips the patch-id scan (the cheap trailer check still runs) for a caller that wants the
+base comparison alone without paying to walk every other local branch's history for a
+match.
+
+Exit codes: `0` current (or a `--reset` that landed one), `1` behind or diverged, `2` bad
+usage, not a git checkout, or a `--reset` that cannot be done safely. Built on the same
+`lib/gitref.js` primitives as `b7e-base` and `b7e-deliverbase`, plus `git patch-id` for
+the provenance split. Read-only without `--reset` — but the flag can fast-forward the
+checkout, so this is a *conditionally*-write tool, the same shape `b7e-apply`, `b7e-take`
+and `b7e-swbump` are, and it carries `@grant excluded` for the same reason theirs do: the
+allowlist cannot see which argv a caller is about to pass, so it is deliberately left off
+rather than trusted read-only.
+
+### The delivery call checked against the branch, before it fires — `b7e-vouch`
+
+`bc-dgx7.130`, filed originally as `dv-5i2.119` in the deluvia tracker and moved here for
+the same reason `b7e-fresh` was: it describes beadcause tooling, not deluvia content. A
+session audit (`lib/sessionaudit.js`) found the same close in four deluvia deliveries —
+`dv-5i2.98`, `dv-5i2.97`, `dv-5i2.96`, `dv-5i2.92` — and no two ended it the same way:
+write a `--tests` string and a PR body from memory, run `git diff main...HEAD
+--name-only`, read the two against each other by eye, then fire `bin/deliver.js`.
+`dv-5i2.98`'s own eyeball read "Matches what I described" — true of the file list, false
+of a sentence three paragraphs earlier deciding `--review` that was never threaded back
+into the actual argv. It went to the auto-merge queue as PR #188, and the repair was a
+correction comment after the fact. The file list was never the risk; a claim written as
+prose is not re-checked the way an argument is.
+
+```
+b7e-vouch -w deluvia -b dv-5i2.98 --body pr-body.md -- --tests "…" --review
+b7e-vouch -w beadcause -b bc-dgx7.130 --body - < body.md    # stdin, no argv to check
+b7e-vouch -w deluvia -b dv-5i2.96 --body pr-body.md --ran run.log -- --tests "…"
+b7e-vouch ... --dir <root>      another checkout — this is how it is tested
+```
+
+Three independent checks, `lib/vouch.js`, each returning a finding or nothing:
+
+**Flags.** Every flag `bin/deliver.js` reads off its own argv, written literally as
+`--flag` in the body's prose, checked against the argv given after `--` on this
+command's own line — the exact argv a caller is about to hand `deliver.js`. Both
+directions for `--review` / `--no-merge` (the pair whose silent presence or absence
+actually changes what a delivery does — `deliver.js`'s own `review = has('--review') ||
+has('--no-merge')`); forward-only for the rest, since a body almost never spells out
+`--tests` or `--risk` by flag name and checking that direction there would be noise, not
+signal. Skipped entirely when no `--` is given at all — there is no argv to compare
+against, not an empty one.
+
+**Paths.** Every file the branch actually changed — `git diff <base>...HEAD --name-only`,
+the identical three-dot form `bin/deliver.js` runs for its own diffstat — against what
+the body names by full path, bare filename, or an identifier-shaped stem (`CHANGE_LOG`
+standing in for `CHANGE_LOG.md`; a plain lowercase word never does, so "regions" in an
+unrelated sentence about a *different* file's directory can't silently cover
+`regions.json`). The bead's own `description` and `acceptance_criteria` (`bd show`, via
+`-b`) are folded in as a fallback source of *mentions* — never of new claims to check —
+because a body is allowed to say "both files named in the bead's acceptance criteria"
+rather than repeat them, which `dv-5i2.96`'s real PR body does for exactly one of its
+three changed files. Claim-extraction (the reverse direction: a path the body names that
+is not in the diff) excludes `lib/prtext.js`'s own `**Tests:**` / `**Worth knowing:**` /
+`**Left undone:**` paragraphs and its auto-generated `<details>` diffstat block first —
+none of those are "files I changed" claims (a real `--tests` value routinely reads
+`scripts/check_entry040_funday.py . → PASS`, a path-shaped token this diff never
+touched), and the auto block is mechanically derived from the real diff so checking prose
+against it is checking `deliver.js` against itself.
+
+**Tests.** Only runs with both `--ran <file>` and a `--tests <value>` inside the given
+argv: script/suite names named in that value (`scripts/check_saga_audit.py`,
+`test/b7evouch.mjs`), checked against the raw content of `--ran` — a transcript, a
+`lib/gaterun.js` JSONL run, anything the real name would appear in verbatim. A name not
+found there did not run under that name — renamed, typo'd, or never run at all.
+
+Prints one line per disagreement, or nothing. Exit codes: `0` nothing to flag, `1` one or
+more disagreements printed, `2` bad usage — missing args, no such workspace, no such
+bead, or nothing to diff against. `-w`/`-b` resolve `bd show` (via `BEADS_DIR=<ws>.dir`,
+the same explicit override `bin/deliver.js` itself uses for a cross-workspace call — bare
+`bd` on `PATH`, like `b7e-notes`, not `cfg.bdBin`, which hardcodes real install locations
+ahead of `PATH` and would leave a test unable to substitute a fake) and the delivery base
+(`baseFor`, the same resolution `b7e-fresh` uses). Read-only throughout — a `git diff`,
+a `git fetch`, a `bd show`, and file reads.
+
 ### Whether the library is being used — the Skills view
 
 `/skills` (or `/candidates`) is the one screen the whole programme is visible from: the
@@ -20463,6 +20747,61 @@ alone takes over a minute — heavier than a lighter version of `Bash(npm test:*
 read anything in `lib/grants.js` already classifies as one. `dispatch`, the one agent
 this list actually governs, has no more use for a battery of another repo's checks than
 it does for running this one's own suite.
+
+### Which file on disk is this book or chapter, and which variant is the live one — `b7e-chapter`
+
+Five sessions (`dv-afr.21`, `dv-afr.20`, `dv-5eu.19`, `dv-afr.15`, `dv-afr.17`) each
+located a deluvia document by hand, none the same way, because deluvia's naming is not
+uniform: `novel/Deluvia Book 1|2/BOOK_N_OVERVIEW.md` but `novel/Deluvia Book 3|4|5|6/
+BOOK_N_SUMMARY.md`, some books additionally carry `BOOK_N_CHAPTER_MAP.md`, a chapter
+exists as up to three files (`.summary.md`, `.text.draft.md`, `.propagated.md`), and
+archive twins live both under a book's own `_archive_pre-restructure/` and under
+`.claude/worktrees-retired/`. `dv-afr.21`'s `grep` hit "No such file or directory" and
+fell back to a `find` that also surfaced a retired duplicate, left to be picked by eye;
+`dv-5eu.19` spent three Bash calls and a memory lookup finding out that a canon-gate
+script, not recency, decides which of three CHAPTER_1 variants for Book 3 is the one
+that governs. `bc-dgx7.123` is that lookup, once.
+
+```
+b7e-chapter -w <workspace> <book>                every BOOK_N_* doc for that book
+b7e-chapter -w <workspace> <book> <chapter>       every CHAPTER_N.* variant, canon marked
+b7e-chapter -w <workspace>                        the whole map: every book, what it has
+b7e-chapter --dir <root> <book> [<chapter>]       a checkout directly, no workspace needed
+b7e-chapter … --variant summary|prose|propagated|current   narrow to one variant
+b7e-chapter … --path-only                         just the resolved absolute path(s)
+b7e-chapter … --json
+```
+
+**The convention, in `lib/chapter.js`.** A book is `<root>/novel/<dir>`, where `<dir>`
+carries the book number as a standalone token (`\bBook\s*0*N\b`, so a query for book `1`
+never matches `Book 12`). Its book-level docs are `BOOK_N_OVERVIEW.md` or
+`BOOK_N_SUMMARY.md` (OVERVIEW preferred when a book somehow has both) plus an optional
+`BOOK_N_CHAPTER_MAP.md` alongside either — this is why `-w deluvia 2` names only the
+OVERVIEW and `-w deluvia 5` names both the SUMMARY and the CHAPTER_MAP, never a SUMMARY
+next to an OVERVIEW. A chapter file is `CHAPTER_N.<infix>.md`; the infix classifies the
+variant — `propagated`, `summary`, `draft`/`text` (reported as `prose`), anything else as
+`other` rather than dropped.
+
+**A canon gate is discovered, never assumed.** `<root>/scripts/check_ch<start>_<end>_canon.py`
+governs chapters `start`..`end` of whichever book's directory name its own source text
+names verbatim; among that chapter's variants, the one whose classifying keyword appears
+in the gate's source is canon-current, cited by the gate's path. A chapter no gate's
+range covers has **no** canon-current variant — not the newest file, not the prose one,
+nothing — because guessing is exactly the extra step `dv-5eu.19` took three calls to
+avoid making. This is why `-w deluvia 3 1` marks `.propagated.md` canon-current, citing
+`check_ch1_11_canon.py`, and a Book 3 chapter above 11 marks nothing.
+
+**Archive twins are always listed, never a result.** Anything otherwise matching either
+pattern under a path segment starting `_archive` (case-insensitive) or anywhere under
+`.claude/worktrees-retired/` is collected into a separate `ARCHIVE` section by path —
+visible, so a caller who greps a filename does not silently land on the retired copy the
+way `dv-afr.21`'s `find` did, but never a candidate a plain result or `--path-only` can
+return.
+
+Tested against a fixture built with `lib/fixture.js`'s `buildFixture` (`test/b7echapter.mjs`)
+— a synthetic `novel/` tree with a Book 2 (OVERVIEW-only, plus an archived twin and a
+retired-worktree twin), a Book 5 (SUMMARY + CHAPTER_MAP) and a Book 3 chapter with all
+three variants and a `check_ch1_11_canon.py` — so the suite depends on none of deluvia.
 
 ### Turn a gate's own "expected X — got Y" into the edit — `b7e-rebaseline`
 
@@ -21615,6 +21954,73 @@ a workspace is even resolved. That is what makes this read-only *by construction
 same shape as `b7e-def`/`b7e-owes`/`b7e-affected`/`b7e-readme`, and what earns it a place
 on `DEFAULT_TOOL_LIST` alongside them — this is a lookup, not a
 second door into `bd`.
+
+
+### What in this tree is generated from the file I just touched, and is it stale — `b7e-derived`
+
+`bc-dgx7.1`'s session audit, moved here from deluvia's own tracker as `dv-afr.36` (it is a
+beadcause command-shipping bead, so it belongs in this repo rather than the one it was
+found in). Five sessions (`dv-afr.18`, `dv-5eu.18`, `dv-5eu.17`, `dv-afr.17`, `dv-5eu.19`)
+each asked "what else in this tree is derived from what I just edited?" and answered it a
+different way every time. `dv-afr.18` did not ask until a cherry-pick conflicted a
+generated bundle and only then ran `ls compendium/*.py` to find the generator. `dv-5eu.19`
+is the cost of not asking at all: two prose edits moved word counts a check script pins as
+literals, the session found out from a red gate, and spent six edits chasing five numbers
+through an audit document before leaving one drift unfixed as a follow-up bead.
+
+```
+b7e-derived -w deluvia                                    the diff since origin/main, plus anything uncommitted
+b7e-derived -w deluvia compendium/species/alban-orves.md  one or more specific files instead
+b7e-derived -w deluvia --check                            run each generator's own --check mode, report staleness
+b7e-derived -w deluvia --rebuild                          run the generators whose sources actually changed
+b7e-derived --dir <root>                                  another tree — this is how it is tested
+```
+
+**The map lives in the checkout, not in this repo.** `lib/repoviews.js` already makes this
+argument for `.beadcause/views.json`: a generator's path and the source globs that feed it
+are a fact about *that* checkout at *that* revision, and belong in the commit that changes
+them — not in a table here that would need a pull request to beadcause every time deluvia
+renames a script, and that would give sophab and ehatt nothing until somebody wrote a
+second one. So a checkout declares its own `.beadcause/derived.json`:
+
+```json
+{
+  "generators": [
+    {
+      "id": "compendium/build.py",
+      "run": ["python3", "compendium/build.py"],
+      "check": ["python3", "compendium/build.py", "--check"],
+      "sources": ["compendium/**"],
+      "artifacts": ["compendium/web/data.js", "reference/maps/private/compendium.admin.js"]
+    }
+  ]
+}
+```
+
+`run`/`check` are an argv, never a shell string — same reasoning `lib/repoviews.js`'s
+`runGenerator` gives for `views.json`'s own `data.run`: a filename with a space in it stays
+a filename with a space in it, and a manifest cannot smuggle `; rm -rf` through one.
+`sources` is matched with a small hand-rolled glob (`*` stops at a `/`, `**` crosses it,
+everything else literal) rather than a dependency, because the three shapes deluvia's own
+generators actually need — `compendium/**`, `novel/**/CHAPTER_*.md`,
+`design/characters/*.sheet.md` — do not need more than that.
+
+**Never a shrug**, the same rule `lib/affected.js` states for its sibling question ("what
+*tests* this file" rather than "what does this file *feed*"): a changed file matching no
+generator's `sources` is reported on stderr under its own heading, not silently absent, so
+"no generators cover this diff" can never be confused with "nobody looked."
+
+**`--check` runs the generator's own check mode rather than re-deriving staleness.** The
+repo's own convention (`build_series_log.py . --check`) already answers "is this stale"
+without writing anything; this shells out to exactly that argv and reads its exit code —
+`0` clean, anything else stale, with the last few lines of output as why. **`--rebuild`
+is the one thing here that writes** to the checkout, which is why the file carries
+`@grant excluded` rather than `read`: unlike plain listing and `--check`, it is not safe to
+hand an unattended agent by default.
+
+**On `DEFAULT_TOOL_LIST`: no.** `@grant excluded`, same shape as `b7e-rebaseline`'s
+`--write` — the binary can write to a checkout it was not asked to write to, so it is not
+on the list an agent gets without being asked for it specifically.
 
 
 ### One `bd` write that survives contention, instead of a blind retry that double-posts — `b7e-write`
@@ -33387,7 +33793,7 @@ to be one.
 | `advocates.checkinMinutes` | how long a session asked to check in has to answer before its slot goes back (default 10) — long enough for a turn in flight to land and run the command, short enough that pressing Reclaim sessions is worth doing at all |
 | `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
 | `advocates.goneMinutes` | how long a worker's window has to be **missing** from Claude Code's live-session list before it is finished as `gone` rather than left to `workerTimeoutMinutes` (default 3). Then the slot comes back, the claim is handed back, **no attempt is charged** and the conversation is parked so the next dispatch [brings the same agent back](#the-window-that-disappeared--and-the-conversation-that-comes-back-into-the-next-one) instead of briefing a stranger. Minutes rather than one tick because the evidence is an *absence*: one missed read is a list being rewritten, six in a row is a fact. `0` or `false` restores the two-hour wait |
-| `advocates.maxResumes` | how many times one conversation may be carried over into a new window after its own disappeared (default 1). The first disappearance is an accident and is repaired for free; a *resumed* window that also disappears is a pattern, so that one is charged an attempt and the next window gets the fresh brief. `0` keeps the `gone` ending and never carries a conversation over |
+| `advocates.maxResumes` | how many times one conversation may be carried over into a new window after its own **disappeared or was closed by the idle sweep** (default 1). The first one is an accident and is repaired for free; a *resumed* window that goes the same way is a pattern, so that one is charged an attempt and the next window gets the fresh brief. It bounds both because neither has anybody waiting in the loop — a `handback` or a `delivered` park is resumed because Adam did something, and cannot run away. `0` keeps both endings and never carries a conversation over |
 | `advocates.neverStartedSeconds` | how long a window is given to get past line 3 of its command before [the launch's own temp files are read as proof it never started](#the-window-that-opened-and-never-ran-its-command) (default 45). Then the slot comes back, the files are cleaned up, the claim is handed back and **no attempt is charged** — a launch that never ran is not an attempt at the work. Seconds rather than minutes because the point is answering before `workerTimeoutMinutes`; `0` or `false` asks nothing and restores the two-hour wait |
 | `advocates.batchEpicChildren` | [hand an epic's ready children to one worker as a batch](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window), instead of holding the epic back and letting each child take its own window on its own tick (default `true`). `false` falls back to `heldByChildren`'s suppression, which is what this did before |
 | `advocates.maxBatchBeads` | how many of an epic's ready children one worker is briefed on at once (default 5) — the overflow waits rather than racing its own siblings in a second window |
@@ -38744,6 +39150,64 @@ Exit codes: `0` ran to completion, whether or not anything was found — no ruli
 topic is a legitimate, useful answer, not a failure. `2` bad usage — no `-w`, or neither a
 topic nor `-b`. `4` `-w` named a workspace this checkout has no config for, or `-b` named
 a bead the workspace does not have.
+
+
+### Which occurrences of a retired figure are still an assertion, and which are the record of its own retirement — `b7e-retired`
+
+`bc-dgx7.129`, a session audit against four deluvia sessions (`dv-5i2.97`, `dv-5i2.92`,
+`dv-5i2.96`, `dv-5i2.98`) that each grepped a corpus for a superseded number and then
+hand-sorted the hits into "still a live assertion" versus "this occurrence *is* the
+record of the retirement" — and no two sorted them the same way, because the sorting,
+not the search, is where the calls went. A plain grep false-positives on: a table row
+that names the old figure *in order to retire it* ("Superseded figures (Entry 040)"); a
+`CHANGE_LOG.md` entry whose whole body is the decision text that did the retiring; a
+"Notes for Adam" worklog paragraph reporting that the drift was already found and
+filed; and a number that means something else entirely ("80–100 m wide" is a canal, not
+a sea level).
+
+```
+b7e-retired --value '80-100 m' --unit 'sea level'
+b7e-retired --value '80-100 m' --instead '~65 m' --unit 'sea level' reference/
+b7e-retired --value '80-100 m' --unit 'sea level' --datum-dir reference/regions/cycle1
+b7e-retired --value '4\'8"-5\'2"' --rev origin/main
+b7e-retired --value '80-100 m' --unit 'sea level' --json
+b7e-retired --dir <root> --value '80-100 m' --unit 'sea level'   another tree — this is how it is tested
+```
+
+**Four rules demote a match out of `LIVE`, checked in this order.** A `--datum-dir` the
+file sits under (deluvia's `reference/regions/cycle1/` is deliberately at a different
+standard from the rest of the corpus) — checked first because it is a fact about the
+whole file, not the sentence the match sits in. `--unit`: the noun the figure is
+supposed to modify does not appear within a short window of the match — "sea levels
+80–100 m lower" passes, "180 km long, 80–100 m wide" does not, same figure, a different
+thing being measured; skipped entirely (every match assumed on-unit) when `--unit` is
+not given. Inside a `CHANGE_LOG.md` entry body — reusing `entryHeadings` from
+`lib/changelog.js` rather than re-deriving a `## Entry NNN` span by line arithmetic, for
+the same reason `b7e-changelog` does: the numbering is non-contiguous. A markdown table
+row (or its header row), or a heading, naming Superseded/Retired/Entry NNN — the row
+*is* the record, not an assertion. A fifth, `--unit`, sits in that list too but is
+opt-in rather than always-on. A match under a "Notes for Adam" / worklog heading is
+demoted the same way — a session's own running report, not canon.
+
+`--value` matches punctuation drift by construction: every literal `-` stands for
+hyphen, en dash, em dash or minus (deluvia's region files use `–`, U+2013, throughout;
+the flag is typed with a plain `-`), and a run of spaces matches any whitespace. `--rev`
+reads through `git cat-file` (`lib/gitref.js`'s `readRefFile`), never the working tree,
+so a stray `.claude/worktrees/*` checkout is never read by accident; omitted, it reads
+the working tree directly off disk, uncommitted edits included — the point being that
+this is meant to be run against exactly what is about to be committed.
+
+`lib/retired.js` is the matching and the four-rule classification (`classify`,
+`classifyMatch`, `scanText`, plus the rule functions themselves, each exported and
+independently testable). `bin/b7e-retired` is the argv shell and the printed/`--json`
+report. `@grant read` in its own header docblock is what puts it on
+`DEFAULT_TOOL_LIST` — see `b7e-tool-grant-is-now-a-self-declared-header-tag`. See
+`test/b7eretired.mjs`, whose fixtures reproduce each of the four rules plus the plain
+`--unit` mismatch and the punctuation-drift matching, against a scratch directory via
+`--dir` rather than this repo's own tree.
+
+Exit codes: `0` `LIVE` is empty — nothing still asserts the retired figure. `1` `LIVE`
+is non-empty. `2` bad usage.
 
 ### A book's chapter and interlude manifest, with the sequence checked — `b7e-manifest`
 
