@@ -368,6 +368,30 @@ const parentSeenBy = (row) => String(row?.parent || '').trim();
   );
 }
 
+/* ----------------------------------- move, with a child whose id is not under the parent's */
+
+{
+  // `bd update --parent` does not renumber, so this is the ordinary shape of a bead that
+  // was adopted rather than born under its parent — and slicing a prefix it never had off
+  // its id is how you get `mt-x1y2zzz9`.
+  const bead = await make(from, { title: 'a parent by adoption' });
+  const adopted = await make(from, { title: 'a child with a flat id of its own' });
+  await bd.adopt(from, adopted, bead);
+
+  const moved = await moveSpace(bd, { from, to, id: bead, children: 'move' });
+  const map = new Map(moved.map);
+  check(() => assert.deepEqual(moved.problems, []), `the move goes through cleanly (${JSON.stringify(moved.problems)})`);
+  check(() => assert.equal(moved.moving.includes(adopted), true), 'the adopted child is in the moving set');
+  check(
+    () => assert.match(map.get(adopted) || '', /^mt-[a-z0-9]{5}$/),
+    'and it is minted a root-shaped id of its own rather than having a prefix it never had sliced off'
+  );
+
+  const copy = await show(to, map.get(adopted));
+  check(() => assert.equal(copy?.title, 'a child with a flat id of its own'), 'it really arrived under that id');
+  check(() => assert.equal(parentSeenBy(copy), map.get(bead)), 'and its parent-child edge carries the parenthood, exactly as it did on this side');
+}
+
 /* -------------------------------------- move, with a descendant that is already finished */
 
 {
