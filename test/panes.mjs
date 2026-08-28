@@ -39,7 +39,7 @@
  *    to the thing it is showing rather than only to itself, and the failure is silent: the
  *    back button walks and the pane goes on drawing what it drew.
  *
- * 5. **The row is on twelve pages and only one has panes.** Every other page must draw
+ * 5. **The row is on ten pages and only one has panes.** Every other page must draw
  *    exactly what it drew before, which means `window.beadcause.panes` being absent has to
  *    be an ordinary answer rather than a `TypeError`. The last section runs the row with no
  *    panes at all and asserts every pill is the link it was.
@@ -255,36 +255,33 @@ await check('exactly one of them is shown, and it is Home', () => {
 });
 
 await check('the one that is not built yet names the bead that builds it', () => {
-  // Config is the fifth view and the newest empty container (bc-khoe.50). It joined the
-  // grammar because the row lights a pill by asking `viewOfPath`, and until it did, the
-  // one screen that pill reaches drew the row with nothing current — so the view had to
-  // exist before its pane could, and this is the gap in between. **bc-khoe.60** fills it,
-  // and the attribute names the bead whose merge *deletes* it.
-  //
-  // A view named here that has since gone live is a line to delete, not a failure to
-  // route around. A view *missing* from here whose container is still empty is a pill
-  // leading to a blank screen, which is the whole thing `data-pending` exists to stop —
-  // which is what the count below is for.
-  for (const [view, bead] of [['config', 'bc-khoe.60']]) {
+  // Empty today: every view the grammar knows has a live pane, Config having been the
+  // last (bc-khoe.60). A view named here that has since gone live is a line to delete,
+  // not a failure to route around — this is the entry Config left when it did. A view
+  // *missing* from here whose container is still empty is a pill leading to a blank
+  // screen, which is the whole thing `data-pending` exists to stop — which is what the
+  // count below is for, and it is why this check stays even with nothing to name.
+  for (const [view, bead] of []) {
     const m = new RegExp(`data-pane="${view}" data-pending="([^"]+)"`).exec(HTML);
     assert.ok(m, `${view} is either live or unmarked — if it is live, drop it from this list`);
     assert.equal(m[1], bead, `${view} names ${m[1]} rather than the bead that fills it`);
   }
   assert.equal(
     (HTML.match(/data-pending=/g) || []).length,
-    1,
+    0,
     'a container is pending that is not named above — an unnamed one is a pill with nowhere to go'
   );
 });
 
 await check('and every other container is built', () => {
   // Each came off that list as its bead filled its container: History with bc-khoe.30.5,
-  // Releases with bc-khoe.30.14 and Advocates with bc-khoe.4, which was the last of the
-  // four the shell shipped with.
+  // Releases with bc-khoe.30.14, Advocates with bc-khoe.4 and Config with bc-khoe.60,
+  // which was the last of the five the grammar came to know.
   for (const [view, bead] of [
     ['history', 'bc-khoe.30.5'],
     ['advocates', 'bc-khoe.4'],
     ['releases', 'bc-khoe.30.14'],
+    ['config', 'bc-khoe.60'],
   ]) {
     assert.ok(
       !new RegExp(`data-pane="${view}"[^>]*data-pending`).test(HTML),
@@ -358,8 +355,8 @@ await check('and the advocate console holds its chip row and all three sections 
 await check('and so does the release board — filled by bc-khoe.30.14', () => {
   const open = HTML.indexOf('<div class="pane" data-pane="releases"');
   assert.ok(open > 0, 'the Releases pane is not where this suite thinks it is');
-  const close = HTML.indexOf('<div id="toast"', open);
-  assert.ok(close > open, 'the Releases pane is not the last one any more — pick a new end marker');
+  const close = HTML.indexOf('<div class="pane" data-pane="config"', open);
+  assert.ok(close > open, 'Config is not the pane after Releases any more — pick a new end marker');
   const inside = HTML.slice(open, close);
   // Same fragment-target rule as the ledger above, and a second id that had to move for a
   // duller reason: monitor.html carries an `id="observing"` and folds into this document
@@ -376,6 +373,23 @@ await check('and so does the release board — filled by bc-khoe.30.14', () => {
     HTML.indexOf('<script src="/prcard.js">') < HTML.indexOf('<script src="/releases.js">'),
     'releases.js loads before prcard.js and would throw before it drew'
   );
+});
+
+await check('and so does the space’s settings — filled by bc-khoe.60', () => {
+  const open = HTML.indexOf('<div class="pane" data-pane="config"');
+  assert.ok(open > 0, 'the Config pane is not where this suite thinks it is');
+  const close = HTML.indexOf('<div id="toast"', open);
+  assert.ok(close > open, 'the Config pane is not the last one any more — pick a new end marker');
+  const inside = HTML.slice(open, close);
+  // No fragment-target trap here — the hash naming this view is `#config` and nothing in
+  // this pane was ever called `config` — but the observing chip has the same collision
+  // Releases' did: monitor.html carries an `id="observing"` and folds into this document
+  // under bc-khoe.4, so the bare name is taken.
+  for (const mark of ['id="space"', 'id="cfg-observing"', 'class="work pagescroll"']) {
+    assert.ok(inside.includes(mark), `${mark} is not in the Config pane`);
+  }
+  assert.ok(!inside.includes('id="observing"'), 'the observing chip took a name bc-khoe.4 also wants');
+  assert.ok(/<script src="\/config\.js">/.test(HTML), 'nothing loads the file that fills it');
 });
 
 await check('Home’s pane holds everything that belongs to Home, and nothing that does not', () => {
@@ -420,8 +434,7 @@ await check('and no other page loads it — the row asks, it does not require', 
 
 await check('the row reaches for panes with ?. and for the grammar flat', () => {
   // The asymmetry is the whole reason a v81 phone survives this branch: a page with no
-  // grammar is broken and should say so, a page with no panes is eleven pages out of
-  // twelve.
+  // grammar is broken and should say so, a page with no panes is nine pages out of ten.
   assert.ok(/window\.beadcause\?\.panes/.test(VIEWBAR), 'viewbar.js requires panes to exist');
   assert.ok(/const route = window\.beadcause\.route;/.test(VIEWBAR), 'the grammar stopped being required');
 });
@@ -453,9 +466,13 @@ await check('the service worker precaches it, and the version moved', () => {
 
 console.log('\nwhich pane is up');
 
-/** A shell with a container still waiting on the bead that fills it — a photograph again
-    rather than a fixture: Config joined the grammar with bc-khoe.50 because the row could
-    not light its pill without it, and bc-khoe.60 is the fold that fills the container. */
+/** A shell with a container still waiting on the bead that fills it — synthetic now
+    rather than a photograph: every real container is built as of bc-khoe.60, so nothing
+    on disk is pending any more for this fixture to mirror. It reuses the Config view id
+    anyway, because `known()` in panes.js only picks up a `[data-pane]` whose id is one
+    the grammar already has — a made-up id would be skipped rather than marked pending —
+    and the bead named on it is left as the last real one to prove the string is read,
+    not to claim Config is still waiting on it. */
 const withPending = () => [
   pane('epics'),
   pane('history'),
@@ -464,9 +481,9 @@ const withPending = () => [
   pane('config', { pending: 'bc-khoe.60', scroller: false }),
 ];
 
-/** The shell once every container is filled — four of the five today, and what the fifth
-    becomes when bc-khoe.60 lands. The pill assertions below are about what filling one
-    changes at the row, so they want the finished shape. */
+/** The shell once every container is filled — all five, since bc-khoe.60 landed the
+    last of them. The pill assertions below are about what filling one changes at the
+    row, so they want the finished shape. */
 const whenBuilt = () => [pane('epics'), pane('history'), pane('advocates'), pane('releases'), pane('config')];
 
 await check('with no hash, Home is the pane and the others are hidden', () => {
@@ -508,8 +525,9 @@ await check('the back button walks the panes', () => {
 
 await check('a pending pane is never shown, and its hash falls to Home', () => {
   // Both pending at once, which is what this rule is about and which the shell has not
-  // shown since bc-khoe.4 landed — `withPending` has the one it does have, Config. These
-  // two are the pair it shipped with, and they carry the beads the markup carried:
+  // shown for real since bc-khoe.4 landed — nothing on disk is pending any more, so this
+  // fixture is built by hand rather than drawn from `withPending`. These two are the
+  // pair the shell shipped with, and they carry the beads the markup carried:
   // bc-khoe.4 rather than bc-khoe.30.6, because the attribute names the bead whose merge
   // deletes the container, and that is the fold rather than the ruling.
   const b = boot(
@@ -747,7 +765,7 @@ await check('a pill whose container is still pending is a link to the document i
   assert.equal(pill(nav, 'config').href, '/config');
   // And the other three are not, because bc-khoe.30.5, bc-khoe.4 and bc-khoe.30.14 filled
   // theirs. This is the whole of what filling a container changes at the row: nothing in
-  // viewbar.js moved for any of them, and the `href` in `PILLS` stays — eleven pages that
+  // viewbar.js moved for any of them, and the `href` in `PILLS` stays — nine pages that
   // have no panes still draw this row and still need the link.
   for (const id of ['history', 'advocates', 'releases']) {
     assert.equal(pill(nav, id).tag, 'button', `${id} still loads a document this page has open`);
@@ -823,9 +841,9 @@ await check('a narrowing chosen while another pane is up is waiting when Home co
   assert.equal(pills(nav).find((p) => p.current).id, 'bead');
 });
 
-/* ================================================ the eleven pages without panes */
+/* ================================================ the nine pages without panes */
 
-console.log('\nthe eleven pages that have no panes');
+console.log('\nthe nine pages that have no panes');
 
 await check('with no panes at all, every pill is the link it always was', () => {
   // /flow, /requirements, /endorse, /admin, /console — and, until bc-khoe.30.5 and .30.6,

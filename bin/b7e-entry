@@ -34,6 +34,8 @@
  * for a status that reacts to that. `2` bad usage. `4` `-w` named a workspace this Mac
  * has no config for, or this checkout resolves to none and neither `-w` nor `--dir` was
  * given. With `--check`: `1` at least one entry number is claimed more than once.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';

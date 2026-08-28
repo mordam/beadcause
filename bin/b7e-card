@@ -1,0 +1,256 @@
+#!/usr/bin/env node
+/**
+ * `b7e-card` — say what the phone will show for a bead's card, before a write and after.
+ *
+ *     b7e-card <bead-id>                        # what toQuestion() makes of the bead now
+ *     b7e-card <bead-id> --field notes           # just one field
+ *     b7e-card <bead-id> --file card.md          # validate a draft before writing it
+ *     b7e-card <bead-id> --file card.md --field description
+ *     b7e-card <bead-id> --json
+ *
+ * bc-dgx7.19: three sessions (bc-xl7n.101, bc-ka5y.15, bc-1kwl) each hand-wrote a
+ * `decision` block onto an existing bead's notes and then a scratchpad script to find
+ * out whether it had actually parsed — twice it silently hadn't (a bead label's
+ * `superseded-by: already keeps it out` read as a nested YAML mapping) — and `bd
+ * update` reported success both times, because writing and parsing are different
+ * questions. This is the command that answers the second one, in `lib/decision.js`'s
+ * own terms — the same code the phone runs — without a scratch script.
+ *
+ * `--file` is the *before*: it validates a draft against `lib/decision.js` exactly as
+ * the live bead's field would be read, and — because two of the three sessions above
+ * lost markers by clobbering `notes` with `bd update --notes` — it also warns when the
+ * bead's *current* content in that field carries a `<!-- beadcause:... -->` marker the
+ * draft does not, since that write would silently drop it.
+ *
+ * With no `--file`, it reads what is on the bead *now*, through the same `toQuestion`
+ * the inbox itself calls — the *after*.
+ *
+ * Exit codes: `0` clean (including "no decision block at all", which is an ordinary
+ * bead, not a failure), `1` a decision block is present and failed to parse, `2`
+ * refused — bad usage, or the bead was not found.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { loadConfig } from '../lib/config.js';
+import { parseDecision, toQuestion } from '../lib/decision.js';
+
+const argv = process.argv.slice(2);
+const flag = (...names) => names.some((n) => argv.includes(n));
+const value = (...names) => {
+  for (const n of names) {
+    const i = argv.indexOf(n);
+    if (i > -1) return argv[i + 1] ?? null;
+  }
+  return null;
+};
+
+// bc-dgx7.31: this used to fall into the positional loop below and either be turned
+// away as "unrecognised flag: --help" (nothing else on argv) or read as the bead id
+// itself (something else on argv) — either way never a help line. Checked first.
+if (flag('--help', '-h')) {
+  console.log(
+    [
+      "b7e-card <bead-id>                        # what toQuestion() makes of the bead now",
+      'b7e-card <bead-id> --field notes           # just one field',
+      'b7e-card <bead-id> --file card.md          # validate a draft before writing it',
+      'b7e-card <bead-id> --file card.md --field description',
+      'b7e-card <bead-id> --json',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const FIELDS = ['description', 'design', 'notes'];
+const JSON_MODE = flag('--json');
+const filePath = value('--file');
+const fieldArg = value('--field');
+if (fieldArg && !FIELDS.includes(fieldArg)) {
+  console.error(`b7e-card: --field must be one of ${FIELDS.join('|')}, not "${fieldArg}"`);
+  process.exit(2);
+}
+
+const VALUE_FLAGS = new Set(['--file', '--field']);
+const positional = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--json') continue;
+  if (VALUE_FLAGS.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('--')) {
+    console.error(`b7e-card: unrecognised flag: ${a}`);
+    process.exit(2);
+  }
+  positional.push(a);
+}
+const id = positional[0];
+if (!id) {
+  console.error('usage: b7e-card <bead-id> [--file <path>] [--field notes|description|design] [--json]');
+  process.exit(2);
+}
+
+let bead;
+try {
+  const out = execFileSync('bd', ['show', id, '--json'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  const rows = JSON.parse(out);
+  bead = (Array.isArray(rows) ? rows : []).find((r) => r.id === id);
+} catch (err) {
+  const detail = `${err.stderr || ''}${err.stdout || ''}`.trim();
+  console.error(`b7e-card: ${detail || err.message}`);
+  process.exit(2);
+}
+if (!bead) {
+  console.error(`b7e-card: no bead found matching "${id}"`);
+  process.exit(2);
+}
+
+let cfg;
+try {
+  cfg = loadConfig();
+} catch {
+  cfg = { workspaces: [] };
+}
+const wsName = cfg.workspaces?.find((w) => w.dir === process.env.BEADS_DIR)?.name || '';
+
+/** Any `<!-- beadcause:... -->` (or its close, `<!-- /beadcause:... -->`) in the text. */
+function scanMarkers(text) {
+  const out = [];
+  const re = /<!--([\s\S]*?)-->/g;
+  let m;
+  while ((m = re.exec(text || ''))) {
+    const inner = m[1].trim();
+    if (/^\/?beadcause:/.test(inner)) out.push(inner);
+  }
+  return out;
+}
+
+/**
+ * A YAML parse error names `at line N, column M` and nothing else — accurate but not
+ * readable on a phone. This appends the actual offending source line, so "Nested
+ * mappings are not allowed... at line 5, column 11" becomes something that names what
+ * bc-xl7n.101's first draft actually got wrong: the `superseded-by:` inside an
+ * unquoted `hint:`.
+ */
+function annotateYamlError(message, raw) {
+  const m = /at line (\d+), column \d+/.exec(message || '');
+  if (!m || !raw) return message;
+  const line = raw.split('\n')[Number(m[1]) - 1];
+  return line ? `${message}\n      → line ${m[1]}: ${line.trim()}` : message;
+}
+
+let exitCode = 0;
+let report;
+
+if (filePath) {
+  const text = fs.readFileSync(filePath, 'utf8');
+  const targetField = fieldArg || 'notes';
+  const { decision, error, raw } = parseDecision(text);
+  const markers = scanMarkers(text);
+  const liveMarkers = scanMarkers(bead[targetField]);
+  const droppedMarkers = liveMarkers.filter((m) => !markers.includes(m));
+  if (error) exitCode = 1;
+  report = {
+    mode: 'file',
+    file: filePath,
+    field: targetField,
+    question: decision?.question || '',
+    options: decision?.options || [],
+    error: error ? annotateYamlError(error, raw) : '',
+    markers,
+    droppedLiveMarkers: droppedMarkers,
+  };
+} else {
+  const targetFields = fieldArg ? [fieldArg] : FIELDS;
+  const synthetic = fieldArg
+    ? { ...bead, ...Object.fromEntries(FIELDS.filter((f) => f !== fieldArg).map((f) => [f, ''])) }
+    : bead;
+  const q = toQuestion(wsName, synthetic);
+  // Re-parse each targeted field directly (bypassing toQuestion's proposal/amendment/
+  // delivery stripping) purely to get the raw block text a YAML error can be annotated
+  // against — toQuestion remains the source of truth for the question/options above.
+  const rawByField = Object.fromEntries(targetFields.map((f) => [f, parseDecision(bead[f]).raw]));
+  const errors = q.errors.map((e) => {
+    const f = targetFields.find((name) => e.startsWith(`${name}:`));
+    return f ? annotateYamlError(e, rawByField[f]) : e;
+  });
+  if (errors.length) exitCode = 1;
+  const markers = targetFields.flatMap((f) => scanMarkers(bead[f]));
+  report = {
+    mode: 'bead',
+    id: bead.id,
+    fields: targetFields,
+    question: q.question,
+    options: q.decision?.options || [],
+    suggested: q.suggested,
+    errors,
+    markers,
+  };
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(report, null, 2));
+  process.exit(exitCode);
+}
+
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
+
+console.log(
+  report.mode === 'file'
+    ? bold(`${report.file}  →  ${report.field}`)
+    : bold(`${bead.id}  →  ${report.fields.join(', ')}`)
+);
+console.log('');
+console.log(report.question ? bold('question: ') + report.question : dim('question: (none — no decision block, or it has no question:)'));
+
+if (report.options.length) {
+  console.log('');
+  console.log(bold(`options (${report.options.length}):`));
+  for (const o of report.options) {
+    const tags = [
+      o.recommended ? green('recommended') : null,
+      o.closes === false && !o.defers ? yellow('closes:false') : null,
+      o.defers ? yellow('defers:true') : null,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    console.log(`  - ${bold(o.id)}: ${o.label}${tags ? '  [' + tags + ']' : ''}`);
+    if (o.hint) console.log(`      ${dim(o.hint)}`);
+    console.log(`      → ${dim(o.response)}`);
+  }
+  if (!report.options.some((o) => o.recommended)) {
+    console.log('');
+    console.log(yellow('  ⚠ no option is marked recommended — bin/ask.js would refuse this as a fresh ask'));
+  }
+}
+
+if (report.mode === 'bead' && report.suggested) {
+  console.log('');
+  console.log(yellow(`suggested — guessed from prose, not a written block (from "${report.suggested.from}"):`));
+  for (const o of report.suggested.options || []) console.log(`  - ${o.label ?? o}`);
+}
+
+const errList = report.mode === 'file' ? (report.error ? [report.error] : []) : report.errors;
+if (errList.length) {
+  console.log('');
+  console.log(red(`errors (${errList.length}):`));
+  for (const e of errList) console.log(`  ✗ ${e}`);
+}
+
+console.log('');
+console.log(report.markers.length ? bold(`markers (${report.markers.length}):`) : dim('markers: none'));
+for (const m of report.markers) console.log(`  <!-- ${m} -->`);
+
+if (report.droppedLiveMarkers?.length) {
+  console.log('');
+  console.log(red(`⚠ the live "${report.field}" field carries ${report.droppedLiveMarkers.length} marker(s) this file does not — writing over it (e.g. bd update --${report.field}) would drop them:`));
+  for (const m of report.droppedLiveMarkers) console.log(`  <!-- ${m} -->`);
+}
+
+process.exit(exitCode);

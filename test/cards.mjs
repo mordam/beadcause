@@ -472,8 +472,9 @@ check(() => {
   // bead's own bug with the sign reversed — and there is no constant that is safe on a Mac
   // running a full suite beside two worker windows. The loop leaves as soon as nothing is
   // pending, so the ordinary sweep pays one step and a slow one gets eight before it calls
-  // anything stuck. If the bound ever grows, check it against the caller's 5s timeout in
-  // `closeEmptyWindows`: measured end to end, the all-stuck case takes ~1.7s.
+  // anything stuck — and a Mac with frames permanently stuck on it pays all eight on every
+  // tick, for ever. That steady state is measured in the script's own header; the check
+  // below is what keeps it inside the caller's timeout without anybody remembering to look.
   const poll = emptyScript.indexOf('repeat 8 times');
   const settle = emptyScript.indexOf('tell current application to delay 0.15');
   const leave = emptyScript.indexOf('if (count of pending) is 0 then exit repeat');
@@ -484,6 +485,39 @@ check(() => {
   // a bare `delay` inside the tell block is a runtime error, not a compile one.
   assert.doesNotMatch(emptyScript, /^\t+delay /m, 'the settle is not a bare `delay` inside the tell block');
 }, 'and polls for the departure rather than guessing a settle that is long enough');
+
+check(() => {
+  // bc-xl7n.131.2. Three numbers in two files decide whether the worst case fits: the poll
+  // bound and the settle here, and the `timeout` `closeEmptyWindows` passes osascript over
+  // in lib/iterm.js. Nothing tied them together — the comment above used to ask a *reader*
+  // to check the product by hand, which is the kind of instruction that is followed once.
+  //
+  // The steady state is not the tidy case. A Mac with N frames permanently stuck pays every
+  // one of the eight steps on every tick indefinitely, because `pending` never empties, so
+  // `steps × settle` is what the sweep actually costs there rather than a ceiling it rarely
+  // reaches. Measured 2026-08-24 against iTerm 3.6.11 with 22 windows on the desk: 1.44s at
+  // N=1 and 1.63s at N=10, of which 1.2s is this product — the delay is ~75% of the call and
+  // the per-window re-queries are ~15ms each, which is why the bound and the settle are the
+  // only two numbers worth guarding.
+  //
+  // 40% leaves the rest of the call — osascript's own start-up, the collect pass, the close
+  // pass and the per-window term — about as much room again as it was measured needing, on a
+  // Mac slower than the one that measured it. Raise the bound to 30 steps or the settle to
+  // half a second and this fails, which is the point: both are inside a 5s budget on their
+  // own and neither is with the other.
+  const steps = Number(emptyScript.match(/repeat (\d+) times/)?.[1]);
+  const settle = Number(emptyScript.match(/tell current application to delay ([\d.]+)/)?.[1]);
+  const itermSrc = fs.readFileSync(path.join(ROOT, 'lib', 'iterm.js'), 'utf8');
+  const timeout = Number(itermSrc.match(/export function closeEmptyWindows\(\{ timeout = (\d+) \}/)?.[1]);
+  assert.ok(Number.isFinite(steps) && steps > 0, 'the poll bound is readable');
+  assert.ok(Number.isFinite(settle) && settle > 0, 'the settle is readable');
+  assert.ok(Number.isFinite(timeout) && timeout > 0, 'the caller\'s timeout is readable');
+  assert.ok(
+    steps * settle * 1000 <= timeout * 0.4,
+    `the all-stuck poll waits ${steps} × ${settle}s = ${steps * settle}s, which is not comfortably inside `
+      + `the ${timeout / 1000}s osascript timeout in closeEmptyWindows`,
+  );
+}, 'and its worst case — every window stuck, every tick — stays well inside the caller\'s timeout');
 
 check(() => {
   assert.match(emptyScript, /if not \(application id "com\.googlecode\.iterm2" is running\) then return "0"/);

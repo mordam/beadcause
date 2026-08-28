@@ -323,7 +323,7 @@ await check('every family isProtectedLabel refuses is decided here, one way or t
   const families = [...body[1].matchAll(/is[A-Z][A-Za-z]*Label|PROTECTED_LABELS/g)].map((m) => m[0]);
   assert.deepEqual(
     [...new Set(families)].sort(),
-    ['PROTECTED_LABELS', 'isAddresseeLabel', 'isFiledWhileLabel', 'isOwnerLabel', 'isRanLabel'].sort(),
+    ['PROTECTED_LABELS', 'isAddresseeLabel', 'isCtxLabel', 'isFiledWhileLabel', 'isOwnerLabel', 'isRanLabel'].sort(),
     'lib/verdict.js protects a family this suite has not decided about for a create — ' +
       'add it to DAEMON_ONLY or to PROPOSAL_EXCEPTIONS in lib/proposedlabels.js, with the reason'
   );
@@ -335,16 +335,16 @@ await check('and the two it deliberately disagrees with are exactly owner: and f
     assert.equal(isProtectedLabel(l), true, `${l} is the ✎'s to refuse`);
     assert.equal(daemonOnly(l), null, `${l} is a proposal's to state`);
   }
-  // And nothing else the ✎ refuses is let through: the two plain strings, `ran:` and
+  // And nothing else the ✎ refuses is let through: the two plain strings, `ran:`, `ctx:` and
   // `filed-while:` are refused by both, so the exception list is two entries and not a hole.
-  for (const l of ['unendorsed', 'agent-filed', 'ran:opus', 'filed-while:bc-xl7n.76.1']) {
+  for (const l of ['unendorsed', 'agent-filed', 'ran:opus', 'ctx:over', 'filed-while:bc-xl7n.76.1']) {
     assert.equal(isProtectedLabel(l), true);
     assert.ok(daemonOnly(l), `${l} is refused by both guards`);
   }
 });
 
 await check('every refusal carries a reason long enough to act on', () => {
-  assert.ok(DAEMON_ONLY.length >= 6, 'six families, and a shrinking list is a decision');
+  assert.ok(DAEMON_ONLY.length >= 7, 'seven families, and a shrinking list is a decision');
   for (const rule of DAEMON_ONLY) {
     assert.ok(rule.label, 'each rule names the label it is about, for a reader of this file');
     assert.ok(rule.why.length > 40, `"${rule.why}" is a label name, not a reason`);

@@ -31,6 +31,12 @@ const BIN = path.join(ROOT, 'bin', 'b7e-gate');
 
 const gate = await import(path.join(ROOT, 'lib', 'gate.js'));
 
+// This suite spawns real runners, and both of them now take a machine-wide gate slot
+// (bc-xlz32.1). Under a gate they inherit `BEADCAUSE_GATE_HELD` and skip it; run alone
+// while two other gates are live they would queue behind them and time out, so opt out
+// here — the semaphore itself is proved in test/gateslots.mjs, against its own directory.
+process.env.BEADCAUSE_GATE_SLOTS = '0';
+
 let failures = 0;
 const ok = (name) => console.log(`  \x1b[32m✓\x1b[0m ${name}`);
 const bad = (name, detail) => {
@@ -331,6 +337,59 @@ await checkAsync('a second invocation on the same tree is refused rather than do
   assert.match(second.stderr, /already running/);
   const firstDone = await new Promise((resolve) => first.on('close', (code) => resolve(code)));
   assert.equal(firstDone, 0, 'the first invocation should have run to completion undisturbed');
+});
+
+/*
+ * And the lock file is actually gone afterwards — bc-dgx7.40.
+ *
+ * `onExit` hands back a *disarm*, not a release: it marks the job done and splices it out,
+ * and never runs `fn`. `bin/b7e-gate` called only that on its happy path, so a clean run
+ * never removed `beadcause-gate-<hash>.lock` at all — and the path is keyed by the root,
+ * so that is one permanent file per tree that has ever run a gate (108 of them on this Mac
+ * when this was written). Nothing noticed, because `acquireLock` reads a lock whose pid is
+ * dead as stale and reclaims it, so the next run on that tree works every time. That is
+ * why this is checked against the real CLI on both paths rather than
+ * against `acquireLock`: the unit is fine and always was, and it is the binary's two-call
+ * shape that is the thing to hold still.
+ *
+ * The lock path is learned by taking and immediately releasing the lock ourselves, which
+ * is the same `lockPathFor(root)` the gate will compute — `lockPathFor` is not exported.
+ */
+const lockPathOf = (dir) => {
+  const probe = gate.acquireLock(dir);
+  assert.equal(probe.ok, true, 'the probe acquire should not be refused on a fresh tree');
+  probe.release();
+  return probe.lockPath;
+};
+
+check('a clean run removes its own lock file rather than leaving it to be reclaimed as stale', () => {
+  const dir = tree('cli-lock-clean', { 'test/a-pass.mjs': marker('a-pass') });
+  const lockPath = lockPathOf(dir);
+  const run = spawnSync(process.execPath, [BIN, '--dir', dir], { encoding: 'utf8' });
+  assert.equal(run.status, 0, `expected a clean exit, got ${run.status}: ${run.stderr}`);
+  assert.equal(fs.existsSync(lockPath), false, `a clean run left ${lockPath} behind`);
+});
+
+check('a red run removes its lock file too — the release is in a finally, not on the success arm', () => {
+  const dir = tree('cli-lock-red', { 'test/b-fail.mjs': marker('b-fail', { exit: 3 }) });
+  const lockPath = lockPathOf(dir);
+  const run = spawnSync(process.execPath, [BIN, '--dir', dir], { encoding: 'utf8' });
+  assert.equal(run.status, 1, `expected the red exit code 1, got ${run.status}: ${run.stderr}`);
+  assert.equal(fs.existsSync(lockPath), false, `a red run left ${lockPath} behind`);
+});
+
+await checkAsync('a signalled run removes its lock file — the exit handler is still armed', async () => {
+  const dir = tree('cli-lock-signal', { 'test/slow.mjs': marker('slow', { sleepMs: 5000 }) });
+  const lockPath = lockPathOf(dir);
+  const child = spawn(process.execPath, [BIN, '--dir', dir]);
+  // Wait for the lock to actually be taken rather than guessing at how long that costs —
+  // a fixed sleep here inverts the test on a loaded Mac instead of flaking it.
+  const deadline = Date.now() + 10_000;
+  while (!fs.existsSync(lockPath) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+  assert.equal(fs.existsSync(lockPath), true, 'the run never took the lock, so there is nothing to prove');
+  child.kill('SIGTERM');
+  await new Promise((resolve) => child.on('close', resolve));
+  assert.equal(fs.existsSync(lockPath), false, `a signalled run left ${lockPath} behind`);
 });
 
 /* --------------------------------------------------------------------- */

@@ -774,6 +774,40 @@ await check('a bead blocked behind a dependency is not a bead that has closed ei
 });
 
 /**
+ * bc-4bet.3. `live` used to be `groupOf.size + plannedInto.size` — the loop's *outer*
+ * accumulators, which by the time a second planned epic is reached already hold the first
+ * epic's own dispatch. Two planned epics in one tick, sorted x-1 first by
+ * `byPickOrder`'s id tie-break (same priority, same createdAt): x-1 dispatches a group,
+ * so the outer maps are nonempty before y-2 is ever read, and y-2 has nothing ready,
+ * nothing running, and a bead its own plan named that has not closed. Under the bug, y-2's
+ * card borrows x-1's "its plan is being worked in groups" instead of naming y-2.1.
+ */
+await check("a second planned epic's hold reason is its own, not the first one's", async () => {
+  const planX = validatePlan(planSpec([group('router', ['x-1.1', 'x-1.2'])]), { epic: 'x-1', children: null });
+  const planY = validatePlan(planSpec([group('work', ['y-2.1'])]), { epic: 'y-2', children: null });
+  const r = await tick({
+    ready: [
+      epic('x-1', { priority: 1, labels: [PLANNED_LABEL] }),
+      bead('x-1.1'),
+      bead('x-1.2'),
+      epic('y-2', { priority: 1, labels: [PLANNED_LABEL] }),
+      // y-2.1 is deliberately not ready and has no live worker: y-2's groups and members
+      // are both empty, which is the case the outer accumulators would paper over.
+    ],
+    comments: {
+      'x-1': [{ text: formatPlan(planX) }],
+      'y-2': [{ text: formatPlan(planY) }],
+    },
+    rows: [bead('y-2.1', { status: 'open' })],
+  });
+  assert.deepEqual(openedIds(r), ['x-1.1'], 'x-1 dispatches its lead, which is what fills the outer accumulators');
+  assert.match(heldWhy(r.card, 'x-1'), /its plan is being worked in groups/, "x-1's own dispatch is its own hold reason");
+  assert.match(heldWhy(r.card, 'y-2'), /y-2\.1/, `y-2 should name its own unclosed bead; got: ${heldWhy(r.card, 'y-2')}`);
+  assert.match(heldWhy(r.card, 'y-2'), /not closed/);
+  assert.doesNotMatch(heldWhy(r.card, 'y-2'), /its plan is being worked in groups/, "y-2 must not borrow x-1's hold reason");
+});
+
+/**
  * And the direction that has to fail safe: a tracker that will not answer says nothing about
  * whether anything closed, so nothing is filed. That is lib/release.js's rule, which
  * lib/promote.js's own prose already claimed and its implementation did not ask.

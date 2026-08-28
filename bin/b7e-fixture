@@ -54,6 +54,8 @@
  * `--file` with no `=`, `--file`/`--commit` with no value. `2` the fixture itself could
  * not be built (git failed, a path escaped the tree, or `--keep` from a previous run
  * refuses this `--name`).
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import { buildFixture } from '../lib/fixture.js';

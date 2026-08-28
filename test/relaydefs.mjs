@@ -27,16 +27,48 @@
  * 6. **Nothing throws.** A refused file is a bead dispatching as it does today plus a
  *    sentence; there is no input here that is allowed to be an exception.
  *
- * bc-ogicx.9 extends this file with the deluvia equivalence proof — a chain built off an
- * in-repo-shaped definition and one built off `cfg.relays.deluvia` being identical,
- * packet included. This suite is the module's own contract; that one is the migration's.
+ * 7. **deluvia's real definition survives the move, both ways** (bc-ogicx.8). Sections 1-6
+ *    are the module's own contract and every definition in them is synthetic. This last one
+ *    is the migration's: the five departments `cfg.relays.deluvia` ships are carried in as
+ *    an in-repo fixture, and each of the five chains has to come out *identical* from the
+ *    file and from the config — packet included, which is the assertion the whole
+ *    whole-definition-replacement design turns on.
+ *
+ * ## Where bc-ogicx.9's criteria are actually asserted
+ *
+ * bc-ogicx.9 is the epic's test bead and its description lists nine acceptance criteria.
+ * Seven of them were delivered by the beads it was gated behind rather than by a suite
+ * written under its own name, so this index is the record — by **check name** and not by
+ * line number, because line numbers rot and a check's name is what the runner prints:
+ *
+ * - *chainFor is null with no file and no cfg.relays* — test/relay.mjs, "a workspace with no
+ *   relay entry never relays"; here, "no .beadcause/ at all is the absent answer, and never
+ *   a definition".
+ * - *the brief is byte-for-byte what it is today* — test/relay.mjs, "a brief with no relay is
+ *   byte-for-byte what it was"; test/relaywiring.mjs, "a workspace with no relay anywhere
+ *   gets no relay section at all".
+ * - *the existing test/relay.mjs run unedited* — true and provable rather than built: `git
+ *   log` says that file has been touched exactly once ever, by bc-ogicx.4's own pull request.
+ * - *a file wins over cfg, whole-definition* — here, "the off switch replaces cfg entirely;
+ *   the absent file falls through to it"; test/relaywiring.mjs, "a definition replaces the
+ *   config whole — the config's roles do not survive it".
+ * - *`relays: {}` and an absent file are opposite answers* — here, all of section 2.
+ * - *unparseable / unknown key / `packet:` / an unprefixed department key* — here, sections
+ *   3 and 4.
+ * - *selection order, an unknown `relay:` name, an ambiguous department* — here, section 5.
+ * - *capacity* — test/deptqueue.mjs, delivered by bc-ogicx.6: "two Story beads, capacity 1",
+ *   "a second department is untouched by the first being full", "the department comes from
+ *   the graph — a queue row has no assignee to read", and "a tracker that will not answer
+ *   means no cap, never an empty one".
+ * - *the endorsement gate is unmoved* — test/relaywiring.mjs section 5, which is the one
+ *   criterion nothing in this repo covered until bc-ogicx.9 was finished.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { chainIn, chainLine, PACKET } from '../lib/relay.js';
+import { chainFor, chainIn, chainLine, PACKET, profilePath } from '../lib/relay.js';
 import { RELAY_DIR, forgetRelayDefs, relayDefFor, relaysIn } from '../lib/relaydefs.js';
 import { cleanupTmp } from './helpers/tmp.mjs';
 
@@ -366,6 +398,173 @@ check('nothing here throws, whatever the file says', () => {
       const read = relaysIn(checkout({ 'relays.yaml': body }));
       relayDefFor(CFG, 'deluvia', path.dirname(path.dirname(read.file || path.join(tmp, 'x', 'y'))), bead());
     }, JSON.stringify(body));
+  }
+});
+
+/* ------------------------------ 7. deluvia, carried in as a fixture, proved both ways */
+
+/**
+ * deluvia's five departments in the **in-repo file shape**, holding exactly what
+ * `cfg.relays.deluvia` states — minus `packet:`, which a repo may not set and which the
+ * check below is largely about.
+ *
+ * This is the one fixture in this file that is not invented. Everything above proves what
+ * `lib/relaydefs.js` does with a definition somebody made up for the occasion; the only
+ * definition that has to survive the move intact is the one already in service, and until
+ * this section the shipped `cfg.relays.deluvia` entry was asserted against nothing at all.
+ * (The `deluvia` name elsewhere in this file is a workspace *label* over a synthetic `CFG`
+ * two departments smaller than the real one.)
+ *
+ * Named `studio` because a file holds *named* relays where `cfg` holds one per workspace —
+ * which is the one thing about the two shapes that is not a rename, and the reason the
+ * comparison below is `chainIn` against `chainFor` rather than one object against another.
+ */
+const DELUVIA_FIXTURE = `
+relays:
+  studio:
+    profile: ai-context/agents/{role}/{role}.md
+    profiles:
+      herald: .claude/agents/herald.md
+    docs: [docs/STUDIO_CHARTER.md, docs/APPROVAL_PIPELINE.md]
+    filer: ward
+    executive: [vox, tally, ward]
+    departments:
+      dept:story:
+        name: Story
+        lead: script
+        members: [lore, aria, script, clio, muse]
+        check: [clio, muse]
+      dept:design:
+        name: Design
+        lead: palette
+        members: [palette, mien, carta]
+        check: [clio, palette]
+      dept:board:
+        name: Board and Camera
+        lead: frame
+        members: [frame, panel, lens]
+        check: [clio, lens, palette]
+      dept:post:
+        name: Post
+        lead: splice
+        members: [splice, timbre, cadence]
+        check: [clio, lens]
+      dept:mktg:
+        name: Outward
+        lead: herald
+        members: [herald, sage]
+        check: [clio, palette]
+default: studio
+`;
+
+/**
+ * The **shipped** config, not one written here — `loadConfig()` against an empty config
+ * directory is `defaults()`, which is the `relays.deluvia` block in lib/config.js and the
+ * thing the fixture claims to be equal to. A copy of that block pasted into this file would
+ * make the whole section circular.
+ *
+ * Imported dynamically, and after `BEADCAUSE_CONFIG_DIR` is pointed inside `tmp`, because
+ * `CONFIG_DIR` resolves once at module load: a static import would read the real config on
+ * this Mac and write to it. Nothing above this line loads lib/config.js — lib/relay.js
+ * imports nothing and lib/relaydefs.js imports only `yaml` and lib/relay.js — and the
+ * assertion after the import is what says so out loud if that ever stops being true.
+ */
+process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
+const { CONFIG_DIR, loadConfig } = await import('../lib/config.js');
+const shippedCfg = (() => {
+  const said = console.log;
+  // `loadConfig` announces the config it writes; one line per suite run is noise here.
+  console.log = () => {};
+  try {
+    return loadConfig();
+  } finally {
+    console.log = said;
+  }
+})();
+
+check('the shipped config is read from this suite’s own directory, never from the Mac’s', () => {
+  assert.equal(CONFIG_DIR, path.join(tmp, 'config'), 'lib/config.js was loaded before the env var was set');
+});
+
+/**
+ * A deluvia bead in one department, carrying that department's routing label and assigned
+ * to its lead — the shape `APPROVAL_PIPELINE.md` describes, and the only bead shape this
+ * section needs. The lead comes off the shipped config rather than being typed here, so a
+ * department that is renamed cannot leave a check quietly asserting about nobody.
+ */
+const beadFor = (key) =>
+  bead({ id: `dv-${key.slice(5)}`, labels: [key], assignee: shippedCfg.relays.deluvia.departments[key].lead });
+
+check('the fixture states exactly what cfg.relays.deluvia states, minus the packet', () => {
+  const read = relaysIn(checkout({ 'relays.yaml': DELUVIA_FIXTURE }));
+  assert.equal(read.problem, null, 'the real definition does not survive the repo file validator');
+  assert.equal(read.defined, true);
+  const { packet, ...withoutPacket } = shippedCfg.relays.deluvia;
+  assert.deepEqual(packet, PACKET, 'the shipped entry no longer states the pair this proof is about');
+  // The whole of the fixture against the whole of the config entry, so that an edit to
+  // either one that is not made to the other fails here rather than silently proving that
+  // two stale definitions agree.
+  assert.deepEqual(read.relays.studio, withoutPacket);
+});
+
+check('all five departments chain identically from the file and from cfg, packet included', () => {
+  const dir = checkout({ 'relays.yaml': DELUVIA_FIXTURE });
+  const expected = {
+    'dept:story': 'script → clio → muse → script → ward',
+    'dept:design': 'palette → clio → palette → ward',
+    'dept:board': 'frame → clio → lens → palette → frame → ward',
+    'dept:post': 'splice → clio → lens → splice → ward',
+    'dept:mktg': 'herald → clio → palette → herald → ward',
+  };
+  const keys = Object.keys(shippedCfg.relays.deluvia.departments);
+  assert.deepEqual(keys, Object.keys(expected), 'the shipped relay gained or lost a department');
+  for (const key of keys) {
+    const bead = beadFor(key);
+    const fromFile = chainIn(relayDefFor({}, 'deluvia', dir, bead).def, 'deluvia', bead);
+    const fromCfg = chainFor(shippedCfg, 'deluvia', bead);
+    assert.ok(fromFile, `${key} got no chain from the file`);
+    // The whole chain object, not a summary of it: steps, lead, filer, profile, profiles,
+    // docs and packet. `packet` is the one that would go missing quietly — a file may not
+    // state it, so it can only come from the PACKET constant, and a chain that lost it
+    // files a review packet with no `needs-approval`/`human` pair and raises nothing.
+    assert.deepEqual(fromFile, fromCfg, `${key} chains differently from the file and from cfg`);
+    assert.deepEqual(fromFile.packet, PACKET, `${key} lost the pair that reaches a lock screen`);
+    assert.equal(chainLine(fromFile), expected[key]);
+  }
+});
+
+check('the department comes off the label or off the roster — identically, either way', () => {
+  const dir = checkout({ 'relays.yaml': DELUVIA_FIXTURE });
+  for (const key of Object.keys(shippedCfg.relays.deluvia.departments)) {
+    // The same bead with its routing label taken off: every one of these five leads is
+    // staffed by the department it leads, so the roster has to answer the same way.
+    const bead = { ...beadFor(key), labels: [] };
+    const fromFile = chainIn(relayDefFor({}, 'deluvia', dir, bead).def, 'deluvia', bead);
+    assert.deepEqual(fromFile, chainFor(shippedCfg, 'deluvia', bead), `${key} unlabelled`);
+    assert.equal(fromFile.dept, key, `${key} was routed somewhere else by its roster`);
+  }
+});
+
+check('herald keeps the one profile the template does not reach, from either side', () => {
+  const dir = checkout({ 'relays.yaml': DELUVIA_FIXTURE });
+  const bead = beadFor('dept:mktg');
+  const fromFile = chainIn(relayDefFor({}, 'deluvia', dir, bead).def, 'deluvia', bead);
+  const fromCfg = chainFor(shippedCfg, 'deluvia', bead);
+  // charter §10: eighteen agents are under the template and herald is a Claude Code
+  // subagent living somewhere else. A path in a brief that resolves to nothing is worse
+  // than no path, so the override is part of the definition and has to travel with it.
+  assert.equal(profilePath(fromFile, 'herald'), '.claude/agents/herald.md');
+  assert.equal(profilePath(fromFile, 'herald'), profilePath(fromCfg, 'herald'));
+  assert.equal(profilePath(fromFile, 'clio'), 'ai-context/agents/clio/clio.md');
+  assert.equal(profilePath(fromFile, 'clio'), profilePath(fromCfg, 'clio'));
+});
+
+check('executive is no relay from the file either — vox, tally and ward all get null', () => {
+  const dir = checkout({ 'relays.yaml': DELUVIA_FIXTURE });
+  for (const role of shippedCfg.relays.deluvia.executive) {
+    const who = bead({ assignee: role });
+    assert.equal(chainIn(relayDefFor({}, 'deluvia', dir, who).def, 'deluvia', who), null, role);
+    assert.equal(chainFor(shippedCfg, 'deluvia', who), null, role);
   }
 });
 
