@@ -17962,6 +17962,19 @@ file:
 - **It says so on the card**, as its own pill with its own reason, because a bead that
   quietly never opens is indistinguishable from a bead nobody wants. The pill names the
   other bead, which is all there is to look at — there is no window and no branch yet.
+- **And a bead at `maxAttemptsPerBead` reserves nothing**, because the first bullet is only
+  true if the winner really is being opened. This filter is the last stage of the survey and
+  [the attempt filter](#a-bead-it-has-given-up-on-says-so) is the first stage of the pick,
+  so a bead the advocate has already given up on is still in the queue here: it sorted in
+  pick order, it took every file it declared, and it was then dropped before any window
+  opened. The counter is a floor nothing decrements, so the bead behind it was not deferred a
+  tick — it was withheld for ever, waiting on work that could never come up. Measured at
+  eighteen hours over one file, and with 38 retired beads in a single tick that was not a
+  corner: the cap had stopped being a per-bead retirement and become a repo-wide lock on
+  every surface any of them had ever named. A retired bead is now skipped before it is
+  compared, so it neither reserves nor is reserved against — it stays in the queue, where
+  "given up on" is the one list whose job it is to report it, and it is kept out of the pill
+  above, because a bead drawn as retired *and* as held behind a file is one bead as two.
 
 **And one tick earlier still, a plan may not create the collision at all.** A plan is the
 one document in this system where somebody decides, in one sitting, what several windows
