@@ -74,7 +74,7 @@ const epic = (id, over = {}) => bead(id, { issue_type: 'epic', ...over });
  * for anything else" is a claim about cost, and a claim about cost is worth asserting
  * rather than writing in a comment.
  */
-async function tick({ ready = [], children = {}, listLabel = [], show = null, workers = [], overrides = {} } = {}) {
+async function tick({ ready = [], children = {}, listLabel = [], show = null, workers = [], parents = null, overrides = {} } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   // A clean slate per case: state, the activity file the launch stamps, and the
   // worker markers. Otherwise case N's worker is still in case N+1's queue.
@@ -141,6 +141,20 @@ async function tick({ ready = [], children = {}, listLabel = [], show = null, wo
       return children[id] || [];
     },
   };
+  // The per-tick export, and **only where a case asks for one** — bc-b2k.2. Hierarchy is
+  // two facts, not one: the dotted id, which every case above and below this reads, and the
+  // parent edges, which are the only place an *adopted* child's parentage is written down
+  // (`bd update <bead> --parent=<epic>` renumbers nothing). Absent by default so that every
+  // existing case here still runs against the id alone, which is what a tracker that will
+  // not answer leaves the advocate with anyway. `{ child: parent }` in, `Map` out.
+  if (parents) {
+    bd.graph = async () => ({
+      parents: new Map(Object.entries(parents)),
+      beads: new Map(ready.map((b) => [b.id, b])),
+      adopts: new Map(),
+      edges: new Map(),
+    });
+  }
 
   // The batch is recorded beside the id, because "which window opened" is only half of
   // what batching changes — the other half is what that window was told it was holding,
@@ -358,7 +372,8 @@ await check('the outermost epic in a nest carries the subtree', async () => {
  * writing the subtree, and up to N more windows opened underneath it. That is bc-3zo9
  * again, caused by the fix for it.
  *
- * `isDescendantOf(bead.id, w.id)` is the whole check — the same helper, arguments swapped.
+ * `underEpic(bead.id, w.id, parents)` is the whole check — the same predicate, arguments
+ * swapped.
  */
 await check('a session holding an ancestor holds the beads underneath it', async () => {
   const { opened, card } = await tick({
@@ -397,9 +412,9 @@ await check('a session holding an ancestor holds the beads underneath it', async
   // The floor underneath it, and the reason the unqualified check is not simply "hold
   // everything": a worker on a bead that is *not* an ancestor of anything in the queue
   // matches nothing, so an ordinary busy advocate is untouched. `x-2` is a sibling, not a
-  // parent, and `isDescendantOf` is prefix matching on the id — `x-1.1` does not start
-  // with `x-2.`, and it does not start with `x-11.` either, which is the off-by-one a
-  // bare `startsWith` without the dot would have.
+  // parent, and with no export to walk `underEpic` falls back to prefix matching on the id
+  // — `x-1.1` does not start with `x-2.`, and it does not start with `x-11.` either, which
+  // is the off-by-one a bare `startsWith` without the dot would have.
   const sibling = await tick({
     ready: [bead('x-1.1'), bead('x-1.2')],
     workers: [{ id: 'x-2', title: 'somewhere else entirely', at: new Date().toISOString(), attempt: 1 }],
@@ -408,6 +423,65 @@ await check('a session holding an ancestor holds the beads underneath it', async
   });
   assert.deepEqual(sibling.opened.sort(), ['x-1.1', 'x-1.2'], 'a session outside the subtree holds nothing in it');
   assert.deepEqual(heldIds(sibling.card), [], 'and nothing was held');
+});
+
+/**
+ * And the same subtree, written down the other way — bc-b2k.2.
+ *
+ * `bd update <bead> --parent=<epic>` moves the edge and **renumbers nothing**, so a bead
+ * adopted into an epic keeps whatever flat id it was filed with: `x-9` is a real child of
+ * `x-1` in `bd children`, in the export's parent edges and on the epic's card, and it does
+ * not begin with `x-1.`. Every guard above answered the question off the id alone, so the
+ * whole of this file's suppression was blind to exactly the children a person had gone to
+ * the trouble of grouping by hand. sp-b2k reparented 35 beads under eight epics in one
+ * afternoon, two of which were claimed within minutes — which is the window where an
+ * overlap guard is the only thing standing between a person and two windows on one subtree.
+ *
+ * The control run is the point of the case: same queue, same worker, no export. Both beads
+ * launch, because that is what the id says, and it is what this suite asserted for as long
+ * as the id was the whole answer.
+ */
+await check('a session on the epic holds the children adopted into it, whose ids do not say so', async () => {
+  const adopted = {
+    ready: [bead('x-8'), bead('x-9')],
+    workers: [{ id: 'x-1', title: 'the epic', at: new Date().toISOString(), attempt: 1 }],
+    show: () => ({ id: 'x-1', status: 'in_progress' }),
+    overrides: { maxWorkers: 4 },
+  };
+
+  const blind = await tick(adopted);
+  assert.deepEqual(blind.opened.sort(), ['x-8', 'x-9'], 'the control: with no edges to walk, the ids say these are strangers');
+  assert.deepEqual(heldIds(blind.card), [], 'and nothing held them');
+
+  const { opened, card } = await tick({ ...adopted, parents: { 'x-8': 'x-1', 'x-9': 'x-1' } });
+  assert.deepEqual(opened, [], 'no second window inside a subtree a session is already working');
+  assert.deepEqual(heldIds(card).sort(), ['x-8', 'x-9'], 'both held, on the edge rather than on the id');
+  assert.match(card.heldByChildren[0].why, /working x-1 above it/, `got: ${card.heldByChildren[0].why}`);
+});
+
+/**
+ * The other half of the same fact: an epic's *batch* is the children it can see, and an
+ * adopted one was invisible to the filter that picks them. So the epic was held for having
+ * open children — check 3, which asks `bd` and therefore always saw them — while those
+ * children took a window each, which is the round-robin bc-bhp9 replaced, restored for
+ * every bead grouped by hand.
+ */
+await check('an epic batches the children adopted into it', async () => {
+  const shape = {
+    ready: [epic('x-1', { priority: 1 }), bead('x-8'), bead('x-9')],
+    children: { 'x-1': [bead('x-8', { status: 'open' }), bead('x-9', { status: 'open' })] },
+    overrides: { maxWorkers: 4 },
+  };
+
+  const blind = await tick(shape);
+  assert.deepEqual(blind.opened.sort(), ['x-8', 'x-9'], 'the control: a window each, and the epic held for having them');
+  assert.deepEqual(heldIds(blind.card), ['x-1'], 'the epic is the one thing the id-only read could hold');
+
+  const { opened, briefed, card } = await tick({ ...shape, parents: { 'x-8': 'x-1', 'x-9': 'x-1' } });
+  assert.deepEqual(opened, ['x-1'], 'one window, on the epic that explains both');
+  assert.deepEqual(briefed, [{ id: 'x-1', batch: ['x-8', 'x-9'] }], 'and it was told the adopted pair is its work');
+  assert.deepEqual(heldIds(card).sort(), ['x-8', 'x-9'], 'folded rather than vanished');
+  assert.match(card.heldByChildren[0].why, /batched under x-1/, `got: ${card.heldByChildren[0].why}`);
 });
 
 /**
@@ -440,7 +514,7 @@ await check('no batch forms underneath a live batch head', async () => {
 
 /**
  * The worker record. `id` staying the epic is what lets every single-id thing downstream
- * — the done marker, the check-in, the attempt count, `reclaim`, and the `isDescendantOf`
+ * — the done marker, the check-in, the attempt count, `reclaim`, and the subtree
  * suppression itself — keep working without knowing batches exist. If `id` ever became
  * the batch, all five would need to learn about it at once.
  */
@@ -492,8 +566,87 @@ await check('an epic whose only open child is not in the queue', async () => {
   });
 
   assert.deepEqual(opened, ['x-2'], 'an epic is its children until they are done');
-  assert.match(card.heldByChildren[0].why, /1 open child issue/, `got: ${card.heldByChildren[0].why}`);
-  assert.deepEqual(calls.children, ['x-1'], 'one call for the one epic — x-2 is not an epic and was not asked about');
+  assert.match(card.heldByChildren[0].why, /an epic with 1 open child issue/, `got: ${card.heldByChildren[0].why}`);
+  assert.deepEqual(
+    calls.children,
+    ['x-1'],
+    'one call for the one epic — x-2 is not an epic, and with no export nothing says it has children'
+  );
+});
+
+/* ------------------------------------------------ a parent that is not an epic (bc-xl7n.137)
+
+   The same half `bd ready` cannot see, on the bead that is not typed as an epic: the review
+   follow-up parent lib/reviewfollowup.js files, whose acceptance is "every child is closed"
+   and which has no diff of its own for a worker to push. Check 1 held it only while a child
+   was in the queue, and delivery takes a child out of `bd ready` while leaving it open — so
+   the hold evaporated three minutes after the last child was delivered, twice, and a window
+   opened on a bead with nothing in it to do.
+
+   The cost is the reason this is not simply "drop the type test": the `bd children` call is
+   a subprocess, and every ready row paying for one on every tick is not a trade worth making
+   for a handful of beads. The tick's own export answers "could this have children" for free,
+   and only a yes costs the call — which is what the three `calls.children` assertions below
+   are about. */
+
+await check('a parent that is not an epic, whose one open child has left the queue', async () => {
+  const shape = {
+    ready: [bead('x-1'), bead('x-2')],
+    // Open, and nowhere in `ready`: parked behind its merge bead, which is what delivery
+    // does to a child and is exactly the state check 1 cannot see.
+    children: { 'x-1': [bead('x-1.1', { status: 'in_progress' }), bead('x-1.2', { status: 'closed' })] },
+  };
+
+  const blind = await tick(shape);
+  assert.deepEqual(blind.opened.sort(), ['x-1', 'x-2'], 'the control: with no export, the parent is dispatched — the bug');
+  assert.deepEqual(blind.calls.children, [], 'and it costs nothing to be wrong, which is why it went unnoticed');
+
+  const { opened, card, calls } = await tick({ ...shape, parents: { 'x-1.1': 'x-1', 'x-1.2': 'x-1' } });
+  assert.deepEqual(opened, ['x-2'], 'a parent is its children until they are done, whatever it is typed as');
+  assert.deepEqual(heldIds(card), ['x-1']);
+  assert.match(
+    card.heldByChildren[0].why,
+    /a parent with 1 open child issue/,
+    `a task must not be told it is being held as an epic — got: ${card.heldByChildren[0].why}`
+  );
+  assert.deepEqual(calls.children, ['x-1'], 'one call, for the one bead the export says has children');
+});
+
+await check('and a leaf the export knows about costs no call at all', async () => {
+  const { opened, calls } = await tick({
+    ready: [bead('x-1'), bead('x-2')],
+    children: { 'x-1': [bead('x-1.1', { status: 'in_progress' })] },
+    // x-1 is somebody's child here, not somebody's parent. The gate is "does anything hang
+    // off this bead", and a `Set` of the map's *values* is what answers it.
+    parents: { 'x-1': 'x-0', 'x-2': 'x-0' },
+  });
+
+  assert.deepEqual(opened.sort(), ['x-1', 'x-2'], 'both are ordinary work');
+  assert.deepEqual(calls.children, [], 'and neither was asked about — this is the whole of the cost claim');
+});
+
+await check('a non-epic parent whose children have all closed is still work', async () => {
+  const { opened, card, calls } = await tick({
+    ready: [bead('x-1')],
+    children: { 'x-1': [bead('x-1.1', { status: 'closed' })] },
+    parents: { 'x-1.1': 'x-1' },
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'the hold is a wait, not a life — lib/finishedepic.js is what ends this bead');
+  assert.deepEqual(heldIds(card), []);
+  assert.deepEqual(undecidedIds(card), [], 'and check 4 is an epic\'s alone — a childless task is an ordinary bead');
+  assert.deepEqual(calls.children, ['x-1']);
+});
+
+await check('silence from bd keeps a non-epic parent too', async () => {
+  const { opened, card } = await tick({
+    ready: [bead('x-1')],
+    children: { 'x-1': new Error('dolt: database is locked') },
+    parents: { 'x-1.1': 'x-1' },
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'cannot-tell holds nothing back, exactly as for an epic');
+  assert.deepEqual(heldIds(card), []);
 });
 
 /**

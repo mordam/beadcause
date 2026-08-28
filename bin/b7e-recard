@@ -1,0 +1,433 @@
+#!/usr/bin/env node
+/**
+ * `b7e-recard` — retire the answered `decision` block and put the next question where
+ * the card will actually read it.
+ *
+ *     b7e-recard -w beadcause -b bc-xyz < next-question.md
+ *     b7e-recard -w beadcause -b bc-xyz -f next-question.md --reason "split-30, answered 2026-08-22"
+ *     b7e-recard -w beadcause -b bc-xyz -f next.md --dry-run
+ *     b7e-recard -w beadcause -b bc-xyz -f next.md --no-keep --field design
+ *
+ * `bc-dgx7.27`, filed by the session audit against three sessions — bc-khoe.33,
+ * bc-xl7n.77.1, bc-1kwl.29 — that each opened on a bead Adam had already answered, where
+ * the answer commissioned work rather than closing the bead, and each performed the same
+ * transaction from scratch so the phone would stop drawing a question that was already
+ * settled. One dumped `design` to `/tmp`, built the archival comment in `python3`, wrote
+ * a new `design` from a heredoc and ran a third `python3` to cut the stale block out of
+ * `notes` — which came back `--notes replaced existing notes (use --append-notes to
+ * preserve)`. One wrote `newdesc.md`, updated, verified through `toQuestion`, then did
+ * the whole thing again the next day as `newdesc2.md` when the answer changed. One wrote
+ * a scratchpad script that prepended a banner and replaced the trailing question while
+ * asserting the body stayed byte-identical.
+ *
+ * ## The trap all three were working around
+ *
+ * `toQuestion` (lib/decision.js) reads `description`, then `design`, then `notes`, and
+ * takes the **first** block it finds. So a new block appended to `notes` on a bead whose
+ * `design` still holds a spent one renders nothing new: `bd update` succeeds, the notes
+ * read perfectly, and the phone draws the old question. It is silent, and the recorded
+ * answer is then filed against a question nobody asked. That is a rule a command should
+ * hold, not a fact each session rediscovers — so this one writes into the field the card
+ * reads first and clears every competing block out of the others, which is the only
+ * arrangement where "what I wrote" and "what renders" cannot disagree.
+ *
+ * ## What it does, in order
+ *
+ *   1. Validates the new text against `decisionTail` — a block, last, with a
+ *      recommendation on it if it has options. A malformed block writes **nothing at
+ *      all**; that is the acceptance criterion, and it is why validation is step one and
+ *      happens before the tracker is read at all.
+ *   2. Reads the bead and finds every block on it, per field.
+ *   3. Archives the spent block — and every other block it is about to cut — verbatim in
+ *      one comment, under a banner naming `--reason` and the date. `--no-keep` skips it.
+ *   4. Writes the new text into `--field` (default `description`), after that field's
+ *      surviving prose and a one-line banner saying the previous question was retired.
+ *   5. Clears the competing blocks out of the other two fields, leaving their prose.
+ *   6. Reads the bead back and re-parses it through `toQuestion` — the same code the
+ *      phone runs — and refuses to call it done unless the card is the question that went
+ *      in and exactly one block survives.
+ *
+ * ## Two things it will not do
+ *
+ * **It never clobbers a field.** Every write is that field's own prose with the blocks
+ * cut out of it, so a `<!-- beadcause:... -->` marker anywhere in the three survives.
+ * Those markers are load-bearing — `alreadyAsked` in lib/superseded.js matches one across
+ * all three fields, and dropping one re-asks a question that has already been asked — so
+ * a computed body that has lost one is a bug here, not a tidy-up: the command refuses
+ * rather than writes.
+ *
+ * **It says out loud when a cut block was a machine sweep's.** `supersedeAsk`,
+ * `inMainAsk` and `finishedEpicAsk` each raise their card by appending a block *and* a
+ * marker to `notes`. On a bead whose description already carries a block, that card was
+ * shadowed from the moment it was written and nobody ever saw it; cutting it changes
+ * nothing anybody could read, and the marker left behind is what stops the sweep asking
+ * twice. But the question is then gone for good, so the run names it rather than quietly
+ * tidying it away.
+ *
+ * Exit codes: `0` written (or `--dry-run` printed). `1` the writes went out and the
+ * readback disagreed — the card on the phone is not the question that was handed in.
+ * `2` refused before anything was written: bad usage, a malformed or missing block, an
+ * unconfigured workspace, no such bead, or a computed body that would drop a marker.
+ *
+ * Deliberately **not** on `DEFAULT_TOOL_LIST` — see the paragraph for it in
+ * lib/tooldecl.js. It rewrites a bead's question; `dispatch`, the one agent that list
+ * governs, answers one comment and exits.
+ *
+ * @grant excluded
+ */
+import fs from 'node:fs';
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { decisionTail, parseDecision, stripDecisionBlocks, toQuestion } from '../lib/decision.js';
+
+const FIELDS = ['description', 'design', 'notes'];
+
+const USAGE = `usage: b7e-recard -w <workspace> -b <bead> [-f <file>] [flags]
+
+  the new decision block is read from <file>, or from stdin when -f is not given
+
+  -w, --workspace <n>  which tracker <bead> lives in (required)
+  -b, --bead <id>      the bead to re-card (required)
+  -f, --file <path>    read the new block from a file instead of stdin
+      --field <name>   where the new block lands: ${FIELDS.join(' | ')} (default description)
+      --reason <line>  one line for the banner, saying what was answered and when
+      --keep           archive every retired block verbatim in a comment (the default)
+      --no-keep        retire the old blocks without keeping a copy
+      --dry-run        print the writes and the resulting card without performing them`;
+
+const fail = (msg, code = 2) => {
+  console.error(`b7e-recard: ${msg}`);
+  process.exit(code);
+};
+
+/* --------------------------------------------------------------------------- argv */
+
+const argv = process.argv.slice(2);
+if (argv.includes('-h') || argv.includes('--help')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let wsName = null;
+let beadId = null;
+let filePath = null;
+let field = 'description';
+let reason = '';
+let keep = true;
+let dryRun = false;
+
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  const next = () => {
+    const v = argv[i + 1];
+    if (v === undefined) fail(`${a} needs a value\n${USAGE}`);
+    i += 1;
+    return v;
+  };
+  if (a === '-w' || a === '--workspace') wsName = next();
+  else if (a === '-b' || a === '--bead') beadId = next();
+  else if (a === '-f' || a === '--file') filePath = next();
+  else if (a === '--field') field = next();
+  else if (a === '--reason') reason = next();
+  else if (a === '--keep') keep = true;
+  else if (a === '--no-keep') keep = false;
+  else if (a === '--dry-run') dryRun = true;
+  else fail(`unrecognised argument: ${a}\n${USAGE}`);
+}
+
+if (!wsName || !beadId) fail(`-w/--workspace and -b/--bead are both required\n${USAGE}`);
+if (!FIELDS.includes(field)) fail(`--field must be one of ${FIELDS.join(', ')}, not "${field}"`);
+
+/* ------------------------------------------------------- the new block, validated */
+
+let incoming;
+if (filePath) {
+  try {
+    incoming = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    fail(`could not read ${filePath} (${err.message.split('\n')[0]})`);
+  }
+} else {
+  if (process.stdin.isTTY) fail(`nothing on stdin and no -f <file> — the new block has to come from somewhere\n${USAGE}`);
+  try {
+    incoming = fs.readFileSync(0, 'utf8');
+  } catch (err) {
+    fail(`could not read the new block from stdin (${err.message.split('\n')[0]})`);
+  }
+}
+
+incoming = String(incoming).trim();
+if (!incoming) fail('the new block is empty — nothing to put on the bead');
+
+// Step one, before a single read of the tracker: the whole acceptance criterion for a
+// malformed block is that it writes *nothing*, and the cheapest way to guarantee that is
+// to refuse before anything else happens at all.
+const tail = decisionTail(incoming);
+if (!tail.ok) fail(`the new block will not do: ${tail.reason}`);
+
+// Two blocks in the incoming text needs no check of its own: `decisionTail` above
+// refuses anything with text after the first block, and a second block is text.
+const incomingQuestion = parseDecision(incoming).decision?.question || '';
+
+/* --------------------------------------------------------------- workspace + bead */
+
+let cfg;
+try {
+  cfg = loadConfig();
+} catch (err) {
+  fail(`could not read the beadcause config (${err.message.split('\n')[0]})`);
+}
+const ws = (cfg.workspaces || []).find((w) => w.name === wsName);
+if (!ws) {
+  console.error(`b7e-recard: no such workspace "${wsName}"`);
+  console.error(`workspaces: ${(cfg.workspaces || []).map((w) => w.name).join(', ') || '(none configured)'}`);
+  process.exit(2);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+let bead;
+try {
+  bead = await bd.show(ws, beadId);
+} catch (err) {
+  fail(`could not read ${beadId} (${err.message.split('\n')[0]})`);
+}
+if (!bead) fail(`${ws.name} has no bead ${beadId}`);
+
+/* ------------------------------------------------------------------ what is there */
+
+/** Any `<!-- beadcause:... -->` in a body. Dropping one of these re-asks a settled question. */
+function markersIn(text) {
+  return [...String(text || '').matchAll(/<!--([\s\S]*?)-->/g)]
+    .map((m) => m[1].trim())
+    .filter((inner) => /^\/?beadcause:/.test(inner));
+}
+
+const before = Object.fromEntries(FIELDS.map((f) => [f, String(bead[f] || '')]));
+const cut = Object.fromEntries(FIELDS.map((f) => [f, stripDecisionBlocks(before[f])]));
+
+// The spent block is the one the phone is drawing right now — the first block in field
+// order, which is the order `toQuestion` reads in and the only order that matters.
+const spentField = FIELDS.find((f) => cut[f].blocks.length > 0) || null;
+const spent = spentField ? cut[spentField].blocks[0] : null;
+const spentQuestion = spent ? parseDecision(spent.text).decision?.question || '' : '';
+
+const retired = FIELDS.flatMap((f) => cut[f].blocks.map((block) => ({ field: f, block })));
+
+/**
+ * The one line above the new block, and the only text this command writes of its own.
+ *
+ * `BANNER_LEAD` is how the *next* run recognises it. A bead can be re-carded more than
+ * once — bc-xl7n.77.1 did it twice in two days when the answer changed — and without
+ * this the banners stack, one grey line per round, above a question whose whole point is
+ * to be the first thing read. So the previous one is dropped rather than kept, which
+ * loses nothing: every retirement is already recorded, with its reason, in the archive
+ * comment. Matched by the constant it is written from, so the only line this can ever
+ * remove is one it wrote itself.
+ */
+const BANNER_LEAD = '> **The question that was here was answered and retired ';
+const banner = (() => {
+  const when = new Date().toISOString().slice(0, 10);
+  const what = reason ? ` — ${reason}` : '';
+  const where = keep ? ' It is kept verbatim in a comment on this bead.' : '';
+  return `${BANNER_LEAD}${when}${what}.**${where} What is being asked now is below.`;
+})();
+
+/** The body a field ends up with: its own prose, then — in the target field — the new ask. */
+function nextBody(f) {
+  const prose = cut[f].body;
+  if (f !== field) return prose;
+  const kept = prose
+    .split('\n')
+    .filter((line) => !line.startsWith(BANNER_LEAD))
+    .join('\n')
+    .trim();
+  return [kept, spent ? banner : '', incoming].filter(Boolean).join('\n\n');
+}
+
+const after = Object.fromEntries(FIELDS.map((f) => [f, nextBody(f)]));
+
+// A marker that went missing is a computed body that is wrong, and the damage it does is
+// silent and permanent — so it is a refusal, before any write, rather than a warning.
+for (const f of FIELDS) {
+  const kept = markersIn(after[f]);
+  const lost = markersIn(before[f]).filter((m) => !kept.includes(m));
+  if (lost.length) {
+    fail(
+      `refusing to write ${f}: it would drop ${lost.length} beadcause marker(s) — ${lost.join(', ')}. ` +
+        'Those are what stop a sweep asking the same question twice; this is a bug in b7e-recard, not something to work around.'
+    );
+  }
+}
+
+/* ----------------------------------------------------------------- the write plan */
+
+const changed = FIELDS.filter((f) => after[f] !== before[f]);
+const archive = keep && retired.length > 0;
+
+const plan = [];
+if (archive) {
+  plan.push({
+    kind: 'comment',
+    what: `archive ${retired.length} retired block${retired.length === 1 ? '' : 's'} verbatim (from ${retired.map((r) => r.field).join(', ')})`,
+  });
+}
+for (const f of changed) {
+  const n = cut[f].blocks.length;
+  const what =
+    f === field
+      ? `the new block, after the prose${n ? `, ${n} block${n === 1 ? '' : 's'} cut` : ''}`
+      : `${n} competing block${n === 1 ? '' : 's'} cut, prose left`;
+  plan.push({ kind: 'field', field: f, what, from: Buffer.byteLength(before[f]), to: Buffer.byteLength(after[f]) });
+}
+
+const archiveText = (() => {
+  const lines = [
+    reason ? `**Retired by \`b7e-recard\` — ${reason}.**` : '**Retired by `b7e-recard`.**',
+    '',
+    'Kept verbatim so the answer already recorded on this bead can still be read against the',
+    'question it answered. The bead carries the next question now; nothing below is live.',
+    '',
+  ];
+  for (const r of retired) {
+    lines.push(`── from \`${r.field}\`${r.block === spent ? ' — the one the card was drawing' : ' — shadowed, never drawn'}`);
+    lines.push('');
+    lines.push(r.block.text);
+    lines.push('');
+  }
+  return lines.join('\n').trimEnd();
+})();
+
+/* ----------------------------------------------------------------------- printing */
+
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
+
+function printCard(q) {
+  console.log(`  ${bold(q.question || '(no question:)')}`);
+  const options = q.decision?.options || [];
+  if (!options.length) {
+    console.log(dim('    (no options — a free-text question)'));
+    return;
+  }
+  for (const o of options) {
+    const tags = [
+      o.recommended ? green('recommended') : null,
+      o.defers ? yellow('defers') : o.closes === false ? yellow('commissions') : dim('closes'),
+    ].filter(Boolean);
+    console.log(`    - ${bold(o.id)}: ${o.label}  [${tags.join(' ')}]`);
+    if (o.hint) console.log(`        ${dim(o.hint)}`);
+    console.log(`        → ${dim(o.response)}`);
+  }
+}
+
+console.log('');
+console.log(bold(`${ws.name}/${bead.id}`) + dim(` — ${bead.title || ''}`));
+console.log('');
+console.log(
+  dim(spent ? `retiring: ${spentQuestion || '(a block with no question:)'} — from ${spentField}` : 'retiring: nothing — this bead carries no block')
+);
+console.log(dim(`asking:   ${incomingQuestion || '(a block with no question:)'} — into ${field}`));
+console.log('');
+
+/**
+ * The blocks nobody could ever have seen, and the markers that make cutting them final.
+ *
+ * Two separate things, and either one alone is worth a line. A **shadowed** block is one
+ * that was never what the card drew — a machine sweep appended it to `notes` behind a
+ * block that already existed, so cutting it changes nothing anybody could read. A block
+ * in a field carrying a `<!-- beadcause:… -->` **marker** is one that cannot be raised a
+ * second time, whether it was drawn or not: `alreadyAsked` (lib/superseded.js) reads that
+ * marker across all three fields and will not ask again. Neither is a refusal — retiring
+ * a question is the whole job — but both are things the run has to say rather than do
+ * quietly.
+ */
+const notices = retired
+  .map((r) => {
+    const marks = markersIn(before[r.field]);
+    const parts = [];
+    if (r.block !== spent) parts.push(`a shadowed block in ${r.field} is being cut — it was never what the card drew`);
+    if (marks.length) parts.push(`${r.field} carries ${marks.join(', ')}, so nothing will raise this question again`);
+    return parts.length ? `⚠ ${parts.join('; ')}` : null;
+  })
+  .filter(Boolean);
+for (const n of notices) console.log(yellow(n));
+if (notices.length) console.log('');
+
+console.log(bold(dryRun ? 'would write:' : 'writes:'));
+if (!plan.length) console.log(dim('  (nothing — the bead already says this)'));
+plan.forEach((p, i) => {
+  const where = p.kind === 'comment' ? 'comment' : p.field;
+  const size = p.kind === 'field' ? dim(`  ${p.from} → ${p.to} bytes`) : '';
+  console.log(`  ${i + 1}. ${bold(where)}  ${p.what}${size}`);
+});
+console.log('');
+
+if (dryRun) {
+  console.log(bold('the card this would leave:'));
+  printCard(toQuestion(ws.name, { ...bead, ...after }));
+  console.log('');
+  console.log(dim('--dry-run: nothing was written'));
+  process.exit(0);
+}
+
+/* --------------------------------------------------------------------- the writes */
+
+// The comment goes first, deliberately: it is the only step whose absence loses
+// something, and a run that dies between the archive and the rewrite has kept the old
+// question rather than thrown it away. The other order loses a block nobody wrote down.
+if (archive) {
+  try {
+    await bd.comment(ws, bead.id, archiveText);
+  } catch (err) {
+    fail(`could not archive the retired block${retired.length === 1 ? '' : 's'} (${err.message.split('\n')[0]}) — nothing else was written`);
+  }
+}
+
+// `Bd.update` cannot do either half of this: it has no `design`, and it skips a field
+// whose new value is falsy, which is exactly the "this field held nothing but the block"
+// case. So the field writes go through `Bd.run` directly.
+for (const f of changed) {
+  try {
+    await bd.run(ws, ['update', bead.id, `--${f}`, after[f]], { retries: 4 });
+  } catch (err) {
+    fail(`writing ${f} failed (${err.message.split('\n')[0]}) — the bead is part-written; read it back before trying again`, 1);
+  }
+}
+
+/* ------------------------------------------------------------------- the readback */
+
+let live;
+try {
+  live = await bd.show(ws, bead.id);
+} catch (err) {
+  fail(`the writes went out but ${bead.id} could not be read back (${err.message.split('\n')[0]})`, 1);
+}
+
+const liveBlocks = Object.fromEntries(FIELDS.map((f) => [f, stripDecisionBlocks(String(live?.[f] || '')).blocks]));
+const liveCount = FIELDS.reduce((n, f) => n + liveBlocks[f].length, 0);
+const q = toQuestion(ws.name, live || {});
+
+console.log(bold('the card the phone will draw:'));
+printCard(q);
+console.log('');
+
+const problems = [];
+if (liveCount !== 1) problems.push(`${liveCount} decision blocks are on the bead, not 1`);
+// A block with no `question:` is allowed — `decisionTail` does not require one — and
+// `toQuestion` renders the bead's title in its place. So that, not the empty string, is
+// what the card is expected to be asking when the block did not name a question.
+const expected = incomingQuestion || live?.title || live?.id || '';
+if (q.question !== expected) problems.push(`the card asks "${q.question}", not "${expected}"`);
+for (const e of q.errors || []) problems.push(e);
+
+if (problems.length) {
+  console.log(red('✗ the readback disagrees with what was handed in:'));
+  for (const p of problems) console.log(red(`  ${p}`));
+  process.exit(1);
+}
+console.log(green(`✓ readback: one block, in ${FIELDS.find((f) => liveBlocks[f].length)}, asking what was handed in`));
+process.exit(0);

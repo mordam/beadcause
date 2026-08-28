@@ -28,6 +28,8 @@
  * Exit codes: `0` every counterparty merges clean. `1` at least one conflicts, or named
  * a ref this could not resolve. `2` bad usage — nothing to check against, or an
  * unrecognised flag.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';

@@ -89,6 +89,9 @@ check('an untiered bead is routed to the expensive fallback, and says which way 
     problem: null,
     ran: [],
     diverged: false,
+    // Nothing has measured whether a session on it fitted its window either — and `[]` is
+    // not `['fit']` on purpose (bc-nc6o.8, `pressuresSeen`).
+    pressures: [],
   });
 });
 
@@ -100,6 +103,7 @@ check('a rated bead is routed by its tier, and is not a fallback', () => {
     problem: null,
     ran: [],
     diverged: false,
+    pressures: [],
   });
   assert.equal(modelCard(bead(['complexity:medium'])).model, 'sonnet');
   assert.equal(modelCard(bead(['complexity:high'])).model, 'opus');
@@ -344,6 +348,34 @@ check('a bead that ran on something other than the selected model says so', () =
 
 check('a bead nothing ran on says nothing about what ran', () => {
   assert.ok(!/ran on/.test(visible(row(['complexity:low']))));
+});
+
+check('a session that ran out of context says so, beside what it ran on (bc-nc6o.8)', () => {
+  const html = row(['complexity:medium', 'ran:sonnet', 'ctx:over']);
+  assert.match(visible(html), /ran out of context/);
+  assert.match(visible(html), /ran on sonnet/, 'the run it is a fact about went missing');
+  assert.match(html, /model-ctx is-over/);
+});
+
+check('one that fitted with nothing to spare says that instead, and quietly', () => {
+  const html = row(['complexity:medium', 'ran:sonnet', 'ctx:tight']);
+  assert.match(visible(html), /context was tight/);
+  assert.ok(!/is-over/.test(html), 'a tight run is not a warning — it did fit');
+});
+
+check('and a comfortable one says nothing at all', () => {
+  // The label is written for all three outcomes so "measured and comfortable" is
+  // distinguishable from "never measured"; the row is read by somebody looking for what to
+  // fix, and this is not that. Silence here therefore means fine *or* unmeasured, which is
+  // what the rest of the row already means by saying nothing.
+  assert.ok(!/context/i.test(visible(row(['complexity:low', 'ran:sonnet', 'ctx:fit']))));
+  assert.ok(!/context/i.test(visible(row(['complexity:low', 'ran:sonnet']))));
+});
+
+check('the worst verdict wins where a bead has been worked twice', () => {
+  // Both labels are kept on the bead on purpose — the work grew and the tier did not — and
+  // the actionable one is the same either way.
+  assert.match(visible(row(['complexity:low', 'ctx:fit', 'ctx:over'])), /ran out of context/);
 });
 
 check('contradictory labels are spelled out here, where there is room for the sentence', () => {

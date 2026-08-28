@@ -192,11 +192,25 @@ check('the log tail holds the write to the <pre> — and only the write', () => 
 check('the picker asks for itself, in public/spacebar.js — it is on six pages, not one', () => {
   const bar = fs.readFileSync(path.join(ROOT, 'public', 'spacebar.js'), 'utf8');
   const body = codeLines(bodyAfter(bar, 'function paint() {'));
-  assert.equal(
-    body[0],
-    'if (window.beadcause?.editMode?.frozen?.()) return void thawFirst();',
-    `paint() opens with: ${body[0]}`
-  );
+  // bc-ka5y.33: only the *rows* wait for the thaw — rebuilding them is the one write that
+  // moves an option out from under a thumb. The label, the title and the control's own
+  // value name nothing that is not already true, so they write on every paint whether or
+  // not the mode is frozen; a pick made mid-freeze used to leave them stale until the
+  // thaw, under a banner promising the screen was held still.
+  assert.equal(body[0], 'const frozen = window.beadcause?.editMode?.frozen?.();', `paint() opens with: ${body[0]}`);
+  const ifFrozen = body.indexOf('if (frozen) {');
+  const thawCall = body.indexOf('thawFirst();');
+  const rowsWrite = body.indexOf('sel.innerHTML = html;');
+  const valueWrite = body.indexOf('if (sel.value !== now) sel.value = now;');
+  const shownWrite = body.indexOf('if (shownEl.textContent !== shown) shownEl.textContent = shown;');
+  const titleWrite = body.indexOf('if (sel.title !== label()) sel.title = label();');
+  assert.ok(ifFrozen !== -1, 'paint() no longer branches on frozen at all');
+  assert.ok(thawCall > ifFrozen, 'the frozen branch no longer registers the thaw catch-up');
+  assert.ok(rowsWrite > ifFrozen, 'the rows rebuild is not gated behind the frozen branch');
+  for (const [name, at] of [['sel.value', valueWrite], ['shownEl.textContent', shownWrite], ['sel.title', titleWrite]]) {
+    assert.ok(at !== -1, `paint() no longer writes ${name} at all`);
+    assert.ok(at > rowsWrite, `${name} is written before the rows guard, not unconditionally after it`);
+  }
   // And the catch-up is that file's own, which it was not when this landed: the last line
   // of app.js's render() was `publishCounts()`, a `space.adopt()` that ended in `paint()`,
   // so the repaint that thawed the list repainted the bar with it. bc-ka5y.1 deleted the

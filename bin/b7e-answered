@@ -1,0 +1,261 @@
+#!/usr/bin/env node
+/**
+ * `b7e-answered` — was this bead's question answered, and which bead in the family
+ * actually carries the answer?
+ *
+ *     b7e-answered -w beadcause -b bc-jjdar.1
+ *     b7e-answered -w beadcause -b bc-jjdar.1 --family
+ *     b7e-answered -w beadcause -b bc-jjdar.1 --json
+ *     b7e-answered -w beadcause -b bc-jjdar.1 -b bc-mwhkg.1     several beads, one call
+ *     b7e-answered -w beadcause -b bc-jjdar.1,bc-mwhkg.1        same thing, comma-joined
+ *
+ * bc-dgx7.84: four sessions answered this by hand, four different ways, over a bead
+ * they had each been told was already answered. It was on the parent twice, absent
+ * once. See lib/beadanswer.js for the design — the reading is over lib/answered.js
+ * (beadcause's own record of what you chose) and lib/decision.js (the `decision`
+ * block), same split as bin/b7e-already and bin/b7e-prior: argv and printing here,
+ * the logic there.
+ *
+ * `--family` walks **ancestors** — parent, grandparent, and so on — stopping at the
+ * first bead with no parent. That is a different walk from `b7e-prior --family`,
+ * which widens to *siblings* under a shared parent; the two commands answer
+ * different questions and happen to share a flag name.
+ *
+ * bc-dgx7.95: the close_reason `respond()` writes is the same constant string on every
+ * ruling — it says a ruling happened, never what it was. The actual choice is the
+ * comment `respond()` wrote right before closing, and lib/beadanswer.js now reads it
+ * when state.json has nothing (older than its 30-day TTL, answered by a plain `bd
+ * comment`, or outside beadcause's own state). `-b` may also be repeated, or given a
+ * comma-joined list, so a whole family of beads answered by hand — dv-3rn.2 needed this
+ * for 32 at once — costs one call each rather than the six-call-per-bead dig four
+ * sessions each redid.
+ *
+ * Exit codes: `0` ran to completion, whatever the verdict(s) — "nobody has answered
+ * this" is a legitimate answer, not a failure; with several beads, `0` means at least
+ * one of them was findable. `2` bad usage. `4` `-w` named a workspace this checkout's
+ * tracker does not have, or (single-bead form only) `-b` named a bead it does not have.
+ * `1` the tracker itself could not be read for a bead (a Dolt lock, a timeout, an
+ * unreadable workspace) — see bd-show-rejects-for-a-missing-bead: `bd show` rejects
+ * identically for a genuinely missing bead and for a transient failure, so this is
+ * separated from `4` by matching `MISSING_RE` against the error text rather than
+ * treating every rejection as "not found".
+ *
+ * @grant read
+ */
+import { loadConfig, loadState } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { beadAnswer } from '../lib/beadanswer.js';
+
+// Same pattern lib/claimbead.js uses to tell "no such bead" apart from everything else
+// `bd show`/`bd showWithComments` reject with — a Dolt lock, a timeout, an unreadable
+// workspace all wear the same clothes as a missing id unless this is checked.
+const MISSING_RE = /no issues? found/i;
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+// Every occurrence of any of `names`, each one comma-split, flattened and deduped —
+// `-b` repeated (`-b a -b b`) and `-b` comma-joined (`-b a,b`) both work, and mixing
+// the two is fine too.
+const values = (...names) => {
+  const out = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    for (const f of names) {
+      if (a === f) {
+        if (argv[i + 1] !== undefined) out.push(argv[i + 1]);
+        break;
+      }
+      if (a.startsWith(`${f}=`)) {
+        out.push(a.slice(f.length + 1));
+        break;
+      }
+    }
+  }
+  const flat = out.flatMap((s) => String(s).split(',')).map((s) => s.trim()).filter(Boolean);
+  return [...new Set(flat)];
+};
+
+const USAGE = `usage: b7e-answered -w <workspace> -b <bead>[,<bead>...] [--family] [--json]
+
+Was this bead's question answered, and which bead in the family actually carries the
+answer? One block per bead checked: whether it carries a \`decision\` block, whether it
+has been answered, by when and with what, and whether the answer closed the bead,
+commissioned the work, or deferred the question. A ruling recorded only as a comment
+(no state.json record — older than its 30-day TTL, or answered by a plain \`bd comment\`)
+is read off the thread and resolved the same way; a bead closed as a ruling with no
+comment recording what was chosen reads as \`answered-but-unrecorded\`, not an empty
+ruling. Then one verdict line naming the bead the answer is actually on, or saying none
+of them carries one.
+
+  -w, --workspace <name>       which tracker (required; one of the configured workspaces)
+  -b, --bead <id>[,<id>...]    the bead(s) to check (required) — repeat the flag or
+                                comma-join for several in one call
+  --family                      also walk ancestors — parent, grandparent, and so on
+  --json                        the machine-readable form instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const beadIds = values('-b', '--bead');
+const FAMILY = has('--family');
+const JSON_MODE = has('--json');
+
+function fail(msg, code = 2) {
+  console.error(`b7e-answered: ${msg}`);
+  process.exit(code);
+}
+
+if (!wsName) fail(`-w/--workspace is required\n${USAGE}`);
+if (!beadIds.length) fail(`-b/--bead is required\n${USAGE}`);
+
+const cfg = loadConfig();
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 4);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+const answered = loadState().answered || {};
+
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+
+const STATE_LABEL = { answered: green('answered'), unanswered: amber('unanswered'), 'not-a-question': dim('not a question') };
+
+function printOptions(r) {
+  if (!r.options?.length) return;
+  console.log('  options:');
+  for (const o of r.options) {
+    const taken = r.chosenOption && o.id === r.chosenOption.id;
+    const tags = [o.recommended ? 'recommended' : null, taken ? 'chosen' : null].filter(Boolean);
+    console.log(`    ${taken ? '»' : ' '} ${o.label} [${o.id}]${tags.length ? ` (${tags.join(', ')})` : ''}`);
+  }
+}
+
+function printRow(r) {
+  console.log(`${r.id} — ${STATE_LABEL[r.state] || r.state}${r.outcome ? ` (${r.outcome})` : ''}`);
+  if (r.question) console.log(`  question: ${r.question}`);
+  printOptions(r);
+  if (r.chosenOption) console.log(`  chose: ${r.chosenOption.label} [${r.chosenOption.id}]`);
+  for (const line of r.evidence) console.log(`  ${dim(line)}`);
+}
+
+function printVerdict(beadId, result) {
+  if (result.carrier) {
+    console.log(green(`verdict: answered — on ${result.carrier.id}${result.carrier.id !== beadId ? ' (an ancestor, not the bead itself)' : ''}.`));
+  } else {
+    console.log(
+      red(
+        `verdict: not answered — nothing in the chain checked (${result.results.map((r) => r.id).join(', ')}) carries an answer.`,
+      ),
+    );
+  }
+}
+
+if (beadIds.length === 1) {
+  // The single-bead form, unchanged: a missing bead is refused outright (exit 4) rather
+  // than folded into a batch report, and the header/verdict carry no bead-count noise.
+  const [beadId] = beadIds;
+  let first;
+  try {
+    first = await bd.show(ws, beadId);
+  } catch (err) {
+    const msg = String(err?.message || err).split('\n')[0];
+    if (MISSING_RE.test(msg)) {
+      fail(`${ws.name} has no bead ${beadId}: ${msg}`, 4);
+    }
+    fail(`${ws.name} could not be read for ${beadId} — a tracker failure (lock/timeout?), not "not found": ${msg}`, 1);
+  }
+  if (!first) fail(`${ws.name} has no bead ${beadId}`, 4);
+
+  const result = await beadAnswer(bd, ws, beadId, { family: FAMILY, answered });
+
+  if (JSON_MODE) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`b7e-answered ${beadId} · ${ws.name}${FAMILY ? ` (chain of ${result.results.length})` : ''}\n`);
+    for (const r of result.results) {
+      printRow(r);
+      console.log('');
+    }
+    printVerdict(beadId, result);
+  }
+  process.exitCode = 0;
+} else {
+  // Several beads in one call. No pre-flight `bd show` per id — that was a second spawn
+  // for every bead this command was already going to read via `beadAnswer` (whose
+  // `showWithComments` is one call), and it is exactly the 64-calls-for-32-beads cost
+  // bc-dgx7.95 was filed to cut. A bead `beadAnswer` cannot find comes back with an
+  // empty chain instead, which is enough to tell "not found" from "not answered".
+  const rows = [];
+  for (const beadId of beadIds) {
+    let result;
+    try {
+      result = await beadAnswer(bd, ws, beadId, { family: FAMILY, answered });
+    } catch (err) {
+      const msg = String(err?.message || err).split('\n')[0];
+      if (MISSING_RE.test(msg)) {
+        rows.push({ bead: beadId, notFound: true, error: msg });
+      } else {
+        // The tracker itself failed to answer for this bead — a Dolt lock, a timeout, an
+        // unreadable workspace. Reported distinctly from `notFound` so it isn't read as
+        // "beadcause has no record of this bead" when the truth is "beadcause could not
+        // ask" (bc-dgx7.109).
+        rows.push({ bead: beadId, trackerError: true, error: msg });
+      }
+      continue;
+    }
+    if (!result.results.length) {
+      rows.push({ bead: beadId, notFound: true });
+    } else {
+      rows.push(result);
+    }
+  }
+
+  const found = rows.filter((r) => !r.notFound && !r.trackerError);
+  const answeredCount = found.filter((r) => r.carrier).length;
+  const notFound = rows.filter((r) => r.notFound).length;
+  const trackerErrors = rows.filter((r) => r.trackerError).length;
+
+  if (JSON_MODE) {
+    console.log(JSON.stringify({ beads: beadIds, results: rows }, null, 2));
+  } else {
+    console.log(`b7e-answered ${beadIds.length} beads · ${ws.name}${FAMILY ? ' (each walked to its ancestors)' : ''}\n`);
+    for (const r of rows) {
+      if (r.trackerError) {
+        console.log(red(`${r.bead} — tracker error, not a verdict (lock/timeout?): ${r.error}`));
+        console.log('');
+        continue;
+      }
+      if (r.notFound) {
+        console.log(red(`${r.bead} — ${r.error || `${ws.name} has no bead ${r.bead}`}`));
+        console.log('');
+        continue;
+      }
+      for (const row of r.results) {
+        printRow(row);
+        console.log('');
+      }
+      printVerdict(r.bead, r);
+      console.log('');
+    }
+    console.log(
+      `${answeredCount}/${found.length} answered${notFound ? amber(`, ${notFound} not found`) : ''}${trackerErrors ? red(`, ${trackerErrors} tracker error${trackerErrors === 1 ? '' : 's'}`) : ''}`,
+    );
+  }
+  process.exitCode = found.length ? 0 : (trackerErrors ? 1 : 4);
+}

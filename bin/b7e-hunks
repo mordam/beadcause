@@ -1,0 +1,225 @@
+#!/usr/bin/env node
+/**
+ * `b7e-hunks` — every conflict hunk in the working tree, addressable, with both sides.
+ *
+ *   b7e-hunks                                   list every hunk, grouped by file
+ *   b7e-hunks <file>#<n>...                     print one or more hunks in full
+ *   b7e-hunks --take ours|theirs <file>#<n>...  resolve named hunks, all-or-nothing
+ *   b7e-hunks --stage [<file>...]               git add whatever has zero markers left
+ *   b7e-hunks --dir <root>                      run against <root>'s repo, not the cwd's
+ *   b7e-hunks --width <n>                       truncate wide lines to <n> chars (default 200)
+ *
+ * bc-dgx7.78 names three sessions (`dv-3rn.1`, `dv-b5d.14`, `dv-gr6.43`) that each spent
+ * most of a run resolving merge conflicts one hunk at a time, each inventing its own
+ * enumerator, its own wide-line truncation, and its own take-a-side edit — by hand, in a
+ * dozen slightly different ways, none of which decided anything: which side wins is still
+ * the judgement, and it stays exactly that here. This closes the three sub-tasks around
+ * it: enumerate, print a wide hunk safely, take a side without leaving a marker behind. See
+ * `lib/hunks.js` for the parsing and edit logic.
+ *
+ * A hunk's `#n` is its position among the hunks *currently* in its file — resolving one
+ * hunk renumbers the ones after it in that same file, since there is genuinely one fewer
+ * hunk above them now. Pass every id you mean to resolve in a file to one `--take` call
+ * (supported and the normal way to use this) rather than one id per call across several;
+ * if you do split it up, re-run the bare listing between calls to pick up fresh ids.
+ *
+ * Exit codes: `0` no conflicts remain (after whatever this run did); `1` conflicts remain;
+ * `2` refused — bad usage, an id that does not name a real hunk, or the target is not a
+ * git repository.
+ *
+ * @grant excluded
+ */
+import path from 'node:path';
+import {
+  repoRootOf,
+  allHunks,
+  hunksForFile,
+  parseId,
+  truncate,
+  takeHunks,
+  stageFiles,
+  conflictedFiles,
+} from '../lib/hunks.js';
+
+const USAGE = `usage: b7e-hunks [<file>#<n>...] [--dir <root>] [--width <n>]
+       b7e-hunks --take ours|theirs <file>#<n>...
+       b7e-hunks --stage [<file>...]
+
+Every conflict hunk in the working tree, addressable, with both sides.
+
+  (no args)                     list every hunk, grouped by file, ordered by hunk count
+  <file>#<n>...                 print one or more hunks in full
+  --take ours|theirs <file>#<n>...   replace named hunks with the chosen side — all
+                                 ids are validated before anything is written; resolving
+                                 a hunk renumbers the ones after it in the same file, so
+                                 pass every id for a file in one call
+  --stage [<file>...]           git add whatever has zero markers left; refuses (does
+                                 not stage) any file that still has one
+  --dir <root>                  resolve against <root>'s repo, not the cwd's
+  --width <n>                   truncate a printed line to <n> chars (default 200)`;
+
+function warn(msg) {
+  console.error(`b7e-hunks: ${msg}`);
+}
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let DIR = null;
+let WIDTH = 200;
+let TAKE_SIDE = null;
+let STAGE = false;
+const positionals = [];
+
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--dir') {
+    DIR = argv[i + 1];
+    i += 1;
+    continue;
+  }
+  if (a === '--width') {
+    WIDTH = Number(argv[i + 1]);
+    i += 1;
+    continue;
+  }
+  if (a === '--take') {
+    TAKE_SIDE = argv[i + 1];
+    i += 1;
+    continue;
+  }
+  if (a === '--stage') {
+    STAGE = true;
+    continue;
+  }
+  if (a.startsWith('-') && a !== '-') {
+    warn(`unrecognised flag: ${a}`);
+    console.error(USAGE);
+    process.exit(2);
+  }
+  positionals.push(a);
+}
+
+if (TAKE_SIDE && STAGE) {
+  warn('--take and --stage are two different jobs — use one at a time');
+  process.exit(2);
+}
+if (TAKE_SIDE && TAKE_SIDE !== 'ours' && TAKE_SIDE !== 'theirs') {
+  warn(`--take wants "ours" or "theirs", got "${TAKE_SIDE}"`);
+  process.exit(2);
+}
+if (TAKE_SIDE && positionals.length === 0) {
+  warn('--take needs at least one <file>#<n>');
+  process.exit(2);
+}
+if (!Number.isInteger(WIDTH) || WIDTH < 1) {
+  warn(`--width wants a positive integer, got "${argv[argv.indexOf('--width') + 1]}"`);
+  process.exit(2);
+}
+
+const cwd = DIR ? path.resolve(DIR) : process.cwd();
+const repoRoot = repoRootOf(cwd);
+if (!repoRoot) {
+  warn(`refusing — ${cwd} is not inside a git repository`);
+  process.exit(2);
+}
+
+/** Exit 1 if any hunk remains anywhere in the working tree, else 0 — the shared tail. */
+function exitOnRemaining() {
+  const remaining = allHunks(repoRoot).reduce((n, f) => n + f.hunks.length, 0);
+  process.exit(remaining ? 1 : 0);
+}
+
+/* --------------------------------------------------------------------------- --stage */
+
+if (STAGE) {
+  const targets = positionals.length ? positionals : conflictedFiles(repoRoot);
+  const { staged, refused } = stageFiles(repoRoot, targets);
+  for (const f of staged) console.log(`staged ${f}`);
+  for (const r of refused) console.log(`refused ${r.file} (${r.reason})`);
+  console.log(`staged ${staged.length} file(s), refused ${refused.length} file(s)`);
+  exitOnRemaining();
+}
+
+/* ---------------------------------------------------------------------------- --take */
+
+if (TAKE_SIDE) {
+  const ids = positionals.map((id) => ({ raw: id, parsed: parseId(id) }));
+  const badShape = ids.filter((i) => !i.parsed);
+  if (badShape.length) {
+    warn(`not shaped like <file>#<n>: ${badShape.map((i) => i.raw).join(', ')}`);
+    process.exit(2);
+  }
+  const edits = ids.map((i) => ({ file: i.parsed.file, index: i.parsed.index, side: TAKE_SIDE }));
+  const result = takeHunks(repoRoot, edits);
+  if (result.error) {
+    warn(result.error);
+    process.exit(2);
+  }
+  for (const a of result.applied) {
+    console.log(`${a.file}#${a.index} took ${a.side} (L${a.startLine}-${a.endLine} -> ${a.lines} line${a.lines === 1 ? '' : 's'})`);
+  }
+  exitOnRemaining();
+}
+
+/* ---------------------------------------------------------------------- print by id */
+
+if (positionals.length) {
+  const parsed = positionals.map((id) => ({ raw: id, parsed: parseId(id) }));
+  const badShape = parsed.filter((p) => !p.parsed);
+  if (badShape.length) {
+    warn(`not shaped like <file>#<n>: ${badShape.map((p) => p.raw).join(', ')}`);
+    process.exit(2);
+  }
+
+  const cache = new Map();
+  const blocks = [];
+  const missing = [];
+  for (const { raw, parsed: id } of parsed) {
+    if (!cache.has(id.file)) cache.set(id.file, hunksForFile(repoRoot, id.file));
+    const { hunks } = cache.get(id.file);
+    const hunk = hunks.find((h) => h.index === id.index);
+    if (!hunk) {
+      missing.push(raw);
+      continue;
+    }
+    const lines = [`=== ${id.file}#${id.index}  L${hunk.startLine}-${hunk.endLine} ===`];
+    lines.push(`--- ours${hunk.oursLabel ? ` (${hunk.oursLabel})` : ''} ---`);
+    for (const l of hunk.oursLines) lines.push(truncate(l, WIDTH));
+    if (hunk.baseLines) {
+      lines.push('--- base ---');
+      for (const l of hunk.baseLines) lines.push(truncate(l, WIDTH));
+    }
+    lines.push(`--- theirs${hunk.theirsLabel ? ` (${hunk.theirsLabel})` : ''} ---`);
+    for (const l of hunk.theirsLines) lines.push(truncate(l, WIDTH));
+    blocks.push(lines.join('\n'));
+  }
+
+  if (missing.length) {
+    warn(`no such hunk: ${missing.join(', ')}`);
+    process.exit(2);
+  }
+  console.log(blocks.join('\n\n'));
+  exitOnRemaining();
+}
+
+/* -------------------------------------------------------------------------- listing */
+
+const files = allHunks(repoRoot).filter((f) => f.hunks.length);
+files.sort((a, b) => b.hunks.length - a.hunks.length || a.file.localeCompare(b.file));
+
+let total = 0;
+for (const f of files) {
+  for (const h of f.hunks) {
+    total += 1;
+    const oursFirst = truncate(h.oursLines[0], WIDTH);
+    const theirsFirst = truncate(h.theirsLines[0], WIDTH);
+    console.log(`${f.file}#${h.index} L${h.startLine}-${h.endLine} ours:${oursFirst} theirs:${theirsFirst}`);
+  }
+}
+console.log(`${total} hunk${total === 1 ? '' : 's'} still open across ${files.length} file${files.length === 1 ? '' : 's'}`);
+
+process.exit(total ? 1 : 0);

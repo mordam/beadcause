@@ -23,6 +23,8 @@
  *
  * Exit codes: `0` at least one group returned something, `1` all three came back
  * empty, `2` refused — bad usage, or `bd show` could not find the bead.
+ *
+ * @grant read
  */
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -35,6 +37,21 @@ const value = (f) => {
   const at = argv.indexOf(f);
   return at === -1 ? null : (argv[at + 1] ?? null);
 };
+
+// bc-dgx7.31: unrecognised-flag territory otherwise — checked before --dir or
+// anything else on argv is read.
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-notes <bead-id> [<path>...]',
+      'b7e-notes bc-xl7n.71 lib/superseded.js test/landcheck.mjs',
+      'b7e-notes bc-khoe.43                    # no paths given: uses what the bead names',
+      'b7e-notes bc-khoe.43 --json',
+      'b7e-notes bc-khoe.43 --dir <root>       # another tree — this is how it is tested',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
 
 const DIR_GIVEN = value('--dir');
 const ROOT = path.resolve(DIR_GIVEN || REPO_ROOT);

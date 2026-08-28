@@ -33,6 +33,8 @@
  * Exit codes: `0` built the tree. `1` bad argv. `2` not inside a git repository.
  * `3` building the tree failed — a bad PR number, no such sha, `gh` unavailable, a
  * network error, or a named tree kept by an earlier `--keep` run.
+ *
+ * @grant excluded
  */
 import { execFileSync } from 'node:child_process';
 import { buildTree } from '../lib/prtree.js';

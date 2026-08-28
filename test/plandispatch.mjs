@@ -142,7 +142,11 @@ async function tick({ ready = [], children = {}, comments = {}, workers = [], ro
     },
   });
   await advocates.tick();
-  return { opened, labelled };
+  // The persisted records, not the in-memory ones: `persist` is what a restart reads back,
+  // so a field that does not survive `JSON.stringify` is a field the daemon loses on its
+  // own merge. See `workerHolds` — the ids it reads have to be here an hour later.
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, 'advocates.json'), 'utf8'));
+  return { opened, labelled, workers: saved.alpha?.workers || [] };
 }
 
 /** The plan every dispatch case here works from: two groups, two beads apiece. */
@@ -223,6 +227,33 @@ await check('a group that takes a window marks its epic', async () => {
     ['x-1:dispatched:log-timestamps', 'x-1:dispatched:the-brief-and-the-mark'],
     'the mark goes on the epic whose plan named the group, one per group'
   );
+});
+
+await check("a group's lead records the group's other beads, so nothing reads them as unattended", async () => {
+  // bc-2uj4.9. The lead's window is briefed on every bead of its group and marks them all
+  // `in_progress`, but `dispatchable` gives the lead `batch: []` — a group is held through
+  // `plannedInto`, which filters the ready queue and writes nothing on the worker. So the
+  // ids have to be on the record, or `workerHolds` cannot see the one window that is on
+  // them and the re-entry sweep reports a stall against a bead mid-delivery.
+  const { opened, workers } = await tick({
+    ready: [epic('x-1', { priority: 1, labels: [PLANNED_LABEL] }), bead('x-1.1'), bead('x-1.2'), bead('x-1.3')],
+    comments: { 'x-1': [{ text: formatPlan(TWO_GROUPS) }] },
+  });
+  assert.equal(opened.length, 2, 'two groups, two windows — the premise');
+
+  const pair = workers.find((w) => w.group?.name === 'the brief and the mark');
+  assert.ok(pair, 'the two-bead group took a window');
+  assert.equal(pair.id, 'x-1.1', 'the lead is what `w.id` still says');
+  assert.deepEqual(pair.group.beads, ['x-1.2'], 'and the other bead of the group is on the record, as an id');
+  assert.deepEqual(pair.batch, [], 'not in `batch` — `heldByChildren` keys its upward guard on that length');
+  assert.equal(pair.group.epic, 'x-1');
+
+  const alone = workers.find((w) => w.group?.name === 'log timestamps');
+  assert.deepEqual(alone.group.beads, [], 'a group of one has no other beads, and says so rather than saying null');
+
+  // And an ordinary window is not a group at all, so there is nothing here to mistake for one.
+  const plain = await tick({ ready: [bead('y-2')] });
+  assert.equal(plain.workers[0].group, null);
 });
 
 await check('a bead dispatched on its own leaves no mark, which is the whole diagnosis', async () => {
