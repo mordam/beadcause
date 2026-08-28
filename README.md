@@ -6613,6 +6613,47 @@ meant the acceptance criteria, the one part you close a bead against, were exact
 that. The description alone stays unlabelled, the way it is on the card, so a bead
 carrying none of the other three looks precisely as it did.
 
+#### The ⋮, and editing the bead you are looking at
+
+The sheet had no menu. Every action it offered was a row it had decided to draw — the
+owner buttons, the adopt picker on an orphan — so anything that was not one of those was
+not reachable from a phone at all, and the general-purpose bead reader was a reader only.
+
+It carries the inbox card's **⋮** now, left of ⤢ and ✕: what is about the *bead*, beside
+the two that are about the sheet. Same button, same popover, same CSS (`.kebab`, `.menu`,
+`.menu-item`) — the two surfaces that show a bead should not need learning twice. Behind
+it, one item: **Edit**, which swaps the sheet body for the six-field card the adjust form
+on `/endorse` already uses — `editHtml` in `public/endorse.js`, so `title`, `type`,
+`priority`, `description`, `acceptance` and `labels`, which is `EDITABLE` in
+`lib/verdict.js` — with Save and Cancel.
+
+Four things about it are decisions rather than details:
+
+- **It posts to [`/api/bead/edit`](#http-api), not to `/api/bead/adjust`.** The adjust
+  route is a verdict on a *proposal* and refuses anything no longer `unendorsed`; the
+  sheet is not a queue row drawn a minute ago, it is the bead in front of you, so it
+  inherits none of that. Nothing on this page endorses, revokes or moves any marker.
+- **Save repaints from `/api/bead`, not from the form.** The route answers what *moved*
+  (`{changed, fields[], …}`), which is not what the bead now says: `normalizeEdits`
+  clamps what it was sent, and the edit writes a line on the thread saying what changed.
+  Both of those are on screen a second later because the sheet re-read the bead. One
+  extra round trip, and the only version of this that cannot drift from what `bd` holds.
+- **Cancel repaints from the copy the last fetch left**, so it costs nothing and can
+  never show a bead assembled out of what you had typed.
+- **On a closed bead, Edit is greyed out with the reason under it.** The route answers a
+  closed bead with a `409` — its description is the record of what was done rather than
+  an instruction — and that is the one refusal a client can predict, because the sheet
+  already knows the status. Predicted as a *missing* item it would read as "this app has
+  no editor"; disabled, with the sentence, it is the same fact said out loud.
+
+**The labels the daemon owns are not in the box.** The card posts the label set it is
+showing, so "remove what I no longer see" is how a removal is expressed, and a protected
+label drawn there is one you can delete and watch come back. `isProtectedLabel` in
+`lib/verdict.js` is the authority and `public/graph.js` keeps a copy of it, because
+nothing under `public/` imports from `lib/`. `human` is hidden for a neighbouring reason
+— `normalizeEdits` filters it out of the *incoming* set, so the card can never send it —
+and what that costs is `bc-ka5y.46`. `complexity:` is deliberately still offered.
+
 #### How it ended — the close reason, and when
 
 The sheet drew the status pill, and the status pill said `closed`. What it never drew
@@ -18944,6 +18985,79 @@ construction in the same sense `b7e-def`/`b7e-owes`/`b7e-affected` are — it on
 calls `fs.readdirSync`/`readFileSync`/`statSync` over the files above and prints what
 it found — which is what put `Bash(b7e-enroll:*)` on `DEFAULT_TOOL_LIST` beside them.
 
+### Apply those registrations instead of typing them — `b7e-register`
+
+`bc-dgx7.75` is the other half of the bead above, found by the session audit the same
+way. Five sessions (`bc-dgx7.57`, `bc-dgx7.58`, `bc-dgx7.59`, `bc-dgx7.60`,
+`bc-dgx7.61`) each shipped a new `b7e-*` command, and all five ran `b7e-enroll <name>`
+afterwards to check the registrations — after typing those registrations by hand first,
+four different ways. On `package.json`'s `bin` map, each grepped two alphabetical
+neighbours to find the insertion point ("Alphabetically, `b7e-def` comes right before
+`b7e-deliverbase`" — `bc-dgx7.58`). On `package-lock.json`'s `packages[""].bin`,
+`bc-dgx7.59` hand-edited it and was told the file was already claimed by `bc-dgx7.57` in
+another worktree, while `bc-dgx7.60` and `bc-dgx7.61` ran `npm install
+--package-lock-only` and diffed to confirm the one-line result — the same registry, two
+incompatible methods, in the same hour.
+
+`b7e-enroll` is the linter for exactly these checks and it is good. What did not exist
+was the applier, so the registry knowledge lived twice: once in `b7e-enroll`'s checks and
+once in each session's fingers, and the second copy was the one that went wrong. Both
+halves now read `lib/enroll.js` — what the checks match is what the edits produce.
+
+**Half of what this bead asked for was delivered by deleting the work, not automating
+it.** It named four registries; `bc-wbrhi` landed the day after it was filed and removed
+two of them. A tool now declares `@grant read`, `@grant write` or `@grant excluded` in
+its own header, `lib/tooldecl.js` assembles `DEFAULT_TOOL_LIST` and the `lib/grants.js`
+classification from those declarations, and `test/tooldecl.mjs` *fails* a hand-written
+`b7e-*` line in `lib/grants.js` — so writing the two registries this command was
+specified to write would now break the repo. That is the better fix, and it leaves this
+command smaller than its bead describes.
+
+```
+b7e-register b7e-x --kind read --why "…"      register it, granted
+b7e-register b7e-x --kind excluded --why "…"  register the decision not to
+b7e-register b7e-x --kind read --why "…" -n   print the patch and write nothing
+b7e-register b7e-x --kind read --why "…" --after b7e-w   place it below a named sibling
+```
+
+What it writes today is four files, three of `b7e-enroll`'s seven checks between them:
+
+1. **`package.json`'s `bin` map** — the alphabetical insertion.
+2. **`package-lock.json`'s `packages[""].bin`** — the same line, where `npm install
+   --package-lock-only` would have put it.
+3. **`bin/<name>`'s own header** — the `@grant` line, which is check 6 and the one edit
+   that decides both derived registries at once, with `--why` as the sentence beside it.
+4. **`lib/tooldecl.js`** — the paragraph arguing for that grant, appended where the other
+   sixty-three live, with the `→ Bash(<name>:*)` line under it when the tool is granted.
+   Nothing checks for that paragraph; every other tool has one, and for an excluded tool
+   it is the only place the argument exists at all.
+
+The one rule worth knowing is where a new key lands in a `bin` map: **alphabetically
+within its own family**, a family being everything before the first dash. Not
+alphabetically in the file, because neither file is — `package.json` lists the
+`beadcause-*` worker tools in the order they were written and only the `b7e-*` block
+after them is sorted, while the lock is sorted throughout. Reading the family is what
+makes one rule right for both, and for a `b7e-*` name the lock line it produces is
+exactly the one `npm install --package-lock-only` would have written.
+
+It deliberately does not write `bin/<name>` itself (that is `b7e-scaffold`'s job), the
+test, or this README's `###` section: a generated proof or explanation would be a
+registration pretending to be work. So a run ends by printing what `b7e-enroll` still
+says is owed, which after a successful register is exactly those two — that is the
+acceptance criterion, and `test/b7eregister.mjs` runs it on a fabricated checkout.
+
+Two things it refuses rather than decides. **`--kind` has no default**: whether
+`dispatch` may run the command is a decision about a real capability — a command that
+writes to the checkout, runs a suite, builds a worktree or runs whatever its caller names
+is `excluded`, one that only reads is `read` — and `lib/tooldecl.js` carries sixty-three
+worked precedents. This command is itself write-shaped and registered itself
+`--kind excluded`. And **`--why` is required**, because it is what both halves of the
+registration actually say.
+
+Exit code: `0` when nothing is owed, `1` when something the applier cannot write still
+is, `2` on a bad invocation. `@grant excluded`: it edits four tracked files in whatever
+checkout it runs in.
+
 ### What a repo command takes — without running it to find out — `b7e-usage`
 
 `bc-dgx7.31`, filed by the session audit against `bc-zjab.9`, `bc-zjab.7`, `bc-zjab.8`,
@@ -20996,6 +21110,72 @@ test:*)` is held by `merge-advocate` alone, on the argument that "nothing about 
 tests is a read" — and on a suite it decides needs it, writes to the tree via
 `scripts/vendor.js`. `dispatch`, the one agent this list actually governs, has no sweep
 of its own to triage and no branch to have run one on.
+
+### How often does this actually fail, over N runs, with every run's output kept — `b7e-flake`
+
+`bc-dgx7.73` names three sessions that each needed a failure *rate*, not a *verdict*, and
+each built the loop by hand. `bc-beleq.1` (acceptance was "20 solo runs, pre-fix vs
+post-fix") started with `for i in 1 2 3; do node test/advswitch.mjs 2>&1 | tail -5; done`
+— the worktree-isolation guard refused it as too complex to prove it stays in the
+worktree — retried as a backgrounded `seq 1 8` loop, refused again, fell back to two
+solo runs redirected into scratchpad files, then finally wrote a heredoc script with its
+own pass/fail counters, which outran the 180s Bash timeout and had to move to the
+background — and wrote a SECOND, nearly identical script for the pre-fix side.
+`bc-khoe.67` wrote a fourth shape, `... | grep -E "^(✗|✘|×|FAIL)" | head -10 ...`, and the
+grep-through-a-pipe form threw away the one thing it was after — its own debrief: "Run 3
+failed but I lost its output. Save every run to its own file from the start." `bc-dgx7.57`
+wrote a fifth, for a two-run sanity check before delivering.
+
+```
+b7e-flake <suite|script>...     one or more targets, each run --runs times
+b7e-flake --runs N              how many times each target runs (default 10)
+b7e-flake --jobs N              how many runs at once, per target (default 4)
+b7e-flake --env K=V             env var forwarded to every run — repeatable
+b7e-flake --dir <root>          "this tree" is <root>, not the tree this file is in
+b7e-flake --timeout <s>         per-run seconds, overriding lib/gate.js's own default
+b7e-flake --json                one object per run instead of the printed report
+```
+
+**Not `b7e-triage`.** That command (above) re-runs each *failure* exactly once and
+classifies flake/vendor/real — it answers "is this real", never "how often". This runs
+every target `--runs` times up front and reports a rate plus the failures grouped by
+signature, which is the question all three sessions above actually had.
+
+**Every run's output is kept, on disk, whether it passed or not.** The one lesson
+repeated across all three sessions is that deciding which run's output is "worth
+keeping" *after the fact* is exactly the judgement that loses the one you needed —
+`bc-khoe.67`'s own debrief names this directly. `runSuite` (`lib/gate.js`, reused as-is
+for the spawn and the per-suite timeout) already hands each run its own `TMPDIR`
+sandbox; this writes that run's full stdout+stderr to its own log file under
+`.claude/gate-runs` — the same directory `b7e-gate` already writes JSONL run records to,
+resolved through `lib/gaterun.js` so both land in the *main checkout* rather than inside
+a worktree's own tree (a `git add -A` at delivery time must not sweep a live run's log
+onto whichever branch happens to be open), and both are visible from any worktree by the
+same path. A flake run's id is prefixed `flake-` so it is never confused with a gate's
+own run record. A `--dir` that is not a git checkout — every fabricated tree
+`test/flake.mjs` drives the CLI against — has no such directory to resolve; rather than
+throw, it falls back to a plain directory under the system temp dir, the same "fail soft
+in the safe direction" `b7e-gate` itself follows for a non-git `--dir`.
+
+**Failures are grouped by signature**, not just tallied. `failureSignature` looks for, in
+order: an errno-style code (`ENOTEMPTY`, `ENOENT`, ...), an `AssertionError` line, a
+`SomethingError:` line, a signal, or the bare exit code — the first of these actually
+present in a run's output. `bc-beleq.1`'s own acceptance is exactly this shape: 20 runs
+of `test/advswitch.mjs` on the pre-fix content report `ENOTEMPTY` on roughly 1 run in 20,
+each with its own log path printed; the fixed content reports 20/20 passed.
+
+`--env` is `runSuite`'s one new option, merged in *underneath* the safety envs it always
+sets (`NO_LAUNCH`, `HELD_ENV`, `TMPDIR`) — a caller can parameterise a run (`bc-khoe.67`'s
+own `PRESS_MS` sweep across a budget) but can never use it to turn off the launch guard
+or hand two runs the same scratch directory.
+
+Exit codes: `0` every target passed every run; `1` at least one target had at least one
+failing run; `2` refused — bad usage (no target given, a malformed `--env`).
+
+Not on `DEFAULT_TOOL_LIST` (`@grant excluded`), for the `b7e-triage`/`b7e-counterproof`
+reason: it re-runs a suite, which `lib/grants.js` already classifies as a write.
+`dispatch`, the one agent that list governs, has no branch and no rate of its own to
+measure.
 
 ### Prove a new check is red without the fix, and put the tree back — `b7e-counterproof`
 
