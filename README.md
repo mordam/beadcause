@@ -21636,6 +21636,73 @@ on `DEFAULT_TOOL_LIST` alongside them — this is a lookup, not a
 second door into `bd`.
 
 
+### What in this tree is generated from the file I just touched, and is it stale — `b7e-derived`
+
+`bc-dgx7.1`'s session audit, moved here from deluvia's own tracker as `dv-afr.36` (it is a
+beadcause command-shipping bead, so it belongs in this repo rather than the one it was
+found in). Five sessions (`dv-afr.18`, `dv-5eu.18`, `dv-5eu.17`, `dv-afr.17`, `dv-5eu.19`)
+each asked "what else in this tree is derived from what I just edited?" and answered it a
+different way every time. `dv-afr.18` did not ask until a cherry-pick conflicted a
+generated bundle and only then ran `ls compendium/*.py` to find the generator. `dv-5eu.19`
+is the cost of not asking at all: two prose edits moved word counts a check script pins as
+literals, the session found out from a red gate, and spent six edits chasing five numbers
+through an audit document before leaving one drift unfixed as a follow-up bead.
+
+```
+b7e-derived -w deluvia                                    the diff since origin/main, plus anything uncommitted
+b7e-derived -w deluvia compendium/species/alban-orves.md  one or more specific files instead
+b7e-derived -w deluvia --check                            run each generator's own --check mode, report staleness
+b7e-derived -w deluvia --rebuild                          run the generators whose sources actually changed
+b7e-derived --dir <root>                                  another tree — this is how it is tested
+```
+
+**The map lives in the checkout, not in this repo.** `lib/repoviews.js` already makes this
+argument for `.beadcause/views.json`: a generator's path and the source globs that feed it
+are a fact about *that* checkout at *that* revision, and belong in the commit that changes
+them — not in a table here that would need a pull request to beadcause every time deluvia
+renames a script, and that would give sophab and ehatt nothing until somebody wrote a
+second one. So a checkout declares its own `.beadcause/derived.json`:
+
+```json
+{
+  "generators": [
+    {
+      "id": "compendium/build.py",
+      "run": ["python3", "compendium/build.py"],
+      "check": ["python3", "compendium/build.py", "--check"],
+      "sources": ["compendium/**"],
+      "artifacts": ["compendium/web/data.js", "reference/maps/private/compendium.admin.js"]
+    }
+  ]
+}
+```
+
+`run`/`check` are an argv, never a shell string — same reasoning `lib/repoviews.js`'s
+`runGenerator` gives for `views.json`'s own `data.run`: a filename with a space in it stays
+a filename with a space in it, and a manifest cannot smuggle `; rm -rf` through one.
+`sources` is matched with a small hand-rolled glob (`*` stops at a `/`, `**` crosses it,
+everything else literal) rather than a dependency, because the three shapes deluvia's own
+generators actually need — `compendium/**`, `novel/**/CHAPTER_*.md`,
+`design/characters/*.sheet.md` — do not need more than that.
+
+**Never a shrug**, the same rule `lib/affected.js` states for its sibling question ("what
+*tests* this file" rather than "what does this file *feed*"): a changed file matching no
+generator's `sources` is reported on stderr under its own heading, not silently absent, so
+"no generators cover this diff" can never be confused with "nobody looked."
+
+**`--check` runs the generator's own check mode rather than re-deriving staleness.** The
+repo's own convention (`build_series_log.py . --check`) already answers "is this stale"
+without writing anything; this shells out to exactly that argv and reads its exit code —
+`0` clean, anything else stale, with the last few lines of output as why. **`--rebuild`
+is the one thing here that writes** to the checkout, which is why the file carries
+`@grant excluded` rather than `read`: unlike plain listing and `--check`, it is not safe to
+hand an unattended agent by default.
+
+**On `DEFAULT_TOOL_LIST`: no.** `@grant excluded`, same shape as `b7e-rebaseline`'s
+`--write` — the binary can write to a checkout it was not asked to write to, so it is not
+on the list an agent gets without being asked for it specifically.
+
+
 ### One `bd` write that survives contention, instead of a blind retry that double-posts — `b7e-write`
 
 `bc-dgx7.86`, re-filed from `dv-k4n.14` (the session audit, `lib/sessionaudit.js`).
