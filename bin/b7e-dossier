@@ -1,0 +1,195 @@
+#!/usr/bin/env node
+/**
+ * `b7e-dossier` — every canon assertion about one named thing, with its source line.
+ *
+ *     b7e-dossier -w deluvia Korgath
+ *     b7e-dossier -w deluvia Othen --kind species
+ *     b7e-dossier -w deluvia Korgath --at 3f2a91c     read a git ref, not the working tree
+ *     b7e-dossier -w deluvia Korgath Kazran           more than one spelling of one subject
+ *     b7e-dossier -w deluvia Korgath --json
+ *     b7e-dossier --dir /path/to/checkout Korgath     which tree to read — this is how it
+ *                                                      is tested, and how to run it against
+ *                                                      a checkout no workspace names
+ *
+ * bc-dgx7.101: six deluvia sessions (`dv-gr6.5`, `dv-5eu.1.3`, `dv-nsy.2`, `dv-2uu.5`,
+ * `dv-b5d.28`, `dv-b5d.32`) each opened by reconstructing what canon already says about
+ * one entity, by hand, a different way every time — eight or nine greps and `sed` ranges
+ * across a corpus none of them had a map of. This is the lookup that came before the
+ * judgement, not the judgement. `lib/dossier.js` is the read; this is the argv and the
+ * printing around it.
+ *
+ * Not `b7e-claims`, which takes a **file** and asks what other files assert about it.
+ * This takes a **name**. The contradiction it is named for — Book 3 Ch. 5 making Korgath
+ * 43 where `reference/CHARACTER_CONCURRENCY.md:54` says 173 — is between two sources
+ * neither of which is the file the session was editing.
+ *
+ * The source set is config, never hardcoded: `dossier.sourcesPerWorkspace` is an ordered
+ * list of globs per workspace (optionally keyed by `--kind`), falling through to
+ * `dossier.sources`. Order is what makes the first block canon and a later one derived.
+ *
+ * Exit codes: `0` at least one source says something about the name — a disagreement is a
+ * finding, not a failure, so it does not change this. `1` nothing in the source set names
+ * it, said in one line. `2` bad usage. `4` `-w` named a workspace this checkout has no
+ * config for. `5` the tree could not be read (a `--at` ref that does not resolve).
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { dossier, sourcesFor } from '../lib/dossier.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f) || argv.some((a) => a.startsWith(`${f}=`));
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-dossier [-w, --workspace <name>] [--dir <root>] [--kind <kind>]
+                   [--at <ref>] [--max <n>] [--json] <name> [<name>...]
+
+Every source in the workspace's canon that says something about a name, in source order:
+the file, the enclosing heading, the line number and the line itself — then FIELDS, every
+value found for each field that recurs, and DISAGREES, the fields whose sources do not
+agree with one another.
+
+  <name>...                one subject. More than one is treated as spellings of the same
+                            thing (a name and its epithet, singular and plural), not as
+                            separate queries
+  -w, --workspace <name>   whose checkout, and whose configured source set, to read
+  --dir <root>             read this directory instead — overrides the workspace's own
+                            checkout, and is how this is tested
+  --kind <kind>            which configured source set to slice (character, place,
+                            species, ... — whatever the workspace's config names)
+  --at <ref>               read the tree at a git ref instead of the working tree, so a
+                            statement fixed since can still be found where it was
+  --max <n>                at most this many lines per file (default 40)
+  --json                   the machine-readable form instead of the printed report`;
+
+function fail(msg, code = 2) {
+  console.error(`b7e-dossier: ${msg}`);
+  process.exit(code);
+}
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const dirGiven = value('--dir');
+const kind = value('--kind');
+const atRef = value('--at');
+const maxGiven = value('--max');
+const JSON_MODE = has('--json');
+
+const VALUE_FLAGS = new Set(['-w', '--workspace', '--dir', '--kind', '--at', '--max']);
+const names = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (VALUE_FLAGS.has(a)) {
+    i += 1; // its value too
+    continue;
+  }
+  if (a.startsWith('-')) {
+    // `--flag=value`, or a flag this command does not have. The second is a mistake worth
+    // saying out loud rather than silently searching for a name that looks like a flag.
+    if (!a.includes('=') && a !== '--json') fail(`unrecognised flag ${a}\n${USAGE}`);
+    continue;
+  }
+  names.push(a);
+}
+
+if (!names.length) fail(`give at least one name\n${USAGE}`);
+if (!wsName && !dirGiven) fail(`-w/--workspace or --dir is required\n${USAGE}`);
+
+const maxPerFile = maxGiven === undefined ? 40 : Number(maxGiven);
+if (!Number.isFinite(maxPerFile) || maxPerFile < 1) fail(`--max must be a positive number, not ${maxGiven}`);
+
+const cfg = loadConfig();
+let ws = null;
+if (wsName) {
+  ws = (cfg.workspaces || []).find((w) => w.name === wsName);
+  if (!ws) {
+    fail(
+      `no workspace named "${wsName}"\nconfigured workspaces: ${(cfg.workspaces || []).map((w) => w.name).join(', ') || 'none'}`,
+      4
+    );
+  }
+}
+
+const ROOT = dirGiven ? path.resolve(dirGiven) : resolveSessionDir(cfg, ws);
+if (!ROOT) fail(`${wsName} resolves to no checkout on this Mac — name one with --dir`, 4);
+
+const sources = sourcesFor(cfg, ws?.name, kind);
+
+let result;
+try {
+  result = await dossier(ROOT, names, { sources, ref: atRef || null, maxPerFile });
+} catch (err) {
+  fail(`could not read ${ROOT}${atRef ? ` at ${atRef}` : ''}: ${String(err?.message || err).split('\n')[0]}`, 5);
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ root: ROOT, workspace: ws?.name || null, kind: kind || null, ...result }, null, 2));
+  process.exitCode = result.blocks.length ? 0 : 1;
+} else if (!result.blocks.length) {
+  // One line, on stderr, because "nothing asserts this" is usually a misspelling or a
+  // source set that does not reach the file — and both are worth seeing in a pipeline.
+  console.error(
+    `b7e-dossier: nothing in ${sources.length} source glob${sources.length === 1 ? '' : 's'} under ${ROOT}` +
+      `${atRef ? ` at ${atRef}` : ''} names ${names.join(' / ')}`
+  );
+  process.exitCode = 1;
+} else {
+  const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+  const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+  console.log(bold(`${names.join(' / ')} — ${result.blocks.length} source${result.blocks.length === 1 ? '' : 's'}${atRef ? ` at ${atRef}` : ''}`));
+  for (const block of result.blocks) {
+    console.log('');
+    console.log(bold(block.file));
+    let lastHeading;
+    for (const hit of block.hits) {
+      if (hit.heading !== lastHeading) {
+        lastHeading = hit.heading;
+        if (hit.heading) console.log(dim(`  ${hit.heading}`));
+      }
+      console.log(`  ${hit.line}: ${hit.text}`);
+      for (const f of hit.fields) console.log(dim(`      ${f.field} = ${f.value}`));
+    }
+  }
+
+  console.log('');
+  console.log(bold(`FIELDS (${result.fields.length})`));
+  if (!result.fields.length) console.log(dim('  none stated'));
+  for (const { field, values } of result.fields) {
+    console.log(`  ${field}`);
+    for (const v of values) {
+      const where = v.sources.map((s) => `${s.file}:${s.line}`).join(', ');
+      console.log(`    ${v.value}  ${dim(where)}`);
+    }
+  }
+
+  console.log('');
+  console.log(bold(`DISAGREES (${result.disagrees.length})`));
+  if (!result.disagrees.length) console.log(dim('  nothing contradicts anything else'));
+  for (const { field, values } of result.disagrees) {
+    // The headline is a glance, not the data — every value is listed underneath with the
+    // line it came from, and a sixteen-way `vs` chain across the terminal is unreadable.
+    const shown = values.slice(0, 6).map((v) => v.value);
+    const more = values.length - shown.length;
+    console.log(`  ${field}: ${shown.join('  vs  ')}${more > 0 ? `  (+${more} more)` : ''}`);
+    for (const v of values) {
+      for (const s of v.sources) console.log(dim(`    ${v.value} — ${s.file}:${s.line}`));
+    }
+  }
+
+  process.exitCode = 0;
+}

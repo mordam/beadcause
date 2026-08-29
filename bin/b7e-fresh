@@ -1,0 +1,380 @@
+#!/usr/bin/env node
+/**
+ * `b7e-fresh` — is my worktree's base current, and what will actually land.
+ *
+ *     b7e-fresh                 infer the workspace and base from where you are standing
+ *     b7e-fresh -w deluvia      the base a named workspace delivers into, not the inferred one
+ *     b7e-fresh --base develop  compare against a literal ref instead of resolving one
+ *     b7e-fresh --reset         fast-forward once confirmed behind, with a clean tree
+ *     b7e-fresh --json          one object on stdout, for a caller
+ *
+ * bc-dgx7.127. Filed originally as dv-b5d.52 in the deluvia tracker — misfiled, because
+ * nothing named a home for it at file time; it describes beadcause tooling and has
+ * nothing to do with deluvia content. Eight deluvia sessions (dv-b5d.46, dv-b5d.45,
+ * dv-nsy.35, dv-gr6.74, dv-gr6.73, dv-gr6.72, dv-afr.31, dv-52r.11) each ran a freshness
+ * check as their first command, and no two ran the same one — some compared a bare `git
+ * log --oneline -1` against a remembered sha in prose (not a real comparison), one wrote
+ * the honest `merge-base --is-ancestor` form and was refused by the worktree sandbox for
+ * being too complex to verify, and gave up. The same ambiguity recurs at delivery time:
+ * `git diff main...HEAD` and `git log origin/main..HEAD` disagree the moment a branch
+ * carries a commit cherry-picked in from elsewhere, as `dv-b5d.46`'s did.
+ *
+ * **A combine, not a rebuild.** `b7e-base` (`bc-36xx.25`) already answers "is HEAD
+ * current/behind/diverged vs origin/<base>"; `b7e-deliverbase` (`bc-dgx7.58`) already
+ * resolves the *actual* delivery base the way `bin/deliver.js` does — `baseFor` in
+ * `lib/prbase.js`, not a config value read naively. Neither combines "which ref do I
+ * actually deliver into" with "is my branch current against it" in one call, and neither
+ * separates a branch's own commits into **authored here** vs **cherry-picked in from
+ * another branch's stranded work** — the exact shape `dv-b5d.46`'s branch carried
+ * (`ef099508`, cherry-picked from `dv-b5d.26`'s stranded branch, alongside its own
+ * commits), which matters because a merge later resolves against the branch's own work,
+ * not against a patch it already got credit for landing once.
+ *
+ * **The base is resolved exactly the way a real delivery would resolve it.** With no
+ * `--base`, the workspace is inferred from where this is run — `mainCheckout` normalises
+ * a worktree back to the checkout `ownWorkspace` (`lib/deploy.js`) can actually match,
+ * the same two-step `bin/beadcause-changes` already takes — and `baseFor` (`lib/prbase.js`)
+ * resolves that workspace's real base. A `-w` override skips the inference; an unresolved
+ * workspace (no config, or more than one and none of them this checkout) falls back to
+ * the literal `main`, the same default `b7e-base` uses standalone. `--base` overrides
+ * both and is a literal ref, never asked of GitHub.
+ *
+ * **Always the fetched remote, never the stale local ref** — same argument, same reason,
+ * as `b7e-base` makes: a local branch can carry commits nobody has pushed, or miss ones
+ * somebody else has, and only fetching first tells the two apart.
+ *
+ * Reports one block: the branch, the resolved base and its sha, whether HEAD is
+ * **current**, **behind**, or **diverged** against it, with the commits that landed on
+ * the base since the fork and the file overlap between those and this branch's own
+ * commits — `b7e-base`'s report, against a base resolved `b7e-deliverbase`'s way. Then,
+ * for this branch's own commits, a **provenance** split: each is **authored-here** or
+ * **cherry-picked** — from a `(cherry picked from commit …)` trailer in its message
+ * (`git cherry-pick -x`), or failing that a patch-id match against another local
+ * branch's own commits (a cherry-pick made without `-x`, or a manual re-application).
+ * The file list reported for those commits is `git diff --name-only <base>...HEAD` —
+ * the identical three-dot invocation `bin/deliver.js` runs for its own diffstat, so this
+ * never has an opinion about what will land that could drift from what actually does.
+ *
+ * **`--reset`** fast-forwards once `behind` is confirmed safe: `ahead === 0` (nothing of
+ * this branch's own would be discarded) and a clean working tree (nothing uncommitted
+ * would be silently carried into the merge). It refuses otherwise — a dirty tree, or a
+ * genuine divergence a fast-forward cannot resolve — rather than guessing what the
+ * caller meant. `--no-provenance` skips the patch-id scan (the trailer check still
+ * runs), for a caller that wants the base comparison alone and does not want to pay for
+ * walking every other local branch's history.
+ *
+ * Exit codes: `0` current (or `--reset` landed one), `1` behind or diverged, `2` bad
+ * usage, not a git checkout, or a `--reset` that cannot be done safely.
+ *
+ * Read-only without `--reset` — but the flag exists and can fast-forward the checkout,
+ * so this is a *conditionally*-write tool, the same shape `bin/b7e-apply`,
+ * `bin/b7e-take` and `bin/b7e-swbump` are: deliberately excluded from the auto-run
+ * allowlist rather than declared read, because the allowlist cannot see which argv a
+ * caller is about to pass.
+ *
+ * @grant excluded
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { ownWorkspace } from '../lib/deploy.js';
+import { baseFor } from '../lib/prbase.js';
+import { git, gitCode, gitInput, mainCheckout, ok } from '../lib/gitref.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const name of names) {
+    const at = argv.indexOf(name);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-fresh [-w <workspace>] [--base <ref>] [--no-fetch] [--no-provenance] [--reset] [--json]
+
+Is this worktree's base current, and what will actually land — the base resolved the
+same way a real delivery resolves it (\`b7e-deliverbase\`), compared the same way
+\`b7e-base\` compares, with this branch's own commits split into authored-here vs
+cherry-picked-in.
+
+  -w, --workspace <name>   resolve the base for this workspace, skipping inference
+  --base <ref>             compare against a literal ref instead of resolving one
+  --no-fetch                skip the fetch — use whatever origin/<base> already is
+  --no-provenance           skip the patch-id scan of other branches (trailer check still runs)
+  --reset                   fast-forward once confirmed behind with a clean tree
+  --json                    one object on stdout instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const cwd = process.cwd();
+const noFetch = has('--no-fetch');
+const noProvenance = has('--no-provenance');
+const doReset = has('--reset');
+const jsonMode = has('--json');
+const explicitBase = value('--base');
+
+const die = (msg, code = 2) => {
+  console.error(`b7e-fresh: ${msg}`);
+  process.exit(code);
+};
+
+const branch = (await ok(git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])))?.trim();
+if (branch === undefined) die(`${cwd} is not a git checkout`);
+
+/**
+ * Which base to compare against — a literal `--base` first, then a resolved workspace's
+ * real delivery base, then the plain `main` every standalone `b7e-base` call defaults to.
+ *
+ * The workspace itself: named with `-w`, or inferred from where this was run.
+ * `mainCheckout` is what makes the inference work from inside a worktree at all — git's
+ * common dir resolves one back to the checkout `ownWorkspace` actually has on file,
+ * exactly the two-step `bin/beadcause-changes` already takes for the same reason.
+ */
+let base = 'main';
+if (!explicitBase) {
+  const cfg = loadConfig();
+  const wsName = value('-w', '--workspace');
+  let ws = null;
+  if (wsName) {
+    ws = (cfg.workspaces || []).find((w) => w.name === wsName) || null;
+    if (!ws) die(`no workspace named "${wsName}"\nconfigured workspaces: ${(cfg.workspaces || []).map((w) => w.name).join(', ') || 'none'}`);
+  } else {
+    const root = (await mainCheckout(cwd).catch(() => null)) || cwd;
+    const name = ownWorkspace(cfg, root);
+    if (name) ws = (cfg.workspaces || []).find((w) => w.name === name) || null;
+    else if ((cfg.workspaces || []).length === 1) ws = cfg.workspaces[0];
+  }
+  if (ws) base = await baseFor(cfg, ws.name, cwd);
+} else {
+  base = explicitBase;
+}
+
+let fetched = false;
+if (!noFetch) {
+  const { code } = await gitCode(cwd, ['fetch', 'origin', base, '--quiet']);
+  fetched = code === 0;
+  // Not fatal either way — offline, or no such branch on the remote yet — the
+  // comparison below just runs against whatever origin/<base> already was.
+}
+
+const hasOriginBase = (await ok(git(cwd, ['rev-parse', '--verify', '--quiet', `origin/${base}`]))) !== null;
+const hasLocalBase = (await ok(git(cwd, ['rev-parse', '--verify', '--quiet', base]))) !== null;
+const upstream = hasOriginBase ? `origin/${base}` : hasLocalBase ? base : null;
+if (!upstream) die(`no origin/${base} and no local ${base} — nothing to compare against`);
+
+const head = (await git(cwd, ['rev-parse', 'HEAD'])).trim();
+const upstreamSha = (await git(cwd, ['rev-parse', upstream])).trim();
+
+let mergeBase;
+try {
+  mergeBase = (await git(cwd, ['merge-base', head, upstreamSha])).trim();
+} catch {
+  die(`HEAD and ${upstream} share no common history — is this even the same repo?`);
+}
+
+const count = async (range) => Number((await git(cwd, ['rev-list', '--count', range])).trim());
+const ahead = await count(`${upstream}..HEAD`);
+const behind = await count(`HEAD..${upstream}`);
+const state = behind === 0 ? 'current' : ahead === 0 ? 'behind' : 'diverged';
+
+/** Commit subjects in a range, git's own order — never re-sorted. */
+const subjects = async (range) => {
+  const out = await ok(git(cwd, ['log', '--format=%h\t%s', range]));
+  if (!out) return [];
+  return out
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => {
+      const [sha, ...rest] = l.split('\t');
+      return { sha, subject: rest.join('\t') };
+    });
+};
+
+/** Files touched between two trees — the three-dot form `deliver.js` itself runs. */
+const filesTouched = async (from, to) => {
+  const out = await ok(git(cwd, ['diff', '--name-only', `${from}...${to}`]));
+  return out ? out.trim().split('\n').filter(Boolean) : [];
+};
+
+const SHOWN = 30;
+const landed = await subjects(`${head}..${upstreamSha}`);
+const landedOverflow = Math.max(0, landed.length - SHOWN);
+const landedShown = landed.slice(0, SHOWN);
+
+const landedFiles = await filesTouched(mergeBase, upstreamSha);
+// `deliver.js`'s own diffstat: `git diff --numstat <upstream>...HEAD` — this is that
+// same three-dot comparison, name-only, so "what this branch touches" here is provably
+// the same set a real delivery would push, not a second opinion that could drift.
+const branchFiles = ahead ? await filesTouched(upstream, head) : [];
+const branchFileSet = new Set(branchFiles);
+const overlap = landedFiles.filter((f) => branchFileSet.has(f)).sort();
+
+/* ---------------------------------------------------- provenance: authored vs cherry-picked */
+
+const CHERRY_TRAILER = /\(cherry picked from commit ([0-9a-f]{7,40})\)/;
+
+/**
+ * A commit's patch-id, `git patch-id --stable`'s own token — stable across trivial
+ * context/whitespace differences, which is the whole point: a cherry-pick without `-x`
+ * reproduces the same patch under a new sha, and only the patch itself, not the commit
+ * metadata, says so.
+ */
+async function patchIdOf(sha) {
+  const diff = await ok(git(cwd, ['log', '-p', '--no-walk', sha]));
+  if (!diff) return null;
+  const out = await gitInput(cwd, ['patch-id', '--stable'], diff).catch(() => null);
+  const first = String(out || '').trim().split('\n')[0];
+  return first ? first.split(/\s+/)[0] : null;
+}
+
+/**
+ * `{patchId -> {branch, sha}}` for every commit unique to some other local branch — the
+ * candidate set a cherry-pick without `-x` could have come from. Bounded to commits *not
+ * already in `upstream`*, since anything reachable from there is not "another branch's
+ * stranded work" — it is already the base's own history.
+ *
+ * Best-effort throughout: a branch whose history is too large for one `git log -p` to
+ * finish inside `lib/gitref.js`'s own timeout is skipped, not fatal — the trailer check
+ * above still covers the case this bead was actually filed over.
+ */
+async function otherBranchPatchIds() {
+  const map = new Map();
+  const refsOut = await ok(git(cwd, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']));
+  const branches = (refsOut || '')
+    .split('\n')
+    .filter(Boolean)
+    .filter((b) => b !== branch);
+  for (const b of branches) {
+    const shasOut = await ok(git(cwd, ['rev-list', `${upstream}..${b}`]));
+    const shas = (shasOut || '').split('\n').filter(Boolean);
+    if (!shas.length) continue;
+    const logOut = await ok(git(cwd, ['log', '-p', '--no-walk', ...shas]));
+    if (!logOut) continue;
+    const idsOut = await gitInput(cwd, ['patch-id', '--stable'], logOut).catch(() => null);
+    if (!idsOut) continue;
+    for (const line of String(idsOut).trim().split('\n')) {
+      const [id, sha] = line.trim().split(/\s+/);
+      if (id && sha && !map.has(id)) map.set(id, { branch: b, sha });
+    }
+  }
+  return map;
+}
+
+const ownCommits = ahead ? (await subjects(`${upstream}..HEAD`)).reverse() : []; // oldest-first: authorship order
+let otherPatchIds = null;
+const provenance = [];
+for (const c of ownCommits) {
+  const full = (await ok(git(cwd, ['log', '--format=%B', '-1', c.sha]))) || '';
+  const trailer = full.match(CHERRY_TRAILER);
+  if (trailer) {
+    provenance.push({ sha: c.sha, subject: c.subject, from: 'cherry-picked', source: trailer[1], via: 'trailer' });
+    continue;
+  }
+  if (noProvenance) {
+    provenance.push({ sha: c.sha, subject: c.subject, from: 'authored-here' });
+    continue;
+  }
+  if (otherPatchIds === null) otherPatchIds = await otherBranchPatchIds();
+  const id = await patchIdOf(c.sha);
+  const match = id ? otherPatchIds.get(id) : null;
+  if (match) {
+    provenance.push({ sha: c.sha, subject: c.subject, from: 'cherry-picked', source: match.sha, sourceBranch: match.branch, via: 'patch-id' });
+  } else {
+    provenance.push({ sha: c.sha, subject: c.subject, from: 'authored-here' });
+  }
+}
+
+/* --------------------------------------------------------------------------- --reset */
+
+let resetResult = null;
+if (doReset) {
+  if (state === 'current') {
+    resetResult = { done: false, reason: 'already current — nothing to fast-forward' };
+  } else if (state === 'diverged') {
+    resetResult = { done: false, reason: `diverged — ${ahead} commit${ahead === 1 ? '' : 's'} of this branch's own would be discarded by a fast-forward; merge or rebase by hand` };
+  } else {
+    const dirty = (await ok(git(cwd, ['status', '--porcelain']))) || '';
+    if (dirty.trim()) {
+      resetResult = { done: false, reason: 'working tree is not clean — refusing to fast-forward over uncommitted changes', dirty: dirty.trim().split('\n') };
+    } else {
+      const { code, stderr } = await gitCode(cwd, ['merge', '--ff-only', upstreamSha]);
+      resetResult = code === 0 ? { done: true } : { done: false, reason: stderr || 'git merge --ff-only failed' };
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------- reporting */
+
+const short = (sha) => (sha ? sha.slice(0, 8) : sha);
+const resetCmd = `git merge --ff-only ${upstream}`;
+
+if (jsonMode) {
+  console.log(
+    JSON.stringify({
+      branch,
+      base,
+      upstream,
+      fetched,
+      head,
+      upstreamSha,
+      mergeBase,
+      state,
+      ahead,
+      behind,
+      landed,
+      landedFiles,
+      branchFiles,
+      overlap,
+      provenance,
+      resetCommand: state === 'behind' ? resetCmd : null,
+      reset: resetResult,
+    })
+  );
+} else {
+  const fetchNote = noFetch ? '(--no-fetch)' : fetched ? '' : '(fetch failed — offline?)';
+  if (state === 'current') {
+    console.log(`[b7e-fresh] ${branch} is current with ${upstream} (${short(upstreamSha)}) ${fetchNote}`.trim());
+  } else {
+    const label = state === 'behind' ? `behind by ${behind} commit${behind === 1 ? '' : 's'}` : `diverged — ${ahead} ahead, ${behind} behind`;
+    console.log(`[b7e-fresh] ${branch} vs ${upstream}: ${label} (merge-base ${short(mergeBase)}) ${fetchNote}`.trim());
+    for (const c of landedShown) console.log(`  ${c.sha} ${c.subject}`);
+    if (landedOverflow) console.log(`  … and ${landedOverflow} more`);
+    if (landedFiles.length) {
+      console.log(
+        `[b7e-fresh] those commits touched ${landedFiles.length} file${landedFiles.length === 1 ? '' : 's'}` +
+          (branchFiles.length ? `; this branch touches ${overlap.length} of them:` : ', this branch touches none of them yet')
+      );
+      for (const f of overlap) console.log(`  ${f}`);
+    }
+    if (state === 'behind') console.log(`[b7e-fresh] reset: ${resetCmd}`);
+  }
+  if (provenance.length) {
+    console.log(`[b7e-fresh] this branch's own ${provenance.length} commit${provenance.length === 1 ? '' : 's'}:`);
+    for (const p of provenance) {
+      if (p.from === 'cherry-picked') {
+        const src = p.via === 'trailer' ? short(p.source) : `${short(p.source)} on ${p.sourceBranch}`;
+        console.log(`  ${p.sha} ${p.subject}  [cherry-picked from ${src}, by ${p.via}]`);
+      } else {
+        console.log(`  ${p.sha} ${p.subject}  [authored-here]`);
+      }
+    }
+    if (branchFiles.length) {
+      console.log(`[b7e-fresh] file list this branch would deliver (${branchFiles.length}):`);
+      for (const f of branchFiles) console.log(`  ${f}`);
+    }
+  }
+  if (resetResult) {
+    console.log(resetResult.done ? `[b7e-fresh] --reset: fast-forwarded to ${short(upstreamSha)}` : `[b7e-fresh] --reset: refused — ${resetResult.reason}`);
+    if (resetResult.dirty) for (const l of resetResult.dirty) console.log(`  ${l}`);
+  }
+}
+
+if (doReset) {
+  process.exit(resetResult?.done ? 0 : state === 'current' ? 0 : 2);
+} else {
+  process.exit(state === 'current' ? 0 : 1);
+}

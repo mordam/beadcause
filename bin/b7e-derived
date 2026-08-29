@@ -1,0 +1,167 @@
+#!/usr/bin/env node
+/**
+ * `b7e-derived` — given a diff, name what in the tree is generated from it, and whether
+ * that generated file is now stale.
+ *
+ *     b7e-derived -w deluvia                       # the diff since origin/main, plus anything uncommitted
+ *     b7e-derived -w deluvia compendium/species/alban-orves.md
+ *     b7e-derived -w deluvia --check               # run each generator's own --check mode
+ *     b7e-derived -w deluvia --rebuild              # run the generators whose sources changed
+ *     b7e-derived --dir <root>                      # another tree — this is how it is tested
+ *
+ * bc-dgx7.1's session audit (moved here from deluvia's own tracker as dv-afr.36, this
+ * repo being where a beadcause command belongs) named five sessions
+ * (`dv-afr.18`, `dv-5eu.18`, `dv-5eu.17`, `dv-afr.17`, `dv-5eu.19`) that each asked "what
+ * else in this tree is derived from what I just touched?" after an edit and answered it
+ * with a different ad-hoc `grep`, or — `dv-5eu.19` — not until a gate went red over a word
+ * count six `Edit`s later. `lib/derived.js` is the mapping and the running; this is the
+ * argv parsing and the printing around it, the same split `bin/b7e-affected` and
+ * `lib/affected.js` already use for the sibling question ("what tests this file" rather
+ * than "what does this file feed").
+ *
+ * **The map is per-checkout, not per this repo.** A checkout declares its own generators
+ * in `.beadcause/derived.json` — the same convention `lib/repoviews.js` uses for
+ * `views.json`, and for the same reason: a generator's path and the sources that feed it
+ * are a fact about that checkout at that revision, and belong in the commit that changes
+ * them, not in a table here that would need a pull request to this repo every time
+ * deluvia renames a script.
+ *
+ * Exit codes: `0` every changed file was placed and (under `--check`) nothing is stale.
+ * `1` a changed file fed nothing, or (under `--check`) a generator reported stale. `2`
+ * refused — bad usage, no workspace resolves, or the manifest could not be read.
+ *
+ * @grant excluded
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { defaultChangedFiles, toRepoRel } from '../lib/affected.js';
+import { loadManifest, findDerived, runCheck, runRebuild } from '../lib/derived.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback) => {
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-derived -w <workspace> [<path>...]   the diff since origin/main, plus anything uncommitted, or these paths',
+      'b7e-derived -w <workspace> --check       run each generator\'s own --check mode and report staleness',
+      'b7e-derived -w <workspace> --rebuild     run the generators whose sources actually changed',
+      'b7e-derived --dir <root> [<path>...]     another tree — this is how it is tested',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const WS_NAME = value('-w', value('--workspace', null));
+const DIR_GIVEN = value('--dir', null);
+const CHECK = has('--check');
+const REBUILD = has('--rebuild');
+
+if (!WS_NAME && !DIR_GIVEN) {
+  console.error('b7e-derived: -w <workspace> or --dir <root> is required');
+  process.exit(2);
+}
+if (CHECK && REBUILD) {
+  console.error('b7e-derived: --check and --rebuild are mutually exclusive');
+  process.exit(2);
+}
+
+const FLAG_VALUES = new Set(['-w', '--workspace', '--dir']);
+const paths = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--check' || a === '--rebuild') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('--')) {
+    console.error(`b7e-derived: unrecognised flag: ${a}`);
+    process.exit(2);
+  }
+  paths.push(a);
+}
+
+let ROOT;
+if (DIR_GIVEN) {
+  ROOT = path.resolve(DIR_GIVEN);
+} else {
+  const cfg = loadConfig();
+  const ws = cfg.workspaces.find((w) => w.name === WS_NAME);
+  if (!ws) {
+    console.error(`b7e-derived: no workspace named "${WS_NAME}"`);
+    console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+    process.exit(2);
+  }
+  try {
+    ROOT = path.resolve(resolveSessionDir(cfg, ws));
+  } catch (err) {
+    console.error(`b7e-derived: ${err.message}`);
+    process.exit(2);
+  }
+}
+
+const { generators: allGenerators, problems } = loadManifest(ROOT);
+for (const p of problems) console.error(`b7e-derived: ${p}`);
+if (!allGenerators.length) {
+  console.error(`b7e-derived: no generators declared in ${ROOT}/.beadcause/derived.json — nothing to report`);
+  process.exit(problems.length ? 2 : 0);
+}
+
+// With `--dir`, a bare path on argv is relative to *that* tree — the whole point of
+// `--dir` is testing against a tree this process is not sitting in. Without it, ordinary
+// CLI use: relative to the real cwd. Same rule `bin/b7e-affected` uses.
+const CWD_BASE = DIR_GIVEN ? ROOT : process.cwd();
+const changedFiles = paths.length ? paths.map((p) => toRepoRel(ROOT, CWD_BASE, p)) : defaultChangedFiles(ROOT);
+if (!changedFiles.length) {
+  console.error('b7e-derived: no changed files — nothing to report');
+  process.exit(0);
+}
+
+const { results, unmatched, generators } = findDerived(changedFiles, allGenerators);
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+
+let exitCode = unmatched.length ? 1 : 0;
+
+if (CHECK || REBUILD) {
+  for (const g of generators) {
+    const feeders = results.filter((r) => r.generators.includes(g)).map((r) => r.file);
+    if (CHECK) {
+      const { status, detail } = runCheck(ROOT, g);
+      if (status === 'stale') exitCode = 1;
+      const label = status === 'clean' ? 'clean' : status === 'stale' ? red('stale') : dim('no --check declared');
+      for (const artifact of g.artifacts) {
+        console.log(`${artifact}\t${g.id}\t${feeders.join(', ')}\t${label}${detail ? ` — ${detail}` : ''}`);
+      }
+    } else {
+      const { status, detail } = runRebuild(ROOT, g);
+      if (status === 'failed') exitCode = 1;
+      const label = status === 'ran' ? 'ran' : status === 'failed' ? red('failed') : dim('no run command declared');
+      for (const artifact of g.artifacts) {
+        console.log(`${artifact}\t${g.id}\t${feeders.join(', ')}\t${label}${detail ? ` — ${detail}` : ''}`);
+      }
+    }
+  }
+} else {
+  for (const { file, generators: matched } of results) {
+    for (const g of matched) {
+      for (const artifact of g.artifacts) {
+        console.log(`${artifact}\t${g.run ? g.run.join(' ') : g.id}\t${file}`);
+      }
+    }
+  }
+}
+
+if (unmatched.length) {
+  console.error(dim('changed files that feed no known generator:'));
+  for (const file of unmatched) console.error(dim(`  ${file}`));
+}
+
+process.exit(exitCode);
