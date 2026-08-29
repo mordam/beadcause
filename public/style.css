@@ -3899,7 +3899,25 @@ button.work-row {
 .sheet.full { height: 100dvh; border-radius: 0; }
 .sheet-grip { width: 38px; height: 4px; border-radius: 999px; background: var(--line); margin: 8px auto 4px; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 14px 8px; border-bottom: 1px solid var(--line); }
-.sheet-actions { display: flex; gap: 4px; }
+.sheet-actions { display: flex; align-items: center; gap: 4px; }
+/* The ⋮ is the inbox card's, popover and all (`.kebab`, `.menu`), but on the card it
+   stands alone and here it is one of three head controls — so it takes the head's own
+   dimensions rather than its native 48px circle. A round button 8px taller than the two
+   beside it reads as belonging to something else, which is the opposite of the point:
+   this is the same gesture on the app's other bead surface. */
+.sheet-head .kebab { width: 40px; min-height: 40px; height: 40px; border-radius: 10px; color: var(--text); }
+/* Why an item is greyed out, under it — see `sheetMenuHtml`. Inside the popover rather
+   than as a toast, because it is the answer to the tap you just made on that item.
+
+   The width is the load-bearing part, and `.menu`'s own `max-width: min(78vw, 340px)`
+   does not do it: the popover is anchored to the ⋮'s right edge, which on the sheet head
+   is 88px in from the right margin, so what it may be is the distance from there to the
+   left of the screen — 258px at 360 — and not 78% of anything. `min-width: max-content`
+   also outranks that max-width, so a paragraph wide enough to want more takes it. 200px
+   plus the popover's own padding lands at ~222 and clears the edge with room; measured
+   at 360 and 393 with `b7e-eyeball`, where 260 put the menu 9px off the left of the
+   screen. */
+.menu-why { margin: 4px 6px 2px; max-width: 200px; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
 .sheet-body { flex: 1; overflow-y: auto; padding: 14px 16px calc(env(safe-area-inset-bottom) + 28px); }
 .sheet-title { margin: 0 0 10px; font-size: 18px; line-height: 1.3; }
 .sheet-body .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
@@ -6545,6 +6563,17 @@ button.viewpill { cursor: pointer; }
 .eq-lab textarea { resize: vertical; }
 .eq-two { display: flex; gap: 10px; }
 .eq-two .eq-lab { flex: 1; min-width: 0; }
+/* The same card a second time, in the graph's detail sheet (`sheetEditHtml`), where it
+   replaces the bead it edits rather than sitting under a queue row. Nothing above needed
+   changing for it — the two are the same six fields — and this is what it adds: a place
+   for a refusal the sheet cannot predict. A 409 on a bead somebody closed while you were
+   typing is the case, and it must not be a toast that takes the card with it. */
+.edit-err {
+  margin: 0; padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line)); border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere;
+}
 
 /* Talking about a bead instead of deciding on it. No rule of its own: `.section-label`
    already draws one above every heading in here, and a second one under the bead's own

@@ -1,0 +1,196 @@
+#!/usr/bin/env node
+/**
+ * Apply the registrations a new bin/ command owes, instead of typing them by hand and
+ * then linting them.
+ *
+ *   b7e-register b7e-x --kind read --why "<one sentence>"      register it, granted
+ *   b7e-register b7e-x --kind excluded --why "<one sentence>"  register the decision not to
+ *   b7e-register b7e-x --kind read --why "…" --dry-run         print the patch, write nothing
+ *   b7e-register b7e-x --kind read --why "…" --after b7e-w     place it below a named sibling
+ *
+ * bc-dgx7.75 is the audit, and it is the other half of bc-khoe.27.11's. Five sessions
+ * (bc-dgx7.57, bc-dgx7.58, bc-dgx7.59, bc-dgx7.60, bc-dgx7.61) each shipped a b7e-*
+ * command and each ran `b7e-enroll <name>` afterwards to check its registrations — and
+ * all five typed those registrations by hand first, four different ways. package.json's
+ * bin map: each grepped two alphabetical neighbours to find the insertion point.
+ * package-lock.json's packages[""].bin: bc-dgx7.59 hand-edited it and was told the file
+ * was already claimed by another worktree; bc-dgx7.60 and bc-dgx7.61 instead ran `npm
+ * install --package-lock-only` and diffed to confirm the one-line result — the same
+ * registry, two incompatible methods, in the same hour.
+ *
+ * The linter for these checks already existed and is good. What did not exist was the
+ * applier, so the registry knowledge lived twice — once in b7e-enroll's checks and once
+ * in each session's fingers. Both halves now read lib/enroll.js, which is the point:
+ * what the checks match is what the edits produce.
+ *
+ * HALF OF WHAT THIS BEAD ASKED FOR WAS DELIVERED BY DELETING THE WORK. bc-dgx7.75 named
+ * four registries; bc-wbrhi landed the day after it was filed and removed two of them.
+ * A b7e-* tool now declares `@grant read|write|excluded` in its own header,
+ * lib/tooldecl.js assembles DEFAULT_TOOL_LIST and the lib/grants.js classification from
+ * those declarations, and test/tooldecl.mjs FAILS a hand-written b7e-* line in
+ * lib/grants.js — so writing the two registries this command was specified to write
+ * would now break the repo. That is the better fix and it leaves this command smaller.
+ * What it writes today:
+ *
+ *   package.json `bin`                 the alphabetical insertion, in the name's family
+ *   package-lock.json packages[""].bin the same line, where npm would have put it
+ *   bin/<name>'s own header            the @grant line — check 6, and the one edit that
+ *                                      decides both derived registries at once
+ *   lib/tooldecl.js                    the paragraph arguing for that grant, appended
+ *                                      where the other sixty-three live
+ *
+ * and deliberately not bin/<name> itself (that is b7e-scaffold's job), the test, or the
+ * README section — a generated proof or explanation would be a registration pretending
+ * to be work. A run ends by printing what b7e-enroll still says is owed, which after a
+ * successful register is exactly those two.
+ *
+ * --kind is not a default and cannot be guessed. It is `@grant`'s own vocabulary: a
+ * command that writes to the checkout, spawns a suite, builds a worktree or runs
+ * whatever its caller names is `excluded`; one that only reads is `read`. That is a real
+ * decision about a real capability — memory note
+ * b7e-command-write-shaped-check-grants-before-default-tool-list — and the one thing
+ * here a tool must not make on a session's behalf. This command is itself write-shaped
+ * and registered itself `--kind excluded`.
+ *
+ * Exit code: 0 when the registries agree with what bin/ serves, 1 when something the
+ * applier cannot write is still owed, 2 on a bad invocation.
+ *
+ * It edits four tracked files in whatever checkout it runs in — the two bin maps, a tool's own
+ * header and this file — with no branch of its own and no path to commit or review the result,
+ * which is the argument the apply-command and the sw-cache-bump command above are excluded
+ * under. Its whole occasion is a worker session that has just written a new command and is
+ * about to deliver it; dispatch, the one agent that list governs, answers one comment and exits
+ * and has no bin/ file of its own to register.
+ *
+ * @grant excluded
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import {
+  applyEdits,
+  derivedGrants,
+  deriveName,
+  loadContext,
+  problemsFor,
+  registerEdits,
+  repoRoot,
+  unifiedDiff,
+} from '../lib/enroll.js';
+import { KINDS } from '../lib/tooldecl.js';
+
+const USAGE = [
+  `b7e-register <name> --kind ${KINDS.join('|')} --why "<one sentence>"`,
+  '',
+  '  --kind read       it goes on DEFAULT_TOOL_LIST and lib/grants.js classifies it a read',
+  '  --kind write      the same, classified a write',
+  '  --kind excluded   record in its header and in lib/tooldecl.js why dispatch does not get it',
+  '  --why "…"         the reason; required, it is what the registration says',
+  '  --after <sibling> place the bin-map entry below this key instead of alphabetically',
+  '  --dir <path>      a checkout other than the one cwd is in',
+  '  --dry-run, -n     print the patch and write nothing',
+].join('\n');
+
+function parseArgs(argv) {
+  const opts = { name: null, kind: null, why: null, after: null, dir: null, dryRun: false, help: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    const next = () => {
+      const v = argv[i + 1];
+      if (v === undefined) throw new Error(`${a} needs a value`);
+      i += 1;
+      return v;
+    };
+    if (a === '--kind') opts.kind = next();
+    else if (a === '--why') opts.why = next();
+    else if (a === '--after') opts.after = next();
+    else if (a === '--dir') opts.dir = next();
+    else if (a === '--dry-run' || a === '-n') opts.dryRun = true;
+    else if (a === '--help' || a === '-h') opts.help = true;
+    else if (a.startsWith('-')) throw new Error(`unknown flag ${a}`);
+    else if (opts.name === null) opts.name = deriveName(a);
+    else throw new Error(`unexpected argument ${a} — one command at a time`);
+  }
+  return opts;
+}
+
+function main() {
+  let opts;
+  try {
+    opts = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error(`${err.message}\n\n${USAGE}`);
+    process.exit(2);
+  }
+  if (opts.help || !opts.name) {
+    console.log(USAGE);
+    process.exit(opts.help ? 0 : 2);
+  }
+  if (!KINDS.includes(opts.kind)) {
+    console.error(
+      `--kind ${KINDS.join('|')} is required and has no default: whether dispatch may run ${opts.name} is a ` +
+        'decision about a real capability, not a registration to fill in. A command that writes to the ' +
+        'checkout, runs a suite, builds a worktree or runs whatever its caller names is excluded; one ' +
+        'that only reads is read. lib/tooldecl.js carries sixty-three worked precedents.'
+    );
+    process.exit(2);
+  }
+  if (!opts.why) {
+    console.error(
+      '--why is required: it is what both halves of the registration actually say — the sentence beside ' +
+        "the @grant line in the command's own header, and the paragraph in lib/tooldecl.js. Every one of " +
+        'the other tools has one.'
+    );
+    process.exit(2);
+  }
+
+  const root = opts.dir ? path.resolve(opts.dir) : repoRoot();
+  const binFile = path.join(root, 'bin', opts.name);
+  const target = fs.existsSync(binFile) ? null : fs.existsSync(`${binFile}.js`) ? `bin/${opts.name}.js` : undefined;
+  if (target === undefined) {
+    console.error(
+      `bin/${opts.name}: nothing there to register. Write the command first — b7e-register wires up an ` +
+        'existing file, it does not create one.'
+    );
+    process.exit(2);
+  }
+
+  let edits;
+  try {
+    edits = registerEdits(root, opts.name, { kind: opts.kind, why: opts.why, after: opts.after, target });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+
+  if (opts.dryRun) {
+    const patch = edits.map((e) => unifiedDiff(e.rel, e.before, e.after)).join('');
+    process.stdout.write(patch);
+    if (!patch) console.log(`${opts.name}: already registered everywhere a tool can write — nothing to apply`);
+  } else if (!edits.length) {
+    console.log(`${opts.name}: already registered everywhere a tool can write — nothing to apply`);
+  } else {
+    applyEdits(root, edits);
+    for (const e of edits) console.log(`registered ${opts.name} in ${e.rel}`);
+  }
+
+  // The same seven checks the linter runs, against the tree as it now stands — so one call
+  // both applies what it can and says what it could not, rather than sending the session
+  // off to run b7e-enroll to find out.
+  // Re-derived rather than imported: lib/grants.js's b7e half is built at import time
+  // from the bin/ beside lib/tooldecl.js, so the map this process loaded predates the
+  // @grant line just written and would report the tool it has only now granted as
+  // unclassified. See derivedGrants in lib/enroll.js.
+  const owed = problemsFor(opts.name, loadContext(root, derivedGrants(root)));
+  if (!owed.length) {
+    console.log(`${opts.name}: nothing owed — every registry agrees with what bin/ serves`);
+    process.exit(0);
+  }
+  console.log(`\n${opts.name}: still owed${opts.dryRun ? ' (nothing was written)' : ''} —`);
+  for (const p of owed) console.log(`  ${p}`);
+  process.exit(1);
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) main();
