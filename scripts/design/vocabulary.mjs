@@ -17,9 +17,21 @@
 // `test/metricscale.mjs` fails the build on a value that is neither. The four-apart
 // spacing of the radius steps is chosen against the `near` threshold below — a scale whose
 // own steps are 2px apart would be reported here as a smear, which would be a fair
-// complaint. **Type sizes are deliberately still unenforced**: 22 of them and the worst of
-// the three, but a type scale moves layout on a 360px phone, so that one is a design
-// decision rather than a normalization and this script is still the whole of what says so.
+// complaint. Type followed at bc-ka5y.22 — **9/11/13/16/19/24, ties rounded down** —
+// and the 2px-minimum gap is chosen against the same threshold, which for type is 1px.
+//
+// **Do not expect this script to report only those six**, and it is not a bug when it does
+// not. It reports eight, and the two extras have no declaration a scale could hold: `code`
+// at 0.94em tracks whatever it sits in (12px inside 13px prose), and the browser's own
+// 13.3333px for `small` and a bare `input` is a UA default with nothing behind it. Both are
+// in `SIZE_FREE` in test/metricscale.mjs for the same reason.
+//
+// A third source used to inflate this and is worth knowing about, because it is the kind of
+// thing that reads as a real finding: until bc-ka5y.28 the `ds-` filter in `baseline.mjs`
+// skipped card furniture by the element's own class, so the unclassed `<b>`/`<code>`/`<i>`
+// inside the frame's 13px `.ds-note` were counted here as app type. Measured at bc-ka5y.22:
+// a snap onto a scale containing no 13 at all still left 190 elements rendering at 13px,
+// every one of them the card describing itself.
 //
 // Run: node scripts/design/vocabulary.mjs [--full]
 import { readFileSync, existsSync } from 'node:fs';

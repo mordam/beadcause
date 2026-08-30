@@ -74,16 +74,17 @@ const CORE = [
       {
         path: 'foundations/type.html',
         name: 'Type',
-        subtitle: 'System stack, four working sizes',
-        viewport: { width: 620, height: 520 },
-        note: `One family — the platform's own UI face — at 16px/1.5. There is no type scale as such; sizes are chosen per role, and these four carry almost the whole app. <b>That is the honest description and it is also the open problem</b>: <code>scripts/design/vocabulary.mjs</code> counts <b>22 distinct sizes</b> in a continuous smear from 9.5px to 19px, seven of which are used 40–52 times each and none of which is distinguishable from its neighbour. Radius and weight were snapped onto scales in bc-03pz because neither can move a layout; type can, so which scale to snap to is still a decision rather than a normalization.`,
+        subtitle: 'System stack, six steps',
+        viewport: { width: 620, height: 600 },
+        note: `One family — the platform's own UI face — at 16px/1.5, on a six-step scale: <b>9 / 11 / 13 / 16 / 19 / 24</b>. It was the last of the three metric axes to get one, and the only one that had to be <i>asked</i> about: radius and weight were snapped unattended at bc-03pz because neither can move a box, where a font-size moves layout on a 360px phone. Before bc-ka5y.22 this said "there is no type scale as such" and <code>scripts/design/vocabulary.mjs</code> counted <b>22 distinct sizes</b> in a continuous smear from 9.5px to 19px — seven of them used 40–52 times each and none distinguishable from its neighbour. The scale keeps 11, 13, 16 and 24 exactly where they already were, so nothing moved more than 2px; <b>the three equidistant sizes round down</b>, which measured as six boxes taller where rounding up gave twenty-nine. <code>test/metricscale.mjs</code> fails the build on a seventh value.`,
         extraCss: SWATCH_CSS,
         markup: `<div class="ds-scale">
-  <div><small>17px / 650 · page title</small><div style="font-size:17px;font-weight:650;letter-spacing:-.01em">Advocates</div></div>
-  <div><small>16px / 1.5 · body, the default</small><div>Should the merge queue close the worker's bead, or leave it open for review?</div></div>
-  <div><small>15px / 1.55 · --prose · long form</small><div style="font-size:15px;line-height:1.55;color:var(--prose)">Long-form prose sits a step below headings — it reads calmer at length, which matters on a brief that runs several screens before you reach the answer box.</div></div>
-  <div><small>13px · --muted · metadata</small><div style="font-size:13px;color:var(--muted)">beadcause · bc-z665 · 4m ago</div></div>
+  <div><small>24px · sign-in title, the one display size</small><div style="font-size:24px">Beadcause</div></div>
+  <div><small>19px / 650 · the question on a card, a sheet title</small><div style="font-size:19px;font-weight:650;letter-spacing:-.012em;line-height:1.4">Should the merge queue close the worker's bead?</div></div>
+  <div><small>16px / 1.5 · body, the default</small><div>Long-form prose sits here too — it reads calmer at length, which matters on a brief that runs several screens before you reach the answer box.</div></div>
+  <div><small>13px · --muted · metadata, and the second line of a row</small><div style="font-size:13px;color:var(--muted)">beadcause · bc-z665 · 4m ago</div></div>
   <div><small>11px / .08em uppercase · section label</small><div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">Start one in</div></div>
+  <div><small>9px · a caret, a pill on a dense row, the monitor log</small><div style="font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">P0 · blocked · 3 open</div></div>
 </div>`,
       },
       {

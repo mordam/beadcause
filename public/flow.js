@@ -56,11 +56,11 @@
   const SHEET = `
   .fc {
     max-width: 1280px; margin: 0 auto; padding: 12px 12px 80px;
-    font-size: 12.5px; line-height: 1.5;
+    font-size: 13px; line-height: 1.5;
   }
   .fc-head { max-width: 68ch; }
-  .fc h1 { font-size: 17px; line-height: 1.25; margin: 0 0 3px; letter-spacing: -0.015em; }
-  .fc .sub { color: var(--muted); margin: 0 0 11px; font-size: 12px; line-height: 1.45; }
+  .fc h1 { font-size: 16px; line-height: 1.25; margin: 0 0 3px; letter-spacing: -0.015em; }
+  .fc .sub { color: var(--muted); margin: 0 0 11px; font-size: 11px; line-height: 1.45; }
 
   /* The proportions bar: the one number this drawing is for. */
   .fc-bar { display: flex; height: 7px; border-radius: 999px; overflow: hidden; border: 1px solid var(--line); }
@@ -73,7 +73,7 @@
      rather than as something to open. */
   .fc-legend:not([open]) { max-width: max-content; }
   .fc-legend > summary {
-    cursor: pointer; list-style: none; padding: 6px 10px; font-size: 11.5px; color: var(--muted);
+    cursor: pointer; list-style: none; padding: 6px 10px; font-size: 11px; color: var(--muted);
     display: flex; justify-content: space-between; gap: 8px; align-items: center; min-height: 30px;
   }
   .fc-legend > summary::-webkit-details-marker { display: none; }
@@ -82,27 +82,27 @@
   .fc-legend-body { display: grid; gap: 6px; padding: 0 11px 10px; }
   .fc-legend-body > div { display: grid; grid-template-columns: 66px 1fr; gap: 9px; align-items: baseline; }
   .fc-legend .swatch {
-    text-align: center; font-size: 9.5px; font-weight: 700; padding: 2px 5px;
+    text-align: center; font-size: 9px; font-weight: 700; padding: 2px 5px;
     border-radius: 6px; border: 1.5px solid; white-space: nowrap;
     text-transform: uppercase; letter-spacing: 0.05em;
   }
-  .fc-legend p { margin: 0; font-size: 11.5px; color: var(--prose); line-height: 1.45; max-width: 74ch; }
+  .fc-legend p { margin: 0; font-size: 11px; color: var(--prose); line-height: 1.45; max-width: 74ch; }
   .fc-legend p b { color: var(--text); }
 
   .fc-nav { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 12px; }
   .fc-nav button {
-    font: inherit; font-size: 11.5px; padding: 5px 9px; border-radius: 999px;
+    font: inherit; font-size: 11px; padding: 5px 9px; border-radius: 999px;
     border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer;
     min-height: 30px; white-space: nowrap;
   }
   .fc-nav button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
 
-  .fc-flow > h2 { font-size: 14px; line-height: 1.3; margin: 0 0 5px; max-width: 46ch; }
+  .fc-flow > h2 { font-size: 13px; line-height: 1.3; margin: 0 0 5px; max-width: 46ch; }
   .fc-trigger {
     display: inline-block; font-size: 11px; color: var(--muted); line-height: 1.4;
     border: 1px dashed var(--line); border-radius: 6px; padding: 3px 7px; margin: 0 0 8px;
   }
-  .fc-summary { color: var(--prose); font-size: 12px; line-height: 1.55; margin: 0 0 11px; max-width: 84ch; }
+  .fc-summary { color: var(--prose); font-size: 11px; line-height: 1.55; margin: 0 0 11px; max-width: 84ch; }
   .fc-summary p { margin: 0 0 6px; }
   .fc-summary p:last-child { margin: 0; }
 
@@ -125,7 +125,7 @@
     border-radius: 10px; padding: 10px;
   }
   .fc-diagram svg { max-width: none; min-width: 560px; height: auto; display: block; margin: 0 auto; }
-  .fc-diagram pre { margin: 0; font-size: 10px; color: var(--muted); white-space: pre; }
+  .fc-diagram pre { margin: 0; font-size: 9px; color: var(--muted); white-space: pre; }
   .fc-diagram .node { cursor: pointer; }
   .fc-diagram .node rect,
   .fc-diagram .node polygon,
@@ -157,8 +157,8 @@
   @media (prefers-reduced-motion: reduce) {
     .fc-diagram .node.sel { animation: none; }
   }
-  .fc-diagram .nodeLabel { font-size: 11.5px; }
-  .fc-diagram .edgeLabel { font-size: 10px; }
+  .fc-diagram .nodeLabel { font-size: 11px; }
+  .fc-diagram .edgeLabel { font-size: 9px; }
 
   /* The one card. Everything a step is, in the place you were already looking. */
   .fc-detail {
@@ -167,20 +167,20 @@
   }
   .fc-detail-top { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin: 0 0 6px; }
   .fc-kind {
-    font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
     padding: 2px 6px; border-radius: 999px; border: 1px solid;
   }
-  .fc-gate { font-size: 9.5px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 2px 6px; letter-spacing: 0.04em; }
-  .fc-step-n { margin-left: auto; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .fc-detail h3 { margin: 0 0 5px; font-size: 12.5px; line-height: 1.3; letter-spacing: -0.005em; max-width: 38ch; }
-  .fc-detail .body { margin: 0 0 8px; font-size: 11.5px; line-height: 1.55; color: var(--prose); max-width: 68ch; }
+  .fc-gate { font-size: 9px; color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; padding: 2px 6px; letter-spacing: 0.04em; }
+  .fc-step-n { margin-left: auto; font-size: 9px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .fc-detail h3 { margin: 0 0 5px; font-size: 13px; line-height: 1.3; letter-spacing: -0.005em; max-width: 38ch; }
+  .fc-detail .body { margin: 0 0 8px; font-size: 11px; line-height: 1.55; color: var(--prose); max-width: 68ch; }
   .fc-detail .body p { margin: 0 0 6px; }
   .fc-detail .body p:last-child { margin: 0; }
   .fc-detail .body strong { color: var(--text); font-weight: 600; }
   .fc-where { border-top: 1px solid var(--line); padding-top: 7px; }
-  .fc-where h4 { margin: 0 0 4px; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
+  .fc-where h4 { margin: 0 0 4px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
   .fc-src { display: flex; flex-wrap: wrap; gap: 3px; }
-  .fc-src code { font-size: 10px; color: var(--prose); background: var(--surface-2); border-radius: 6px; padding: 2px 5px; }
+  .fc-src code { font-size: 9px; color: var(--prose); background: var(--surface-2); border-radius: 6px; padding: 2px 5px; }
   .fc-agentlink {
     display: inline-block; margin-top: 6px; font-size: 11px; color: var(--accent);
     text-decoration: none; border-bottom: 1px solid currentColor;
@@ -188,23 +188,23 @@
 
   .fc-steps { display: flex; gap: 4px; align-items: center; margin: 7px 0 0; padding-top: 7px; border-top: 1px solid var(--line); }
   .fc-steps button {
-    font: inherit; font-size: 10.5px; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+    font: inherit; font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer;
     border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); min-height: 28px;
   }
-  .fc-steps .fc-pos { margin: 0 auto; font-size: 10px; color: var(--muted); }
+  .fc-steps .fc-pos { margin: 0 auto; font-size: 9px; color: var(--muted); }
 
   /* The index. Small on purpose: it is how you reach a step you cannot find in the
      drawing, not a second copy of the drawing. */
   .fc-index { margin: 12px 0 0; }
-  .fc-index h4 { margin: 0 0 5px; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
+  .fc-index h4 { margin: 0 0 5px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
   .fc-chips { display: flex; flex-wrap: wrap; gap: 4px; }
   .fc-chip {
-    font: inherit; font-size: 10.5px; text-align: left; cursor: pointer; min-height: 24px;
+    font: inherit; font-size: 11px; text-align: left; cursor: pointer; min-height: 24px;
     padding: 3px 7px 3px 6px; border-radius: 6px; border: 1px solid var(--line);
     border-left-width: 3px; background: var(--surface); color: var(--prose);
     display: inline-flex; gap: 5px; align-items: center; max-width: 100%;
   }
-  .fc-chip .n { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 9.5px; }
+  .fc-chip .n { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 9px; }
   .fc-chip .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 24ch; }
   .fc-chip[aria-pressed="true"] { background: var(--surface-2); color: var(--text); border-color: var(--accent); font-weight: 600; }
 
@@ -213,9 +213,9 @@
   .fc-agents { display: grid; gap: 10px; }
   @media (min-width: 900px) { .fc-agents { grid-template-columns: 1fr 1fr; align-items: start; } }
   .fc-agent { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 11px 13px; }
-  .fc-agent h3 { margin: 0 0 2px; font-size: 12.5px; line-height: 1.3; }
-  .fc-agent .id { color: var(--muted); font-weight: 400; font-size: 10.5px; }
-  .fc-agent .purpose { color: var(--prose); font-size: 11.5px; margin: 0 0 8px; line-height: 1.45; max-width: 66ch; }
+  .fc-agent h3 { margin: 0 0 2px; font-size: 13px; line-height: 1.3; }
+  .fc-agent .id { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .fc-agent .purpose { color: var(--prose); font-size: 11px; margin: 0 0 8px; line-height: 1.45; max-width: 66ch; }
   .fc-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 5px; margin: 0 0 8px; }
   .fc-fact { background: var(--surface-2); border-radius: 6px; padding: 5px 7px; }
   .fc-fact dt { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 1px; }
@@ -225,11 +225,11 @@
   .fc-agent details { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 6px; }
   .fc-agent summary { cursor: pointer; font-size: 11px; color: var(--muted); min-height: 26px; display: flex; align-items: center; }
   .fc-agent pre {
-    white-space: pre-wrap; word-break: break-word; font-size: 10.5px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.5;
     background: var(--surface-2); border-radius: 6px; padding: 9px; margin: 6px 0 0; color: var(--prose);
   }
   .fc-tools { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0 0; }
-  .fc-tools code { font-size: 9.5px; background: var(--surface-2); border-radius: 6px; padding: 2px 5px; color: var(--prose); }
+  .fc-tools code { font-size: 9px; background: var(--surface-2); border-radius: 6px; padding: 2px 5px; color: var(--prose); }
   .fc-note { font-size: 11px; color: var(--muted); line-height: 1.45; max-width: 80ch; }
   .fc-amended { color: var(--warn); margin: 0 0 8px; }
   `;

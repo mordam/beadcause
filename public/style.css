@@ -222,7 +222,7 @@ body {
 
 .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .brand h1 {
-  font-size: 17px; font-weight: 650; margin: 0; letter-spacing: -0.01em;
+  font-size: 16px; font-weight: 650; margin: 0; letter-spacing: -0.01em;
   /* Truncated rather than wrapped, since bc-exqi put the account chip at the other end of
      this row. A page whose title is a *session's* — a bead's whole summary line, on
      /session and /beadsession — has a brand wide enough to push the chip onto a second
@@ -406,7 +406,7 @@ body {
   border-radius: 10px;
   background: var(--surface);
   color: var(--text);
-  font-size: 18px;
+  font-size: 19px;
   cursor: pointer;
 }
 
@@ -494,7 +494,7 @@ body {
 .filter-summary .sel,
 .filter-note .sel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .filter-summary .sel[hidden] { display: none; }
-.filter-summary .caret { flex: 0 0 auto; font-size: 10px; }
+.filter-summary .caret { flex: 0 0 auto; font-size: 9px; }
 .filter-one.open .filter-summary { border-color: var(--accent); color: var(--text); }
 /* Narrowed is a state you have to be able to see without opening anything — the whole
    risk of a filter behind a control is forgetting it is set. Per pill since bc-khoe.26,
@@ -642,7 +642,7 @@ body {
   width: 22px; height: 22px;
   padding: 0; border: 0; border-radius: 6px;
   background: transparent; color: var(--muted);
-  font: inherit; font-size: 15px; line-height: 1;
+  font: inherit; font-size: 16px; line-height: 1;
   cursor: pointer;
 }
 .pill-x:hover, .pill-x:focus-visible { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--danger); }
@@ -860,7 +860,7 @@ body {
      *is* the bar's height now that they share a row — 40px against 33px is 7px of chrome
      on every screen, arrived at by a property nobody wrote down. */
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.2;
   white-space: nowrap;
   /* A belt to `shorten`'s braces: the character rule is what keeps the bar one row, and
@@ -1006,7 +1006,7 @@ body {
 }
 /* No mark to badge — the gear is the control, at the size the mark would have been. */
 .markmenu-bare {
-  font-size: 17px;
+  font-size: 16px;
   color: var(--muted);
 }
 .markmenu:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
@@ -1040,7 +1040,7 @@ body {
      is not a legal family inside the shorthand, so it was silently dropped and this
      row drew at the menu's inherited weight and line-height instead. Sibling to the
      comment on `.accountmenu-sub` just below, which caught this shape first. */
-  font-weight: 600; font-size: 14px; line-height: 1.2; text-align: left;
+  font-weight: 600; font-size: 13px; line-height: 1.2; text-align: left;
   /* Anchors are rows too (Admin, and every hoisted `<a>`), and a row that is a link must
      not look like one. */
   text-decoration: none;
@@ -1063,7 +1063,7 @@ body {
      caught (`.spacepick-shown`, same mistake, measured at 40px against the 33px it says).
      bc-khoe.15 is filed for the ones this bead did not own. */
   font-weight: 550;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.2;
 }
 .accountmenu-row[hidden] { display: none; }
@@ -1100,10 +1100,10 @@ body {
   background: var(--surface); color: var(--text);
 }
 .accountpick::backdrop { background: rgb(0 0 0 / 0.55); }
-.accountpick-title { margin: 0 0 8px; font-size: 17px; font-weight: 650; }
+.accountpick-title { margin: 0 0 8px; font-size: 16px; font-weight: 650; }
 .accountpick-lede { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .accountpick-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.accountpick-none { color: var(--muted); font-size: 13.5px; }
+.accountpick-none { color: var(--muted); font-size: 13px; }
 
 .accountpick-row { display: flex; align-items: stretch; gap: 6px; }
 .accountpick-pick {
@@ -1121,13 +1121,13 @@ body {
 }
 .accountpick-tick { width: 14px; color: var(--accent); font-size: 13px; }
 .accountpick-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.accountpick-who strong { font-size: 14.5px; font-weight: 650; }
-.accountpick-mail { font-size: 12.5px; color: var(--prose); overflow: hidden; text-overflow: ellipsis; }
-.accountpick-scope { font-size: 12px; color: var(--muted); }
+.accountpick-who strong { font-size: 13px; font-weight: 650; }
+.accountpick-mail { font-size: 13px; color: var(--prose); overflow: hidden; text-overflow: ellipsis; }
+.accountpick-scope { font-size: 11px; color: var(--muted); }
 .accountpick-edit {
   width: var(--tap); min-height: var(--tap);
   border: 1px solid var(--line); border-radius: 10px;
-  background: var(--bg); color: var(--muted); font-size: 15px; cursor: pointer;
+  background: var(--bg); color: var(--muted); font-size: 16px; cursor: pointer;
 }
 
 .accountpick-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -1136,7 +1136,7 @@ body {
   /* Longhands, not `font: 650 14px/1 inherit` — invalid CSS (bc-khoe.15): `inherit`
      is not a legal family inside the shorthand, so it was silently dropped and these
      buttons drew at the dialog's inherited weight and line-height instead. */
-  border-radius: 10px; font-weight: 650; font-size: 14px; line-height: 1; cursor: pointer;
+  border-radius: 10px; font-weight: 650; font-size: 13px; line-height: 1; cursor: pointer;
 }
 .accountpick-add { border: 0; background: var(--accent); color: var(--accent-ink); }
 .accountpick-close { border: 1px solid var(--line); background: var(--bg); color: var(--text); }
@@ -1151,7 +1151,7 @@ body {
 .accountform-field input[readonly] { color: var(--muted); }
 .accountform-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .accountform-ws { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; background: var(--bg); }
-.accountform-pick { display: flex; align-items: center; gap: 10px; min-height: 38px; font-size: 14px; cursor: pointer; }
+.accountform-pick { display: flex; align-items: center; gap: 10px; min-height: 38px; font-size: 13px; cursor: pointer; }
 /* The app's own teal on the ticks rather than the browser's blue — there are up to forty
    of them on this form and they are the loudest thing on the screen. */
 .accountform-list input[type="checkbox"] { accent-color: var(--accent); width: 18px; height: 18px; }
@@ -1163,7 +1163,7 @@ body {
    than as another one. Only ever drawn for a workspace holding more than one checkout,
    which on almost every install is none of them. */
 .accountform-repos { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 2px 0 6px 26px; }
-.accountform-repo { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--prose); cursor: pointer; }
+.accountform-repo { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--prose); cursor: pointer; }
 .accountform-error { margin: 10px 0 0; color: var(--danger); font-size: 13px; }
 
 /* ＋ Add a bead-space (public/addspace.js). It borrows the account dialog's chrome —
@@ -1231,16 +1231,16 @@ body {
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
 .channel-head { display: flex; gap: 11px; align-items: flex-start; }
-.channel-icon { font-size: 21px; line-height: 1.25; }
+.channel-icon { font-size: 19px; line-height: 1.25; }
 .channel-head h2 {
   margin: 0;
-  font-size: 15.5px;
+  font-size: 16px;
   line-height: 1.3;
   color: var(--text);
 }
 .channel-head p {
   margin: 4px 0 0;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
   color: var(--muted);
 }
@@ -1259,16 +1259,16 @@ body {
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--danger) 8%, var(--surface));
 }
-.trouble strong { display: block; font-size: 14px; color: var(--text); }
+.trouble strong { display: block; font-size: 13px; color: var(--text); }
 .trouble ul { margin: 7px 0 0; padding-left: 17px; }
-.trouble li { font-size: 12.5px; line-height: 1.45; color: var(--text); margin-top: 3px; }
+.trouble li { font-size: 13px; line-height: 1.45; color: var(--text); margin-top: 3px; }
 .trouble li b { font-weight: 700; }
 /* The error is `bd`'s own sentence and can be long. Wrapped rather than truncated:
    which lock, which workspace and which command is the whole of what makes it
    actionable, and a phone that has to be turned sideways to read it is still a phone
    that was told. */
-.trouble-held { display: block; color: var(--muted); font-size: 11.5px; }
-.trouble-note { display: block; margin-top: 7px; color: var(--muted); font-size: 11.5px; }
+.trouble-held { display: block; color: var(--muted); font-size: 11px; }
+.trouble-note { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; }
 
 /* A tracker that is no longer the same tracker as the machine it shares one with —
    see `syncTroubleHtml`. The same box and deliberately not the same colour, because
@@ -1298,7 +1298,7 @@ body {
   border-radius: 10px;
   background: var(--accent);
   color: var(--accent-ink);
-  font-size: 10.5px; font-weight: 700; line-height: 17px;
+  font-size: 11px; font-weight: 700; line-height: 17px;
   text-align: center;
 }
 .icon-btn .badge[hidden] { display: none; }
@@ -1307,9 +1307,9 @@ body {
   padding: 56px 24px;
   text-align: center;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 16px;
 }
-.empty strong { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
+.empty strong { display: block; color: var(--text); font-size: 19px; margin-bottom: 6px; }
 
 /* An open card takes the screen. A question is read one at a time, and inline the
    brief, the thread and the answer box all competed with the list around them.
@@ -1469,7 +1469,7 @@ body {
   background: var(--bg);
   color: var(--prose);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
+  font-size: 9px;
   line-height: 1.45;
   white-space: pre;
   min-width: 0;
@@ -1660,7 +1660,7 @@ body {
   border-color: color-mix(in srgb, var(--warn) 45%, transparent);
   color: var(--warn);
 }
-.meta time { font-size: 12px; color: var(--muted); margin-left: auto; }
+.meta time { font-size: 11px; color: var(--muted); margin-left: auto; }
 
 /*
   "Arrived quietly 3h ago · hidden by the inbox filter — Work / acme".
@@ -1676,7 +1676,7 @@ body {
 */
 .quiet-note {
   display: flex; align-items: baseline; gap: 6px;
-  font-size: 12.5px; line-height: 1.45; color: var(--muted);
+  font-size: 13px; line-height: 1.45; color: var(--muted);
   margin: -2px 0 8px;
 }
 
@@ -1720,7 +1720,7 @@ body {
   border-radius: 10px;
   background: var(--surface-2);
 }
-.address-say { font-size: 12.5px; line-height: 1.45; color: var(--muted); margin: 0; }
+.address-say { font-size: 13px; line-height: 1.45; color: var(--muted); margin: 0; }
 .address-row { display: flex; flex-wrap: wrap; gap: 7px; }
 .address-btn {
   min-height: 36px;
@@ -1746,7 +1746,7 @@ body {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
-  font: inherit; font-size: 15px;
+  font: inherit; font-size: 16px;
 }
 
 .q { font-size: 19px; font-weight: 650; line-height: 1.4; margin: 0 0 5px; letter-spacing: -0.012em; }
@@ -1776,7 +1776,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   cursor: pointer;
 }
 .option:active { transform: scale(0.99); }
-.option .hint { font-size: 12.5px; font-weight: 400; color: var(--muted); }
+.option .hint { font-size: 13px; font-weight: 400; color: var(--muted); }
 
 /* The choice whose words are in the box below. Filled, because it is the one state
    here that is a claim about something else on the card — everything else about an
@@ -1834,7 +1834,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .note-line {
   align-self: center; max-width: 100%;
   padding: 4px 12px; margin: 2px 0;
-  font-size: 12px; color: var(--muted);
+  font-size: 11px; color: var(--muted);
 }
 
 /* A row in the chat session list, plus the ✕ that ends it. The link and the button
@@ -1868,7 +1868,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   flex: none; width: 40px; height: 40px;
   border: 1px solid var(--line); border-radius: 10px;
   background: none; color: var(--muted);
-  font-size: 14px; line-height: 1; cursor: pointer;
+  font-size: 13px; line-height: 1; cursor: pointer;
 }
 .row-x:disabled { opacity: 0.4; }
 
@@ -1897,7 +1897,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
    another control floating above it. The gap belongs to .freeform, so it is closed
    here rather than by dropping the gap for everything in the block. */
 .reply-bar + textarea { margin-top: -8px; border-top-left-radius: 0; border-top-right-radius: 0; }
-.reply-who { flex: 1; min-width: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.reply-who { flex: 1; min-width: 0; font-size: 11px; line-height: 1.45; color: var(--muted); }
 .reply-who b { font-weight: 650; color: var(--text); }
 /* An elevation that is spent the moment you press the button under it does not get
    to be invisible while the panel is shut. */
@@ -1922,10 +1922,10 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   min-width: var(--tap); min-height: 40px; padding: 0 11px;
   border: 1px solid var(--line); border-radius: 999px;
   background: var(--surface); color: var(--muted);
-  font: inherit; font-size: 15px; line-height: 1;
+  font: inherit; font-size: 16px; line-height: 1;
   cursor: pointer;
 }
-.mic .mic-glyph { font-size: 15px; }
+.mic .mic-glyph { font-size: 16px; }
 .mic.on {
   border-color: var(--danger); color: var(--danger);
   background: color-mix(in srgb, var(--danger) 16%, transparent);
@@ -1944,7 +1944,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
    shape as every other outcome line in the app — "Listening…" that shouts is worse
    than none — but the failures have to be legible, because "permission is off" and
    "you have not said anything yet" look identical from a box that stays empty. */
-.mic-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.mic-note { margin: 0; font-size: 11px; line-height: 1.45; color: var(--muted); }
 .mic-note.mic-bad { color: var(--warn); }
 
 .agent-wrap { position: relative; }
@@ -1954,10 +1954,10 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   min-width: var(--tap); min-height: 40px; padding: 0 11px;
   border: 1px solid var(--line); border-radius: 999px;
   background: var(--surface); color: var(--muted);
-  font: inherit; font-size: 15px; line-height: 1;
+  font: inherit; font-size: 16px; line-height: 1;
   cursor: pointer;
 }
-.agent-dots .dots-emoji { font-size: 14px; }
+.agent-dots .dots-emoji { font-size: 13px; }
 .agent-dots.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .agent-dots.armed {
   border-color: var(--warn); color: var(--warn);
@@ -1986,7 +1986,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
    the name: an agent whose brief you cannot read is a name you are guessing at.
    One tap in is the price of the fold; a tap deeper still would not be. */
 .agent-desc {
-  margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; color: var(--muted);
+  margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: var(--muted);
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 /* "Allow tools" — deliberately not styled as a settled preference. It is spent by
@@ -1999,9 +1999,9 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .allow-tools.on { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
 .allow-tools.busy { opacity: 0.55; }
 .allow-tools input { width: 20px; height: 20px; accent-color: var(--warn); margin: 0; }
-.allow-label { font-size: 13.5px; font-weight: 600; }
+.allow-label { font-size: 13px; font-weight: 600; }
 .allow-note {
-  grid-column: 2; font-size: 11.5px; color: var(--muted);
+  grid-column: 2; font-size: 11px; color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -2020,15 +2020,15 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   padding: 18px 18px 16px;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
 }
-.dialog h2 { margin: 0 0 12px; font-size: 18px; font-weight: 650; }
+.dialog h2 { margin: 0 0 12px; font-size: 19px; font-weight: 650; }
 .dialog-tools {
   margin: 0 0 14px; padding: 10px 12px;
   background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
-  font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  font-size: 11px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
   color: var(--warn);
 }
 .dialog ul { margin: 0 0 16px; padding-left: 20px; }
-.dialog li { font-size: 13.5px; line-height: 1.55; color: var(--prose); margin-bottom: 9px; }
+.dialog li { font-size: 13px; line-height: 1.55; color: var(--prose); margin-bottom: 9px; }
 .dialog .row { display: flex; flex-direction: column; gap: 8px; }
 
 .agent-form { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
@@ -2038,7 +2038,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   padding: 11px 12px;
   border: 1px solid var(--line); border-radius: 10px;
   background: var(--bg); color: var(--text);
-  font: inherit; font-size: 15px;
+  font: inherit; font-size: 16px;
   resize: vertical;
 }
 .agent-form .row { display: flex; gap: 8px; }
@@ -2055,7 +2055,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 }
 .prop-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .prop-head { display: flex; align-items: baseline; gap: 4px; }
-.prop-title { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 600; line-height: 1.35; }
+.prop-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.35; }
 /* The number is what a typed or notification answer refers to — "CREATE: 1,3" — so
    it is part of the row rather than a list marker the renderer happens to draw. The
    body hangs off it at the same indent, which is what makes the column read as one. */
@@ -2074,11 +2074,11 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
   border-radius: 6px;
   background: color-mix(in srgb, var(--warn) 10%, var(--surface));
-  font-size: 12px; line-height: 1.45; color: var(--text);
+  font-size: 11px; line-height: 1.45; color: var(--text);
 }
 .prop-dupe-flag {
   flex: none;
-  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--warn);
 }
 .prop-body { display: flex; flex-direction: column; gap: 9px; padding-left: 22px; }
@@ -2094,7 +2094,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   align-self: flex-start; margin-left: 22px;
   min-height: 34px; padding: 4px 0;
   border: none; background: none; color: var(--accent);
-  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
 }
 .prop-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 /* Every field that would be written, under a label saying which it is — acceptance
@@ -2102,7 +2102,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .prop-field { display: flex; flex-direction: column; gap: 3px; }
 .prop-field.pills { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
 .prop-label {
-  font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
   color: var(--muted);
 }
 /* Prose in a row is a smaller setting of prose in a brief, not a different thing. */
@@ -2140,7 +2140,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   width: 100%; padding: 9px 10px;
   border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface-2); color: var(--text);
-  font: inherit; font-size: 14px; line-height: 1.45;
+  font: inherit; font-size: 13px; line-height: 1.45;
   /* 16px would be the iOS rule for "don't zoom on focus", but the card is already
      at a fixed width here and the zoom does not fire on a field this size inside
      it; 14px keeps a rewritten description the same setting as the one it replaces. */
@@ -2158,7 +2158,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .prop-bulk { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 /* Warn-coloured because it is the one thing on the bar arguing against tapping
    either button yet: rows you have not read are not the same as rows you declined. */
-.prop-count { font-size: 12px; color: var(--warn); }
+.prop-count { font-size: 11px; color: var(--warn); }
 
 /* ---- delivery: a worker handing back a pull request -------------------- */
 
@@ -2172,8 +2172,8 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   background: var(--surface-2); color: var(--text); text-decoration: none;
 }
 .pr-num { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: var(--accent); }
-.pr-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.35; }
-.pr-branch { font-size: 12px; color: var(--muted); }
+.pr-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.35; }
+.pr-branch { font-size: 11px; color: var(--muted); }
 /* The session's own account of what it did, on the card rather than behind the tap
    that opens it — merge is two taps from here, so what you would want to have read
    before those two taps has to be above them. */
@@ -2189,7 +2189,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
 }
 .delivery .prop-more { margin-left: 0; }
-.pr-branch code { font-size: 11.5px; }
+.pr-branch code { font-size: 11px; }
 /* The rung and the lamps, off the board's own row for this same pull request — the
    half of a `pr:` card this one absorbed so the number stopped appearing twice under
    the PRs pill. `.pr-stage` and `.board-lamps` carry their own styling already (see
@@ -2200,7 +2200,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .pr-chip {
   padding: 3px 8px; border-radius: 999px;
   border: 1px solid var(--line);
-  font-size: 11.5px; line-height: 1.5; color: var(--muted);
+  font-size: 11px; line-height: 1.5; color: var(--muted);
 }
 /* Four states, four colours, and "no checks" is deliberately not green: a repo with
    no CI has told you nothing, and a green tick there would be a claim nobody made. */
@@ -2237,9 +2237,9 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   border-radius: 10px;
   background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
-.decline-head { margin: 0; font-size: 14px; font-weight: 600; color: var(--danger); }
-.decline-why { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--prose); }
-.decline-why code { font-size: 11.5px; }
+.decline-head { margin: 0; font-size: 13px; font-weight: 600; color: var(--danger); }
+.decline-why { margin: 0; font-size: 13px; line-height: 1.5; color: var(--prose); }
+.decline-why code { font-size: 11px; }
 .pr-decline .pr-actions { padding-top: 4px; }
 .primary.danger { background: var(--danger); color: var(--danger-ink); }
 /* The box you type the direction into belongs to the decline while that is what is
@@ -2252,7 +2252,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   border-radius: 10px;
   background: transparent;
   color: var(--muted);
-  font: inherit; font-size: 14px; font-weight: 550;
+  font: inherit; font-size: 13px; font-weight: 550;
   cursor: pointer;
   /* Some of these are anchors now — the agent card's way into the graph — and an
      inline <a> ignores min-height and refuses to centre its own label. */
@@ -2267,7 +2267,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   down and the card loses the accent it never earned. A question shouts; this is a
   list you scan.
 */
-.agent-card .q { font-size: 15.5px; font-weight: 550; line-height: 1.35; margin-bottom: 3px; }
+.agent-card .q { font-size: 16px; font-weight: 550; line-height: 1.35; margin-bottom: 3px; }
 .agent-card .subtitle { margin-bottom: 10px; }
 .agent-card .card-head { padding: 12px 14px 0; }
 .agent-card .actions { padding: 0 14px 12px; }
@@ -2283,7 +2283,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .brief > .md + .md { margin-top: 16px; }
 
 .md {
-  font-size: 15.5px;
+  font-size: 16px;
   line-height: 1.66;
   color: var(--prose);
   overflow-wrap: anywhere;
@@ -2306,7 +2306,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .md a { color: var(--accent); text-underline-offset: 3px; }
 .md code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text);
   background: var(--surface-2);
   padding: 1.5px 6px;
@@ -2342,7 +2342,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .md table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14.5px;
+  font-size: 13px;
   line-height: 1.45;
   margin: 0 0 14px;
   display: block;
@@ -2375,7 +2375,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   border-radius: 10px;
   color: var(--text);
   text-decoration: none;
-  font-size: 14.5px;
+  font-size: 13px;
   font-weight: 550;
   overflow-wrap: anywhere;
 }
@@ -2418,10 +2418,10 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   border: 1px solid var(--warn);
   border-radius: 10px;
   background: color-mix(in srgb, var(--warn) 10%, transparent);
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
 }
-.gate-note strong { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 4px; }
+.gate-note strong { display: block; color: var(--text); font-size: 13px; margin-bottom: 4px; }
 .gate-note p { margin: 0 0 8px; color: var(--muted); }
 .gate-blockers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
 .gate-note .row { display: flex; gap: 8px; }
@@ -2444,11 +2444,11 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   border: 1px solid var(--danger);
   border-radius: 10px;
   background: color-mix(in srgb, var(--danger) 10%, transparent);
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
   margin-bottom: 10px;
 }
-.failed-note strong { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 4px; }
+.failed-note strong { display: block; color: var(--text); font-size: 13px; margin-bottom: 4px; }
 .failed-note p { margin: 0 0 8px; color: var(--muted); }
 .failed-note .row { display: flex; gap: 8px; }
 
@@ -2463,10 +2463,10 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   padding: 10px 12px;
   border: 1px dashed color-mix(in srgb, var(--warn) 55%, var(--line));
   border-radius: 10px;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
 }
-.gate-why strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 3px; }
+.gate-why strong { display: block; color: var(--text); font-size: 13px; margin-bottom: 3px; }
 .gate-why p { margin: 0 0 8px; color: var(--muted); }
 .gate-why .gate-blockers { margin-bottom: 0; }
 
@@ -2486,10 +2486,10 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   padding: 9px 11px;
   border: 1px dashed color-mix(in srgb, var(--warn) 55%, var(--line));
   border-radius: 10px;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
 }
-.answered-before strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 3px; }
+.answered-before strong { display: block; color: var(--text); font-size: 13px; margin-bottom: 3px; }
 .answered-before p {
   margin: 0;
   color: var(--muted);
@@ -2546,7 +2546,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .suggested .chip {
   padding: 6px 12px;
   background: var(--surface-2); color: var(--text);
-  font-size: 13.5px; font-weight: 550;
+  font-size: 13px; font-weight: 550;
   text-align: left; line-height: 1.3;
 }
 .chip:active { transform: scale(0.98); }
@@ -2579,7 +2579,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   min-height: var(--tap);
   border: none; border-radius: 10px;
   background: var(--accent); color: var(--accent-ink);
-  font: inherit; font-weight: 650; font-size: 15px;
+  font: inherit; font-weight: 650; font-size: 16px;
   cursor: pointer;
 }
 .secondary {
@@ -2587,7 +2587,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   min-height: var(--tap);
   border: 1px solid var(--line); border-radius: 10px;
   background: transparent; color: var(--text);
-  font: inherit; font-weight: 550; font-size: 15px;
+  font: inherit; font-weight: 550; font-size: 16px;
   cursor: pointer;
 }
 .primary:disabled, .secondary:disabled { opacity: 0.45; }
@@ -2670,7 +2670,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   width: var(--tap); min-height: var(--tap);
   border: 1px solid var(--line); border-radius: 999px;
   background: transparent; color: var(--muted);
-  font: inherit; font-size: 18px; line-height: 1;
+  font: inherit; font-size: 19px; line-height: 1;
   cursor: pointer;
 }
 .kebab.on { background: var(--surface-2); color: var(--text); }
@@ -2696,7 +2696,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   padding: 0 12px;
   border: 0; border-radius: 10px;
   background: transparent; color: var(--text);
-  font: inherit; font-weight: 550; font-size: 14px;
+  font: inherit; font-weight: 550; font-size: 13px;
   text-align: left; white-space: nowrap;
   cursor: pointer;
 }
@@ -2720,11 +2720,11 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 }
 .card-foot .meta { margin-bottom: 6px; }
 .card-foot .q {
-  font-size: 15px; font-weight: 550; line-height: 1.35;
+  font-size: 16px; font-weight: 550; line-height: 1.35;
   color: var(--prose);
   margin: 0;
 }
-.card-foot .subtitle { margin: 3px 0 0; font-size: 12.5px; }
+.card-foot .subtitle { margin: 3px 0 0; font-size: 13px; }
 
 /* The way out at the foot of a long brief. A pill, not a full-width bar, so it
    doesn't read as a third action competing with Answer / Comment above it — and
@@ -2735,7 +2735,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   padding: 0 20px;
   border: 1px solid var(--line); border-radius: 999px;
   background: transparent; color: var(--muted);
-  font: inherit; font-size: 14px; font-weight: 550;
+  font: inherit; font-size: 13px; font-weight: 550;
   cursor: pointer;
 }
 
@@ -2750,12 +2750,12 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .comment.from-agent { border-left-color: var(--accent); }
 .comment .who {
   display: block;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--muted);
   margin-bottom: 5px;
 }
-.comment .md { font-size: 14.5px; line-height: 1.6; }
+.comment .md { font-size: 13px; line-height: 1.6; }
 .comment .md > *:last-child { margin-bottom: 0; }
 
 /*
@@ -2783,7 +2783,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   border: 0;
   background: none;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--muted);
   text-align: left;
@@ -2820,7 +2820,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   border-left: 3px solid var(--accent);
 }
 .comment.pending .who { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.comment.pending .pending-detail { font-size: 14px; color: var(--muted); }
+.comment.pending .pending-detail { font-size: 13px; color: var(--muted); }
 .comment.pending.live .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 
 /* Agent activity */
@@ -2838,7 +2838,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 }
 .activity .phase { font-weight: 600; color: var(--text); }
 .activity .detail { color: var(--muted); }
-.activity time { color: var(--muted); font-size: 12px; margin-left: auto; }
+.activity time { color: var(--muted); font-size: 11px; margin-left: auto; }
 .activity.waiting { border-style: dashed; }
 
 .spark {
@@ -2953,7 +2953,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   border-top: 1px solid var(--line);
   display: flex; flex-direction: column; gap: 10px;
 }
-.publish-target { font-size: 14px; line-height: 1.45; }
+.publish-target { font-size: 13px; line-height: 1.45; }
 .publish-what { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
 .publish-note { color: var(--muted); font-size: 13px; line-height: 1.45; }
 .publish-err { color: var(--danger); }
@@ -2984,13 +2984,13 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   -webkit-tap-highlight-color: transparent;
 }
 .work-name { flex: 1; min-width: 0; font-size: 16px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.work-count { flex: none; font-size: 12px; font-weight: 600; color: var(--muted); }
+.work-count { flex: none; font-size: 11px; font-weight: 600; color: var(--muted); }
 .work-count.on { color: var(--accent); }
 .work-body { margin-top: 4px; }
 /* The only affordance saying a row has more behind it. On a card head it rotates to
    point down when that card is unfolded; on a session row it stays pointing right,
    because there the "more" is a detail page the row links to rather than a fold. */
-.chev { flex: none; width: 14px; text-align: center; font-size: 17px; color: var(--muted); transition: transform 120ms ease; }
+.chev { flex: none; width: 14px; text-align: center; font-size: 16px; color: var(--muted); transition: transform 120ms ease; }
 [aria-expanded='true'] > .chev { transform: rotate(90deg); }
 .work-row {
   display: flex; align-items: center; gap: 10px;
@@ -2999,15 +2999,15 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   border-top: 1px solid var(--line);
   color: var(--text); text-decoration: none;
 }
-.work-phase { font-size: 15px; width: 20px; text-align: center; flex: none; color: var(--muted); }
+.work-phase { font-size: 16px; width: 20px; text-align: center; flex: none; color: var(--muted); }
 .work-main { flex: 1; min-width: 0; }
-.work-title { display: block; font-size: 14.5px; font-weight: 550; line-height: 1.3; }
+.work-title { display: block; font-size: 13px; font-weight: 550; line-height: 1.3; }
 .work-sub {
   display: block; margin-top: 2px;
-  font-size: 11.5px; color: var(--muted);
+  font-size: 11px; color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.work-row time { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.work-row time { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* Divides the beads a workspace has claimed from the processes running in it. The
    note beside it carries the whole point: whether the two can be connected at all. */
 .session-label {
@@ -3017,7 +3017,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   margin: 12px 0 4px; padding-top: 10px;
   border-top: 1px solid var(--line);
 }
-.session-label span { font-size: 11.5px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.session-label span { font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none; }
 /* The mic that fills the box below, sitting at the far end of the label instead of in
    the composer — see the note in session.js. Shorter than the one on an answer card
    because a label row is not a control strip, but still a full tap target wide. */
@@ -3063,7 +3063,7 @@ button.work-row {
   padding: 4px 12px;
   border: 1px solid var(--line); border-radius: 999px;
   background: none; color: var(--text);
-  font: inherit; font-size: 12.5px; font-weight: 550;
+  font: inherit; font-size: 13px; font-weight: 550;
   letter-spacing: 0; text-transform: none;
   cursor: pointer;
 }
@@ -3080,8 +3080,8 @@ button.work-row {
   border: 1px solid var(--line); border-radius: 999px;
   padding: 0 2px;
 }
-.adv-limit > b { min-width: 1.4em; text-align: center; font-size: 12.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.adv-limit .adv-step { border: 0; padding: 4px 8px; min-width: 30px; font-size: 15px; line-height: 1; }
+.adv-limit > b { min-width: 1.4em; text-align: center; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.adv-limit .adv-step { border: 0; padding: 4px 8px; min-width: 30px; font-size: 16px; line-height: 1; }
 .adv-limit.held { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .adv-limit.held > b { color: var(--warn); }
 /* Why this repo's advocate cannot be switched on or off from here — the sentence that
@@ -3089,7 +3089,7 @@ button.work-row {
    and not a button, because it is the reason there is no button; it wraps rather than
    ellipsing, since half of "the halifax space has advocate: false" is worse than none
    of it, and it is the last thing in the row so a wrap costs nothing beside it. */
-.adv-why { font-size: 11.5px; color: var(--muted); align-self: center; text-align: right; max-width: 22em; }
+.adv-why { font-size: 11px; color: var(--muted); align-self: center; text-align: right; max-width: 22em; }
 /* Dialled up but not sent. The accent border and the accented number are the whole
    signal that this number is *yours* and not the daemon's yet — the Apply segment
    beside it is the other half, and it only exists in this state. `held` keeps its
@@ -3105,13 +3105,13 @@ button.work-row {
   min-height: 26px;
   padding: 3px 10px;
   border: 0; border-radius: 999px;
-  font-size: 11.5px; font-weight: 650;
+  font-size: 11px; font-weight: 650;
 }
 /* A window we opened, not a process we can see — dotted while it is only that, solid
    once the session claimed the bead and the tracker can confirm it. */
 .adv-worker .work-phase { display: flex; align-items: center; justify-content: center; color: var(--accent); }
 .adv-next, .adv-note {
-  font-size: 11.5px; color: var(--muted);
+  font-size: 11px; color: var(--muted);
   padding: 6px 2px 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -3134,10 +3134,10 @@ button.work-row {
    so the labels were shortened to fit rather than the column widened to hold them. */
 .session-facts dt {
   flex: none; width: 76px;
-  font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--muted);
 }
-.session-facts dd { margin: 0; min-width: 0; font-size: 12.5px; overflow-wrap: anywhere; }
+.session-facts dd { margin: 0; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 /* Busy or idle, on the process row — the one at-a-glance answer to "is this moving",
    and the only line it can sit on without repeating what the line under it says.
    `inline-block` because `.spark` is sized in px and a bare inline span ignores that,
@@ -3176,7 +3176,7 @@ button.work-row {
   padding: 0 12px;
   border-radius: 999px; border: 1px solid var(--line);
   background: var(--surface); color: var(--text);
-  font: inherit; font-size: 12.5px; font-weight: 600; letter-spacing: 0;
+  font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0;
   text-transform: none;
   cursor: pointer;
 }
@@ -3202,7 +3202,7 @@ button.work-row {
    an outcome line that shouts is one you stop reading. */
 .say-hint, .say-note, .say-blocked {
   margin: 6px 0 0;
-  font-size: 12px; line-height: 1.45;
+  font-size: 11px; line-height: 1.45;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -3260,9 +3260,9 @@ button.work-row {
    page says and a wall of warning-coloured text would read as an error rather than as
    the ordinary state of a bead nobody's session ever touched. `strong` carries the two
    words, so the answer is legible before the sentence explaining it. */
-.arc-none { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.arc-none { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .arc-none strong { color: var(--text); font-weight: 600; }
-.arc-none code { font-size: 11.5px; }
+.arc-none code { font-size: 11px; }
 
 /* What the session learned, exactly as it typed it — see public/beadsession.js for why
    this is not rendered markdown. `pre-wrap` keeps its line breaks and wraps its prose,
@@ -3280,7 +3280,7 @@ button.work-row {
 
 /* One sentence above the worktree's own facts: which of the three states it is in, in
    words, before the table says it in a field. */
-.arc-where { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text); }
+.arc-where { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: var(--text); }
 
 /* The pills: the other sessions on this bead, and the diff. Shaped like `.work-graph`
    because they do the same job — a link out of a detail view — and an empty row of them
@@ -3291,7 +3291,7 @@ button.work-row {
   flex: none; min-height: 34px; display: inline-flex; align-items: center;
   padding: 5px 12px;
   border: 1px solid var(--line); border-radius: 999px;
-  color: var(--text); text-decoration: none; font-size: 12.5px; font-weight: 550;
+  color: var(--text); text-decoration: none; font-size: 13px; font-weight: 550;
 }
 /* The one you are already reading. Still in the row — dropping it would renumber the
    list under your thumb every time you moved between sessions — and not a link. */
@@ -3387,7 +3387,7 @@ button.work-row {
    already going to wrap. */
 .pr-facts { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 14px; font-size: 13px; }
 .pr-facts > div { display: flex; gap: 10px; align-items: baseline; }
-.pr-facts dt { flex: none; width: 62px; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.pr-facts dt { flex: none; width: 62px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 .pr-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--prose); }
 
 .pr-quiet { font-size: 13px; color: var(--muted); margin: 6px 0; }
@@ -3402,7 +3402,7 @@ button.work-row {
   line-height: 1.45;
   color: var(--prose);
 }
-.pr-conflict code { font-size: 12px; }
+.pr-conflict code { font-size: 11px; }
 
 .pr-row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .pr-freeform .row { align-items: center; }
@@ -3425,7 +3425,7 @@ button.work-row {
 /* What is behind a row: why it is stuck, where it came from, and the three buttons. */
 .board-open { padding: 4px 2px 12px; }
 .board-note { margin: 2px 0 8px; font-size: 13px; color: var(--prose); }
-.board-where { font-size: 11.5px; color: var(--muted); margin-bottom: 10px; overflow-wrap: anywhere; }
+.board-where { font-size: 11px; color: var(--muted); margin-bottom: 10px; overflow-wrap: anywhere; }
 .board-where code { font-size: 11px; }
 .board-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .board-btn {
@@ -3433,7 +3433,7 @@ button.work-row {
   padding: 6px 14px;
   border: 1px solid var(--line); border-radius: 999px;
   background: var(--surface-2); color: var(--text);
-  font: inherit; font-size: 13.5px; font-weight: 600;
+  font: inherit; font-size: 13px; font-weight: 600;
   text-decoration: none; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -3452,7 +3452,7 @@ button.work-row {
 
 /* What Ship will do to this repo, under the button rather than in it: the label has
    room for the verb and this has room for the command behind it. */
-.board-hint { margin-top: 8px; font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.board-hint { margin-top: 8px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
 .board-hint code { font-size: 11px; }
 
 /* The release queue — what one deploy of this repo would make live, at the top of the
@@ -3466,7 +3466,7 @@ button.work-row {
   background: color-mix(in srgb, var(--accent) 6%, var(--surface-2));
 }
 .release-head { display: flex; align-items: center; gap: 12px; }
-.release-say { margin: 0; font-size: 12px; color: var(--prose); }
+.release-say { margin: 0; font-size: 11px; color: var(--prose); }
 .release-say code { font-size: 11px; }
 /* The number sits *over* the button's corner rather than inside its label, so it stays
    legible when the armed state rewrites the words underneath it — and so the button is
@@ -3485,7 +3485,7 @@ button.work-row {
   font-variant-numeric: tabular-nums;
   box-shadow: 0 0 0 2px var(--surface-2);
 }
-.release-list { margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+.release-list { margin: 10px 0 0; padding-left: 18px; font-size: 11px; color: var(--muted); }
 .release-list li { margin: 2px 0; overflow-wrap: anywhere; }
 .release-list a { color: var(--accent); }
 .release-more { list-style: none; margin-left: -18px; font-style: italic; }
@@ -3495,7 +3495,7 @@ button.work-row {
   width: 100%; padding: 8px 10px;
   border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface-2); color: var(--text);
-  font: inherit; font-size: 14px; resize: vertical;
+  font: inherit; font-size: 13px; resize: vertical;
 }
 /* The send and the mic on one line, and the line only as wide as the two of them:
    "Send to GitHub" stretched across the board is a button that looks like it does
@@ -3507,7 +3507,7 @@ button.work-row {
    through?" must not be a question you answer by opening GitHub. */
 .board-said { margin-top: 10px; font-size: 13px; color: var(--accent); }
 .board-said.bad { color: var(--danger); }
-.board-foot, .board-build { font-size: 11.5px; color: var(--muted); margin: 10px 0 0; }
+.board-foot, .board-build { font-size: 11px; color: var(--muted); margin: 10px 0 0; }
 .board-build, .board-quiet { max-width: 780px; margin: 0 auto; padding: 0 16px; text-align: center; }
 /* The board on screen is the last one that answered. Amber rather than red: a stale
    board during a restart is the deploy working, not a fault. */
@@ -3543,7 +3543,7 @@ button.work-row {
 /* Only drawn where more than one repo has entries in a section — see `sectionHtml`. The
    group *is* the batch: one release ships everything on that repo's `origin`. */
 .queue-group {
-  margin: 12px 0 6px; font-size: 12px; font-weight: 600;
+  margin: 12px 0 6px; font-size: 11px; font-weight: 600;
   color: var(--muted); overflow-wrap: anywhere;
 }
 .queue-empty { margin: 0; font-size: 13px; color: var(--muted); }
@@ -3581,13 +3581,13 @@ button.work-row {
    row*, just no longer the whole page, and `overflow-wrap: anywhere` is what keeps that
    contained. Do not add `white-space: nowrap` here. */
 .queue-title {
-  font-size: 14px; color: var(--text);
+  font-size: 13px; color: var(--text);
   overflow-wrap: anywhere;
 }
 .queue-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .queue-stage {
   display: inline-flex; align-items: center; gap: 6px; min-width: 0;
-  font-size: 12px; color: var(--prose);
+  font-size: 11px; color: var(--prose);
   overflow-wrap: anywhere;
 }
 .queue-dot {
@@ -3609,7 +3609,7 @@ button.work-row {
 }
 .queue-rung {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
-  padding: 3px 0; font-size: 12.5px; color: var(--muted);
+  padding: 3px 0; font-size: 13px; color: var(--muted);
 }
 .queue-mark { flex: none; width: 14px; text-align: center; }
 .queue-rung-name { min-width: 0; overflow-wrap: anywhere; }
@@ -3624,17 +3624,17 @@ button.work-row {
 .queue-untracked {
   padding: 1px 6px; border-radius: 999px;
   background: color-mix(in srgb, var(--warn) 14%, var(--surface-2));
-  color: var(--warn); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--warn); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
 }
 .queue-rung-at { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .queue-rung-note {
   flex-basis: 100%; margin: 2px 0 0 22px;
-  font-size: 11.5px; font-weight: 400; color: var(--muted);
+  font-size: 11px; font-weight: 400; color: var(--muted);
 }
 
 .queue-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
 .queue-facts { margin: 0; display: flex; flex-direction: column; gap: 3px; }
-.queue-fact { display: flex; gap: 8px; font-size: 11.5px; }
+.queue-fact { display: flex; gap: 8px; font-size: 11px; }
 .queue-fact dt { flex: none; width: 88px; color: var(--muted); }
 .queue-fact dd { margin: 0; min-width: 0; color: var(--prose); overflow-wrap: anywhere; }
 .queue-fact code { font-size: 11px; }
@@ -3683,13 +3683,13 @@ button.work-row {
   -webkit-tap-highlight-color: transparent;
 }
 .deploy-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.deploy-what { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; min-width: 0; }
+.deploy-what { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; min-width: 0; }
 .deploy-said { color: var(--muted); font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deploy.good .deploy-said { color: var(--made-ink); }
 .deploy.warn .deploy-said { color: var(--warn); }
 .deploy.bad .deploy-said { color: var(--danger); }
 .deploy.live .deploy-said { color: var(--accent); }
-.deploy-sub { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.deploy-sub { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .deploy-dot {
   flex: none; width: 9px; height: 9px; border-radius: 50%;
@@ -3717,7 +3717,7 @@ button.work-row {
   border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line)); border-radius: var(--radius);
   background: color-mix(in srgb, var(--danger) 7%, var(--surface));
 }
-.la-head { margin: 0 0 8px; font-size: 12.5px; font-weight: 600; color: var(--prose); }
+.la-head { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--prose); }
 .la-fields { margin: 0; display: flex; flex-direction: column; gap: 6px; }
 /* Not a grid: a path is longer than any column can be, so the value wraps under its
    own heading on a phone and sits beside it once there is room. */
@@ -3727,25 +3727,25 @@ button.work-row {
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--muted);
 }
-.la-row dd { flex: 1; min-width: 0; margin: 0; font-size: 12.5px; color: var(--prose); }
+.la-row dd { flex: 1; min-width: 0; margin: 0; font-size: 13px; color: var(--prose); }
 .la-row code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
   word-break: break-all;
 }
 /* The gloss on a value — "is what launchd would have restarted", or the sentence
    behind a command. Quiet, and on its own line when the value already fills one. */
 .la-note { display: inline-block; color: var(--muted); font-size: 11px; }
-.la-why { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
-.deploy-where { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.la-why { margin: 8px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.deploy-where { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
 .deploy-where code { font-size: 11px; }
-.deploy-reason { margin: 6px 0 0; font-size: 12.5px; color: var(--prose); }
+.deploy-reason { margin: 6px 0 0; font-size: 13px; color: var(--prose); }
 
 .deploy-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.deploy-step { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; font-size: 12.5px; }
+.deploy-step { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; font-size: 13px; }
 .deploy-tick { flex: none; width: 1em; color: var(--made-ink); }
 .deploy-step.bad .deploy-tick { color: var(--danger); }
 .deploy-step-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.deploy-step-note { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.deploy-step-note { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 
 /* What it printed. Only ever the failing step's, and only its tail — the whole of a
    deploy's output is a terminal's job, and the runner's log below is the tail of that. */
@@ -3757,7 +3757,7 @@ button.work-row {
   max-height: 220px; overflow: auto;
 }
 .deploy-log { margin-top: 10px; }
-.deploy-loading { margin: 10px 0 0; font-size: 11.5px; color: var(--muted); }
+.deploy-loading { margin: 10px 0 0; font-size: 11px; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) {
   .deploy.live .deploy-dot { animation: none; }
@@ -3809,7 +3809,7 @@ button.work-row {
   border: 1px solid var(--line); border-radius: 999px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(8px);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 /* The id is the short half and must never be the part that wraps — without this
    flex squeezes it to two lines and the title gets the room. */
@@ -3851,14 +3851,14 @@ button.work-row {
   border: 1px solid var(--line); border-radius: 999px;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(8px);
-  font-size: 12.5px; font-weight: 550; color: var(--muted);
+  font-size: 13px; font-weight: 550; color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .growth[hidden] { display: none; }
 .growth-btn {
   min-height: 26px; padding: 2px 10px;
   border: 1px solid var(--line); border-radius: 999px;
-  background: transparent; color: var(--text); font: inherit; font-size: 12px;
+  background: transparent; color: var(--text); font: inherit; font-size: 11px;
 }
 
 /* The tapped bead. Positioned against its node by placeCard(). */
@@ -3871,16 +3871,16 @@ button.work-row {
 }
 .node-card[hidden] { display: none; }
 .node-card-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
-.node-card-title { margin: 0 0 4px; font-size: 15px; font-weight: 600; line-height: 1.35; }
+.node-card-title { margin: 0 0 4px; font-size: 16px; font-weight: 600; line-height: 1.35; }
 /* The live line sits above the shape line and reads louder than it, because "someone
    is on this" outranks "this is a task that blocks two things". */
-.node-card-live { margin: 0 0 4px; font-size: 12.5px; font-weight: 550; line-height: 1.4; color: var(--accent); }
+.node-card-live { margin: 0 0 4px; font-size: 13px; font-weight: 550; line-height: 1.4; color: var(--accent); }
 .node-card-live[hidden] { display: none; }
 /* No `text-transform` here any more: the line is assembled in JS now, and capitalising
    every word turned "waits on 3" into "Waits On 3". */
-.node-card-deps { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+.node-card-deps { margin: 0 0 10px; font-size: 11px; color: var(--muted); }
 .node-card-row { display: flex; gap: 8px; }
-.node-card-row button { flex: 1; min-height: 40px; border-radius: 10px; font-size: 14px; }
+.node-card-row button { flex: 1; min-height: 40px; border-radius: 10px; font-size: 13px; }
 
 /* Details: a sheet by default, the whole screen on ⤢. */
 .sheet {
@@ -3919,7 +3919,7 @@ button.work-row {
    screen. */
 .menu-why { margin: 4px 6px 2px; max-width: 200px; font-size: 11.5px; line-height: 1.4; color: var(--muted); }
 .sheet-body { flex: 1; overflow-y: auto; padding: 14px 16px calc(env(safe-area-inset-bottom) + 28px); }
-.sheet-title { margin: 0 0 10px; font-size: 18px; line-height: 1.3; }
+.sheet-title { margin: 0 0 10px; font-size: 19px; line-height: 1.3; }
 .sheet-body .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 
 /* How a closed bead ended, straight under its pills. The pill says "closed" and stops;
@@ -3940,8 +3940,8 @@ button.work-row {
   border-radius: 10px;
   background: var(--surface-2);
 }
-.closed-when { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-.closed-note .md { font-size: 13.5px; line-height: 1.5; }
+.closed-when { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.closed-note .md { font-size: 13px; line-height: 1.5; }
 .closed-note .md p, .closed-note .md ul, .closed-note .md ol { margin: 0 0 8px; }
 .closed-note .md > *:last-child { margin-bottom: 0; }
 
@@ -3968,13 +3968,13 @@ button.work-row {
   color: var(--text);
   text-decoration: none;
 }
-.sess-glyph { flex: none; font-size: 15px; line-height: 1; }
+.sess-glyph { flex: none; font-size: 16px; line-height: 1; }
 .sess-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.sess-what { font-size: 14px; }
-.sess-sub { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess-what { font-size: 13px; }
+.sess-sub { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The affordance, and the only part of the row that says "this one goes somewhere" without
    a word — so it exists on exactly the state that does. */
-.sess-go { flex: none; color: var(--muted); font-size: 17px; line-height: 1; }
+.sess-go { flex: none; color: var(--muted); font-size: 16px; line-height: 1; }
 /* Still looking, and not yet an answer either way. Stepped back rather than shown as a
    spinner: it is one row, it resolves in a request, and a spinner on it would draw the eye
    to the least important thing on the sheet. */
@@ -4004,7 +4004,7 @@ button.work-row {
   background: var(--surface-2);
   color: var(--text);
   text-decoration: none;
-  font-size: 14px;
+  font-size: 13px;
 }
 .rel-row .pill.id { flex: none; }
 /* Status as colour, the same channel the nodes use — a closed blocker is grey and
@@ -4030,7 +4030,7 @@ button.work-row {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 550;
 }
 /* Finished work stays legible — it is the record of what got done, and hiding it is
@@ -4055,7 +4055,7 @@ button.work-row {
 .scope-btn.on { color: var(--text); border-color: color-mix(in srgb, var(--text) 35%, transparent); }
 
 .doc-body .brand h1 {
-  font-size: 15px;
+  font-size: 16px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4072,7 +4072,7 @@ button.work-row {
   border-radius: 10px;
   color: var(--text);
   text-decoration: none;
-  font-size: 14.5px;
+  font-size: 13px;
   font-weight: 550;
   overflow-wrap: anywhere;
 }
@@ -4080,7 +4080,7 @@ button.work-row {
 .docs a.graph-link::before { content: "🕸️"; }
 .docs a .path {
   display: block;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 400;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -4130,7 +4130,7 @@ button.work-row {
   backdrop-filter: blur(10px);
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
@@ -4175,7 +4175,7 @@ button.work-row {
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: 0 12px 34px rgb(0 0 0 / 0.35);
-  font-size: 14.5px;
+  font-size: 13px;
   font-weight: 550;
 }
 .toast.bad { border-color: var(--danger); color: var(--danger); }
@@ -4202,10 +4202,10 @@ button.work-row {
 }
 .login { width: 100%; max-width: 380px; text-align: center; }
 .login-mark { margin-bottom: 14px; }
-.login h1 { margin: 0 0 4px; font-size: 22px; }
-.login-lede { color: var(--muted); font-size: 14.5px; margin: 0 0 22px; }
+.login h1 { margin: 0 0 4px; font-size: 24px; }
+.login-lede { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
 .login-note { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 10px 0 0; text-align: left; }
-.login-note code { font-size: 12px; }
+.login-note code { font-size: 11px; }
 
 /* Full-width and tall, because on a phone this is the only thing to press. */
 .login-btn {
@@ -4218,7 +4218,7 @@ button.work-row {
 .login-btn:active { transform: translateY(1px); }
 
 .login-token { margin-top: 26px; text-align: left; border-top: 1px solid var(--line); padding-top: 14px; }
-.login-token summary { color: var(--muted); font-size: 14px; min-height: var(--tap); display: flex; align-items: center; cursor: pointer; }
+.login-token summary { color: var(--muted); font-size: 13px; min-height: var(--tap); display: flex; align-items: center; cursor: pointer; }
 .login-token input {
   width: 100%; min-height: var(--tap);
   padding: 0 12px; margin: 12px 0;
@@ -4237,13 +4237,13 @@ button.work-row {
   border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--danger) 12%, transparent);
-  color: var(--danger); font-size: 13.5px; line-height: 1.5;
+  color: var(--danger); font-size: 13px; line-height: 1.5;
 }
 
 .setup { border: none; border-radius: 14px; background: var(--surface); color: var(--text); max-width: 92vw; width: 380px; padding: 20px; }
 .setup::backdrop { background: rgb(0 0 0 / 0.55); }
-.setup h2 { margin: 0 0 8px; font-size: 17px; }
-.setup p { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
+.setup h2 { margin: 0 0 8px; font-size: 16px; }
+.setup p { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
 /*
   A row of equal-width buttons inside a dialog — the foundations amendment's
   Cancel/Save pair.
@@ -4397,7 +4397,7 @@ button.work-row {
    only the column they draw in. */
 .launcher { padding: 18px 16px calc(env(safe-area-inset-bottom) + 40px); max-width: 780px; margin: 0 auto; width: 100%; }
 .launcher .section-label { margin-top: 22px; }
-.lede { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0 0 4px; }
+.lede { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 0 0 4px; }
 .recent { display: flex; flex-direction: column; gap: 2px; }
 .recent .work-row { text-decoration: none; color: inherit; }
 
@@ -4546,10 +4546,10 @@ button.work-row {
    launcher's own rows are still missing (bc-7vzr). scripts/tabs-check.mjs measures the
    dot's width rather than looking for the element, because that is the only way to
    tell this apart from a working one. */
-.tab-mark { flex: none; display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; }
+.tab-mark { flex: none; display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
 /* The bar's 🧾 count, on a handle. Never truncated with the title — it is the reason
    you would come back to a chat you are not reading. */
-.tab-beads { flex: none; font-size: 11.5px; opacity: 0.9; }
+.tab-beads { flex: none; font-size: 11px; opacity: 0.9; }
 /* Breathing, not a dead grey dot, and legible on the selected pill's accent fill:
    the spark is the whole answer to "is that one still going", which is the question a
    handle exists to answer without opening it. */
@@ -4564,7 +4564,7 @@ button.work-row {
   background: none;
   color: inherit;
   opacity: 0.6;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1;
   cursor: pointer;
 }
@@ -4594,7 +4594,7 @@ button.work-row {
 .seed-link { display: flex; align-items: center; gap: 7px; min-height: 40px; color: inherit; }
 .seed-title { color: var(--muted); }
 
-.msg { font-size: 15.5px; line-height: 1.6; }
+.msg { font-size: 16px; line-height: 1.6; }
 
 /* You: a bubble, right-aligned, capped short of the full width so the two sides
    of the conversation are distinguishable at a glance without reading either. */
@@ -4612,22 +4612,22 @@ button.work-row {
 /* The agent: no bubble. Its replies carry markdown, lists and code, and a bubble
    around a fenced block on a 390px screen wastes the only width there is. */
 .msg.claude { padding: 0 2px; }
-.msg.claude .md { font-size: 15.5px; }
+.msg.claude .md { font-size: 16px; }
 .msg.claude .md > *:last-child { margin-bottom: 0; }
 
 .msg.bad {
   border: 1px solid var(--danger); color: var(--danger);
-  border-radius: 10px; padding: 10px 13px; font-size: 14px;
+  border-radius: 10px; padding: 10px 13px; font-size: 13px;
 }
 
-.working { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin-top: 6px; }
+.working { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; margin-top: 6px; }
 
 /* What it is actually doing. Three lines at most: this is reassurance that
    something is happening, not a log to read. */
 .tools { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
 .tool {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px; color: var(--muted);
+  font-size: 11px; color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .tool b { color: var(--accent); font-weight: 600; margin-right: 6px; }
@@ -4636,7 +4636,7 @@ button.work-row {
   display: inline-flex; align-items: center; gap: 6px;
   margin-top: 10px; min-height: 40px; padding: 0 14px;
   border-radius: 10px; border: 1px solid var(--accent); background: none;
-  color: var(--accent); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
 }
 
 /* A proposal the transcript has moved past. It still says what it was, and it still
@@ -4659,7 +4659,7 @@ button.work-row {
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   border-radius: 10px; padding: 11px 13px; background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
-.created-note strong { display: block; font-size: 14.5px; margin-bottom: 8px; }
+.created-note strong { display: block; font-size: 13px; margin-bottom: 8px; }
 /* One row, one link. The pill was the only target here and the title beside it was
    inert text twenty times its size — on a phone that is a miss waiting to happen, so
    the anchor is the row and carries the 40px the row needs to be hit reliably. Ids in
@@ -4674,7 +4674,7 @@ button.work-row {
 }
 .created-row .pill.id { flex: none; text-decoration: none; }
 .created-row:active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.created-title { font-size: 13.5px; color: var(--prose); }
+.created-title { font-size: 13px; color: var(--prose); }
 /* Walked to from a filed proposal further up. The scroll alone leaves you wondering
    which of several notes you were sent to. */
 @keyframes note-flash {
@@ -4688,10 +4688,10 @@ button.work-row {
   border: 1px dashed var(--line); border-radius: 10px; padding: 10px 13px;
   font-size: 13px; color: var(--prose);
 }
-.reseed-note strong { display: block; font-size: 13.5px; color: var(--text); margin-bottom: 4px; }
+.reseed-note strong { display: block; font-size: 13px; color: var(--text); margin-bottom: 4px; }
 
 .warnings { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-.warnings span { font-size: 12.5px; color: var(--warn); }
+.warnings span { font-size: 13px; color: var(--warn); }
 
 /* ── Composer ─────────────────────────────────────────────────────────────── */
 
@@ -4706,14 +4706,14 @@ button.work-row {
   max-width: 780px; margin: 0 auto; width: 100%;
 }
 .queued[hidden] { display: none; }
-.queued-note { font-size: 12px; color: var(--muted); }
+.queued-note { font-size: 11px; color: var(--muted); }
 .queued-row { display: flex; align-items: flex-start; gap: 6px; }
 .queued-text {
   flex: 1; min-height: 38px; text-align: left;
   padding: 8px 12px;
   border: 1px dashed var(--line); border-radius: 14px 14px 6px 14px;
   background: none; color: var(--muted);
-  font: inherit; font-size: 14.5px; line-height: 1.45;
+  font: inherit; font-size: 13px; line-height: 1.45;
   white-space: pre-wrap; overflow-wrap: anywhere;
   cursor: pointer;
 }
@@ -4740,7 +4740,7 @@ button.work-row {
 .composer textarea:disabled { opacity: 0.6; }
 .primary.send {
   flex: none; width: var(--tap); height: var(--tap); min-height: var(--tap);
-  padding: 0; border-radius: 50%; font-size: 20px; font-weight: 700;
+  padding: 0; border-radius: 50%; font-size: 19px; font-weight: 700;
 }
 
 /* ── The proposal sheet ───────────────────────────────────────────────────── */
@@ -4764,7 +4764,7 @@ button.work-row {
   background: none; border: none; color: inherit; font: inherit;
   padding: 12px 14px; cursor: pointer;
 }
-.bead-title { display: block; font-size: 15.5px; font-weight: 600; line-height: 1.35; margin-bottom: 7px; }
+.bead-title { display: block; font-size: 16px; font-weight: 600; line-height: 1.35; margin-bottom: 7px; }
 .bead-head .meta { margin-bottom: 0; }
 .bead.open .bead-head { border-bottom: 1px solid var(--line); }
 .bead-body { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
@@ -4777,7 +4777,7 @@ button.work-row {
    block is tappable rather than the id alone. */
 .bead-dupe {
   display: block; padding: 0 14px 12px;
-  font-size: 12.5px; line-height: 1.4; color: var(--warn);
+  font-size: 13px; line-height: 1.4; color: var(--warn);
   text-decoration: none;
 }
 .bead.open .bead-dupe { padding: 12px 14px 0; }
@@ -4785,7 +4785,7 @@ a.bead-dupe:active { opacity: 0.6; }
 
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field > span {
-  font-size: 11.5px; font-weight: 650; letter-spacing: 0.05em;
+  font-size: 11px; font-weight: 650; letter-spacing: 0.05em;
   text-transform: uppercase; color: var(--muted);
 }
 .field textarea, .field input[type="text"] {
@@ -4802,16 +4802,16 @@ a.bead-dupe:active { opacity: 0.6; }
 .danger-btn {
   min-height: 42px; border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--line));
-  background: none; color: var(--danger); font: inherit; font-size: 14px; cursor: pointer;
+  background: none; color: var(--danger); font: inherit; font-size: 13px; cursor: pointer;
 }
 
 .revision {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   border: 1px solid var(--warn); border-radius: 10px;
   padding: 10px 12px; margin-bottom: 12px;
-  font-size: 13.5px; color: var(--warn);
+  font-size: 13px; color: var(--warn);
 }
-.revision .secondary { min-height: 38px; padding: 0 12px; font-size: 13.5px; }
+.revision .secondary { min-height: 38px; padding: 0 12px; font-size: 13px; }
 
 /* Two columns once there is room: the conversation and the proposal side by side,
    which is how this reads on a laptop. The sheet stops being a sheet. */
@@ -4888,7 +4888,7 @@ a.menu-item { text-decoration: none; color: var(--text); }
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 550;
   white-space: nowrap;
   cursor: pointer;
@@ -4907,7 +4907,7 @@ a.menu-item { text-decoration: none; color: var(--text); }
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -4922,14 +4922,14 @@ a.menu-item { text-decoration: none; color: var(--text); }
   background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 14.5px;
+  font-size: 13px;
   line-height: 1.5;
   resize: vertical;
 }
 textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .f-input:focus { outline: none; border-color: var(--accent); }
-.f-unit { font-size: 12px; color: var(--muted); margin-left: 8px; }
-.f-hint { font-size: 12.5px; color: var(--muted); margin: 6px 2px 0; line-height: 1.45; }
+.f-unit { font-size: 11px; color: var(--muted); margin-left: 8px; }
+.f-hint { font-size: 13px; color: var(--muted); margin: 6px 2px 0; line-height: 1.45; }
 
 /* Locked fields are shown, not hidden. "Why can I not change this" is a question
    the screen should answer rather than raise. */
@@ -4953,8 +4953,8 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .f-actions .primary { flex: 2; }
 .f-actions .secondary { flex: 1; }
 
-.card.hist .q { font-size: 15px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.card.hist .md { font-size: 13.5px; }
+.card.hist .q { font-size: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.card.hist .md { font-size: 13px; }
 .card.hist.declined { opacity: 0.75; border-left: 3px solid var(--danger); }
 
 /* The chat tab owns the rest of the viewport so the composer pins to the bottom,
@@ -4976,7 +4976,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
-  font-size: 14.5px;
+  font-size: 13px;
   margin-bottom: 12px;
   resize: vertical;
 }
@@ -5069,7 +5069,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 /* Not a section header: this one is a card's name. Sentence case at reading size, where
    `.mon-sum` is the 12px uppercase strip the folds inside a card use. */
 .epic-sum .mon-sum-title {
-  font-size: 14.5px; font-weight: 650; letter-spacing: 0; text-transform: none;
+  font-size: 13px; font-weight: 650; letter-spacing: 0; text-transform: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .epic-sum .pill.id { flex: none; }
@@ -5078,7 +5078,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    two kinds of control, and they are one. */
 .mon-card.epic-card .adv-btn,
 .mon-card.epic-card .work-graph {
-  min-height: 28px; padding: 2px 10px; font-size: 12px; font-weight: 550;
+  min-height: 28px; padding: 2px 10px; font-size: 11px; font-weight: 550;
 }
 .mon-card.epic-card .mon-body { padding-top: 4px; padding-bottom: 0; }
 
@@ -5091,8 +5091,8 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    is the one where every *other* thing on this page is telling the truth about a
    daemon that is running last week's code. `.work` is a flex column with its own gap,
    so neither needs a margin. */
-.svc { border-radius: var(--radius); font-size: 12.5px; line-height: 1.5; }
-.svc code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; word-break: break-all; }
+.svc { border-radius: var(--radius); font-size: 13px; line-height: 1.5; }
+.svc code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; word-break: break-all; }
 .svc-dot { flex: none; }
 
 .svc.ok {
@@ -5128,7 +5128,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .svc.warn .svc-head { color: var(--warn); }
 .svc-head {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  font-size: 13.5px; font-weight: 700; letter-spacing: 0.02em; color: var(--danger);
+  font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--danger);
 }
 .svc-what { margin-top: 6px; font-weight: 600; }
 .svc-line { margin-top: 4px; color: var(--prose); }
@@ -5137,14 +5137,14 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    copied to the Mac that has to run it. */
 .svc-fix code {
   user-select: all; -webkit-user-select: all;
-  padding: 2px 6px; border-radius: 6px; background: var(--surface-2); font-size: 12px;
+  padding: 2px 6px; border-radius: 6px; background: var(--surface-2); font-size: 11px;
 }
 .svc-foot { margin-top: 8px; font-size: 11px; color: var(--muted); word-break: break-all; }
 
 /* The one line that says what it is doing. Colour carries the difference between
    "held on purpose" and "should be moving and isn't" — amber is the one that wants
    looking at, and it is deliberately not the red an error gets. */
-.mon-state { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.mon-state { font-size: 13px; font-weight: 600; color: var(--muted); }
 .mon-state.live { color: var(--accent); }
 .mon-state.warn { color: var(--warn); }
 .mon-state.held { color: var(--muted); font-style: italic; }
@@ -5164,7 +5164,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   display: flex; align-items: center; gap: 8px;
   width: 100%; min-height: 40px; padding: 8px 2px;
   border: 0; background: none; color: var(--text);
-  font: inherit; font-size: 12px; font-weight: 700;
+  font: inherit; font-size: 11px; font-weight: 700;
   letter-spacing: 0.05em; text-transform: uppercase;
   cursor: pointer; text-align: left;
 }
@@ -5224,7 +5224,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 
 /* The survey transcript. Shorter than the dispatched-agent log it borrows from —
    this one sits inside a card with five other panes and must not swallow the page. */
-.mon-log { max-height: 34vh; margin: 4px 0 8px; font-size: 10px; }
+.mon-log { max-height: 34vh; margin: 4px 0 8px; font-size: 9px; }
 
 /* A proposed bead: the full text, and its own yes and no. The picked state has to be
    visible at a glance across five of them, so it colours the whole block rather than
@@ -5232,18 +5232,18 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-proposal { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 4px 0 10px; }
 .mon-prop-head { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .mon-prop-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mon-prop-head time { flex: none; font-size: 12px; color: var(--muted); }
+.mon-prop-head time { flex: none; font-size: 11px; color: var(--muted); }
 .mon-bead { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .mon-bead.picked-yes { box-shadow: inset 3px 0 0 var(--accent); padding-left: 8px; }
 .mon-bead.picked-no { box-shadow: inset 3px 0 0 var(--danger); padding-left: 8px; opacity: 0.6; }
 .mon-bead-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.mon-bead-head strong { font-size: 14px; font-weight: 600; }
+.mon-bead-head strong { font-size: 13px; font-weight: 600; }
 .mon-bead-body { margin: 6px 0 0; font-size: 13px; color: var(--prose); white-space: pre-wrap; }
-.mon-bead-meta { margin: 5px 0 0; font-size: 12px; color: var(--muted); }
+.mon-bead-meta { margin: 5px 0 0; font-size: 11px; color: var(--muted); }
 .mon-bead-meta.why { font-style: italic; }
 .mon-bead-acts { display: flex; gap: 6px; margin-top: 8px; }
 .mon-prop-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
-.mon-prop-count { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); }
+.mon-prop-count { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); }
 .adv-btn.on { border-color: var(--accent); color: var(--accent); }
 .adv-btn.on.danger { border-color: var(--danger); color: var(--danger); }
 .adv-btn.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
@@ -5261,12 +5261,12 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   font: inherit; font-size: 13px; text-align: left; cursor: pointer;
 }
 .mon-arc-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mon-arc-row time { flex: none; font-size: 12px; color: var(--muted); }
+.mon-arc-row time { flex: none; font-size: 11px; color: var(--muted); }
 
 /* When it last looked, launched and asked — three facts that only mean anything
    beside each other, so they are one line rather than three pills. */
-.mon-times { font-size: 11.5px; color: var(--muted); gap: 0; }
-.mon-tally { font-size: 12px; font-weight: 600; color: var(--muted); }
+.mon-times { font-size: 11px; color: var(--muted); gap: 0; }
+.mon-tally { font-size: 11px; font-weight: 600; color: var(--muted); }
 .mon-tally.warn { color: var(--warn); }
 
 /* Observer mode. At the left-hand end of the bar with the mark, beside the page title —
@@ -5360,7 +5360,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 550;
   text-align: center;
 }
@@ -5388,7 +5388,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   /* No selection and no callout: these get held down and mashed, and a long-press
      that selects "esc" or offers to copy it is pure obstruction. */
@@ -5532,7 +5532,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mir-card h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .mir-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .mir-block { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
-.mir-sub { font-size: 12.5px; color: var(--muted); }
+.mir-sub { font-size: 13px; color: var(--muted); }
 .mir-plain { white-space: pre-wrap; font: inherit; color: var(--prose); margin: 0 0 14px; }
 
 /* An option is a whole answer, so it is drawn as a target rather than a word: the
@@ -5565,12 +5565,12 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 
 .mir-comment { padding: 10px 0; border-top: 1px solid var(--line); }
 .mir-comment:first-of-type { border-top: none; padding-top: 0; }
-.mir-comment-head { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.mir-comment-head { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
 .mir-comment-head time { font-weight: 550; opacity: 0.85; }
 
 .mir-prop { padding: 10px 0; border-top: 1px dashed var(--line); }
 .mir-prop-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
-.mir-rank { font-size: 12px; font-weight: 700; color: var(--muted); }
+.mir-rank { font-size: 11px; font-weight: 700; color: var(--muted); }
 
 /* Held to a screenful: the transcript is the tallest thing this page can draw,
    and the composer under it must stay reachable without scrolling past it. */
@@ -5598,7 +5598,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -5609,7 +5609,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mir-row:hover { background: var(--surface-2); }
 
 .mir-links { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 14px; }
-.mir-links a { color: var(--accent); font-size: 13.5px; font-weight: 600; text-decoration: none; }
+.mir-links a { color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: none; }
 
 /* ── The pill row ─────────────────────────────────────────────────────────────
 
@@ -5696,7 +5696,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 /* A link is a pointer already; a button is not, and a row where two of seven pills
    change the cursor and five do not is the same complaint as the font above. */
 button.viewpill { cursor: pointer; }
-.viewpill-icon { font-size: 15px; line-height: 1; }
+.viewpill-icon { font-size: 16px; line-height: 1; }
 
 /* The count, on the four pills that carry one — see the header of public/viewbar.js for
    which four and why a badge is allowed here at all.
@@ -5715,7 +5715,7 @@ button.viewpill { cursor: pointer; }
 .viewpill-count {
   min-width: 1.4em;
   text-align: center;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -5735,7 +5735,7 @@ button.viewpill { cursor: pointer; }
    type are. */
 @media (orientation: landscape) {
   .viewbar { padding: 3px 12px; }
-  .viewpill { font-size: 12.5px; padding: 0 11px; }
+  .viewpill { font-size: 13px; padding: 0 11px; }
 }
 
 /* ── ＋, and the conversations it starts ──────────────────────────────────────
@@ -5778,7 +5778,7 @@ button.viewpill { cursor: pointer; }
   border: 1px solid transparent;
   background: var(--accent);
   color: var(--accent-ink);
-  font: inherit; font-size: 26px; line-height: 1;
+  font: inherit; font-size: 24px; line-height: 1;
   cursor: pointer;
   /* The glyph is fullwidth (U+FF0B) and sits high in its box; the app draws it that
      way everywhere else too, so it is nudged rather than swapped for a plain +. */
@@ -5845,7 +5845,7 @@ button.viewpill { cursor: pointer; }
    navigated to, and it is the way back if the ✕ is not where your thumb is. */
 .beadform { height: 88dvh; }
 .beadform .sheet-body { display: flex; flex-direction: column; gap: 14px; }
-.beadform-head { font-size: 15px; font-weight: 650; padding-left: 4px; }
+.beadform-head { font-size: 16px; font-weight: 650; padding-left: 4px; }
 
 /* One repo is a statement, not a choice — the same bargain ＋ makes for a chat, where a
    single candidate starts without asking. The chip is left in place rather than swapped
@@ -5936,7 +5936,7 @@ button.viewpill { cursor: pointer; }
 .jira-ingest {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
   margin: 6px 0 0 30px;
-  font-size: 11.5px; color: var(--muted);
+  font-size: 11px; color: var(--muted);
 }
 .jira-ingest .pill.id { margin: 0; }
 /* Still reading is not a state anybody should read as finished, so it is quieter than the
@@ -5965,10 +5965,10 @@ button.viewpill { cursor: pointer; }
 .jira-acts a.secondary { display: inline-flex; align-items: center; text-decoration: none; }
 /* What there is to say when there is no button: a bead still being filed, or the id of
    one already approved. Muted, because neither is an instruction. */
-.jira-wait { font-size: 12px; color: var(--muted); }
+.jira-wait { font-size: 11px; color: var(--muted); }
 /* What just happened, pinned under the row rather than toasted away — see the note on
    `jiraSaid` in public/app.js. Full width so it never shares a line with a button. */
-.jira-said { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--muted); }
+.jira-said { flex-basis: 100%; margin: 0; font-size: 11px; color: var(--muted); }
 .jira-said.bad { color: var(--danger); }
 
 /*
@@ -5997,8 +5997,8 @@ button.viewpill { cursor: pointer; }
    the decision on this screen is about those beads, and the description is the evidence
    for it rather than the subject. */
 .jira-beads { margin: 0 0 14px; }
-.jira-beads-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font-size: 12.5px; color: var(--muted); }
-.jira-reading { margin: 6px 0 0; font-size: 12.5px; font-style: italic; color: var(--muted); }
+.jira-beads-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--muted); }
+.jira-reading { margin: 6px 0 0; font-size: 13px; font-style: italic; color: var(--muted); }
 .jira-kids { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .jira-kid { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; color: var(--prose); }
 /* A child closed since the decomposition — revoked, or done. Struck rather than hidden:
@@ -6011,14 +6011,14 @@ button.viewpill { cursor: pointer; }
    format one way only, so what arrives is text that already carries its own bullets and
    fences, and `pre-wrap` is the whole of rendering it. `anywhere` because a JIRA
    description is where a 300-character URL lives. */
-.jira-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.5; color: var(--prose); }
+.jira-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; color: var(--prose); }
 .jira-desc { margin: 0 0 14px; }
 .jira-facts { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
-.jira-parent { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
-.jira-omitted { margin: 14px 0 0; font-size: 12px; font-style: italic; color: var(--muted); }
+.jira-parent { margin: 0 0 8px; font-size: 11px; color: var(--muted); }
+.jira-omitted { margin: 14px 0 0; font-size: 11px; font-style: italic; color: var(--muted); }
 .jira-thread { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .jira-comment { border-top: 1px solid var(--line); padding-top: 10px; }
-.jira-who { margin: 0 0 4px; font-size: 11.5px; color: var(--muted); }
+.jira-who { margin: 0 0 4px; font-size: 11px; color: var(--muted); }
 
 /* The cancelled tickets, folded at the foot of the list (bc-0i27.6).
 
@@ -6032,7 +6032,7 @@ button.viewpill { cursor: pointer; }
   display: flex; align-items: center; gap: 6px;
   padding: 8px 12px;
   background: none; border: 0;
-  font: inherit; font-size: 12.5px; color: var(--muted);
+  font: inherit; font-size: 13px; color: var(--muted);
   text-align: left; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -6051,7 +6051,7 @@ button.viewpill { cursor: pointer; }
    a ticket key with nothing attached to it is on the screen at all, and what dropping
    one does to the bead that was closed with it. */
 .jira-orphans { margin: 12px 0 0; padding: 0 12px 8px; }
-.jira-orphans-why { margin: 0 0 8px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.jira-orphans-why { margin: 0 0 8px; font-size: 11px; line-height: 1.45; color: var(--muted); }
 .jira-orphan {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 0;
@@ -6062,8 +6062,8 @@ button.viewpill { cursor: pointer; }
 /* The workspace beside the key rather than under it: two records can carry the same
    ticket key from two workspaces pointed at one JIRA project, and without this they read
    as one row drawn twice. */
-.jira-orphan-ws { margin-left: 6px; font-size: 12px; color: var(--muted); }
-.jira-orphan-when { display: block; margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+.jira-orphan-ws { margin-left: 6px; font-size: 11px; color: var(--muted); }
+.jira-orphan-when { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); }
 /* Same override as `.jira-acts .jira-back` above and for the same reason: `.secondary`
    is `flex: 1`, and a lone button allowed to stretch reads as the whole line being one. */
 .jira-orphan .jira-back { flex: 0 0 auto; padding: 0 18px; }
@@ -6146,7 +6146,7 @@ button.viewpill { cursor: pointer; }
 .drawer-title {
   min-width: 0;
   margin: 0;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 650;
   letter-spacing: -0.01em;
   overflow: hidden;
@@ -6157,7 +6157,7 @@ button.viewpill { cursor: pointer; }
 /* A path is read character by character, so a document keeps the monospace it wore
    in the reader's own bar. A bead id does not need it. */
 .drawer-title[data-kind='doc'] {
-  font-size: 15px;
+  font-size: 16px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -6224,14 +6224,14 @@ button.viewpill { cursor: pointer; }
 .space-row { border-top: 1px solid var(--line); padding: 10px 0 4px; }
 .space-row:first-child { border-top: 0; padding-top: 2px; }
 .space-row-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.space-what { font-size: 13.5px; font-weight: 650; }
+.space-what { font-size: 13px; font-weight: 650; }
 /* The same four tones the advocate state line uses, and for the same reason: colour
    is what separates "set on purpose" from "following something else". */
-.space-state { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.space-state { font-size: 13px; font-weight: 600; color: var(--muted); }
 .space-state.live { color: var(--accent); }
 .space-state.held { color: var(--muted); font-style: italic; }
 .space-state.dim { color: var(--muted); opacity: 0.7; }
-.space-help { margin: 4px 0 8px; font-size: 12.5px; line-height: 1.5; color: var(--prose); }
+.space-help { margin: 4px 0 8px; font-size: 13px; line-height: 1.5; color: var(--prose); }
 .space-help b { color: var(--text); font-weight: 650; }
 .space-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-bottom: 6px; }
 
@@ -6245,7 +6245,7 @@ button.viewpill { cursor: pointer; }
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
 }
 .space-arrow { color: var(--muted); }
 
@@ -6264,7 +6264,7 @@ button.viewpill { cursor: pointer; }
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
 }
 
 /* Seven days across a 360px phone: square, so the row fits without wrapping and each
@@ -6296,9 +6296,9 @@ button.viewpill { cursor: pointer; }
    buttons line up down the rows instead of starting wherever the word ended. It still
    wraps below ~148px of label, which is a narrow phone with a long repo name. */
 .space-repo-set { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
-.space-repo-what { flex: 1 1 auto; min-width: 148px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.space-repo-what { flex: 1 1 auto; min-width: 148px; font-size: 11px; font-weight: 600; color: var(--muted); }
 .space-repo-moot { font-weight: 400; opacity: 0.7; }
-.space-repo-set .adv-btn { min-height: 28px; padding: 2px 10px; font-size: 12px; }
+.space-repo-set .adv-btn { min-height: 28px; padding: 2px 10px; font-size: 11px; }
 
 /* -------------------------------------------------------------------- admin
 
@@ -6311,7 +6311,7 @@ button.viewpill { cursor: pointer; }
 */
 .admin-lede {
   margin: 0 0 14px;
-  font-size: 13.5px; line-height: 1.55; color: var(--muted);
+  font-size: 13px; line-height: 1.55; color: var(--muted);
 }
 .admin-lede strong { color: var(--text); font-weight: 650; }
 
@@ -6334,8 +6334,8 @@ button.viewpill { cursor: pointer; }
    "In-app terminals" reading as one control with four buttons. */
 .admin-row { border-top: 1px solid var(--line); padding: 12px 0 4px; }
 .admin-row-head { display: flex; align-items: center; gap: 8px; }
-.admin-what { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
-.admin-state { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.admin-what { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.admin-state { font-size: 13px; font-weight: 600; color: var(--muted); }
 .admin-state.live { color: var(--accent); }
 .admin-state.held { color: var(--warn); }
 .admin-state.dim { opacity: 0.7; }
@@ -6360,7 +6360,7 @@ button.viewpill { cursor: pointer; }
   border-color: var(--danger);
   font-weight: 650;
 }
-.admin-warn { margin: 7px 0 4px; font-size: 12.5px; line-height: 1.5; color: var(--warn); }
+.admin-warn { margin: 7px 0 4px; font-size: 13px; line-height: 1.5; color: var(--warn); }
 .admin-warn strong { font-weight: 700; }
 
 /* The terminal card's door — the one control on this page that is a way *in* rather
@@ -6393,7 +6393,7 @@ button.viewpill { cursor: pointer; }
   margin-top: 8px;
   text-decoration: none;
 }
-.tls-foot { margin: 8px 0 0; font-size: 12px; }
+.tls-foot { margin: 8px 0 0; font-size: 11px; }
 
 /* The pairing code. White plate under it whatever the theme is: the SVG paints its own
    quiet zone, and a dark card behind a code that ends at the modules would eat it. */
@@ -6499,7 +6499,7 @@ button.viewpill { cursor: pointer; }
 
 /* Where the bead came from — the one sentence it cannot say about itself, and usually
    what tells you whether this is a real discovery or a tangent. */
-.eq-from { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; font-size: 12px; color: var(--muted); }
+.eq-from { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; font-size: 11px; color: var(--muted); }
 /* Truncated rather than wrapped: the sentence that matters is "found while working
    <id>", and the source bead's title is the nice-to-have after it. Wrapping put it on
    a line of its own, where it read as a second fact about this bead. */
@@ -6513,7 +6513,7 @@ button.viewpill { cursor: pointer; }
    stylesheet starts lying, and test/css.mjs refuses the second declaration outright. */
 .eq-last {
   display: flex; align-items: baseline; gap: 5px; min-width: 0;
-  font-size: 12px; color: var(--muted);
+  font-size: 11px; color: var(--muted);
 }
 .eq-last-who { flex: none; font-weight: 600; }
 .eq-last-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
@@ -6528,7 +6528,7 @@ button.viewpill { cursor: pointer; }
   border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
   border-radius: 10px;
   background: color-mix(in srgb, var(--warn) 10%, transparent);
-  font-size: 12px; font-weight: 600; color: var(--text);
+  font-size: 11px; font-weight: 600; color: var(--text);
 }
 /* The question's own title wraps where everything else on the row truncates. It is the
    sentence the row exists to make you read, and an ellipsis in the middle of "is this
@@ -6544,7 +6544,7 @@ button.viewpill { cursor: pointer; }
   margin: 0 0 3px; font-size: 11px; font-weight: 700;
   letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
 }
-.eq-field p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--prose); white-space: pre-wrap; overflow-wrap: anywhere; }
+.eq-field p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--prose); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* The provenance note is beadcause's paragraph, not the work — set apart so it is not
    read as part of what the bead is asking for. */
 .eq-field.prov { padding-left: 10px; border-left: 2px solid var(--line); }
@@ -6558,7 +6558,7 @@ button.viewpill { cursor: pointer; }
   width: 100%; padding: 8px 10px;
   border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface-2); color: var(--text);
-  font: inherit; font-size: 14px; font-weight: 400; letter-spacing: 0; text-transform: none;
+  font: inherit; font-size: 13px; font-weight: 400; letter-spacing: 0; text-transform: none;
 }
 .eq-lab textarea { resize: vertical; }
 .eq-two { display: flex; gap: 10px; }
@@ -6582,13 +6582,13 @@ button.viewpill { cursor: pointer; }
 .eq-talk .section-label:first-child { margin-top: 14px; }
 /* Escaped text, not markdown — the same bargain the rest of this page makes (see the
    note on `field` in public/endorse.js), so pre-wrap is what carries the line breaks. */
-.eq-bubble { margin: 0; font-size: 14px; line-height: 1.55; color: var(--prose); white-space: pre-wrap; overflow-wrap: anywhere; }
+.eq-bubble { margin: 0; font-size: 13px; line-height: 1.55; color: var(--prose); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* The chosen agent's own brief. An agent whose foundation you cannot read is a name you
    are guessing at — the same line the inbox draws under its chips. */
-.eq-agent-desc { margin: 6px 0 2px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.eq-agent-desc { margin: 6px 0 2px; font-size: 11px; line-height: 1.45; color: var(--muted); }
 /* Nobody is going to buzz you when the answer lands (see `talkHtml`), so the one thing
    this line owes you is that something is in fact happening. */
-.eq-waiting { margin: 0 0 8px; font-size: 12.5px; color: var(--accent); }
+.eq-waiting { margin: 0 0 8px; font-size: 13px; color: var(--accent); }
 .pill.talk { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 
 /* Revoke closes a bead, so it arms — outline until the first press, solid danger
@@ -6650,7 +6650,7 @@ a.pill { text-decoration: none; }
 .hist-list .hist-row:first-child { border-top: 0; }
 .hist-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .hist-top { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
-.hist-title { font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.hist-title { font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
 /* The close reason, at prose weight and clamped to two lines. Clamped rather than
    ellipsised on one: these sentences carry a PR number and a sha at the *end*, which is
    the half a single line would throw away. Two lines hold 94 characters at 393px and
@@ -6658,13 +6658,13 @@ a.pill { text-decoration: none; }
    lib/history.js sits above — the payload stops at 240 so this rule stays the only
    clamp a reader ever sees. */
 .hist-why {
-  font-size: 12.5px; line-height: 1.4; color: var(--muted);
+  font-size: 13px; line-height: 1.4; color: var(--muted);
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   overflow: hidden; overflow-wrap: anywhere;
 }
 .hist-row > time {
   flex: none;
-  font-size: 12px; color: var(--muted);
+  font-size: 11px; color: var(--muted);
   font-variant-numeric: tabular-nums;
   padding-top: 3px;
 }
@@ -6674,7 +6674,7 @@ a.pill { text-decoration: none; }
 .hist-row.is-closed .pill.id { opacity: 0.72; }
 /* The type, and the repo when more than one is in view — text rather than chips, so the
    row's three pills stay the three things worth a chip. */
-.hist-kind { font-size: 11.5px; color: var(--muted); }
+.hist-kind { font-size: 11px; color: var(--muted); }
 .pill.st-closed { background: transparent; color: var(--muted); }
 
 /* A bead whose session was archived — the thing you are actually looking for when you
@@ -6683,16 +6683,16 @@ a.pill { text-decoration: none; }
    accent rule down the left edge, and the `aria-label` on the glyph for a reader that
    gets neither. Same inset-shadow idiom as `.eq-bead.unfolded`. */
 .hist-row.has-session { box-shadow: inset 3px 0 0 var(--accent); }
-.hist-sess { font-size: 12px; line-height: 1; }
+.hist-sess { font-size: 11px; line-height: 1; }
 
 .hist-foot { display: flex; justify-content: center; padding: 4px 0 2px; }
-.hist-more-note { font-size: 12.5px; color: var(--muted); }
+.hist-more-note { font-size: 13px; color: var(--muted); }
 .hist-more {
   min-height: 40px;
   padding: 0 18px;
   border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface);
-  color: var(--text); font-size: 14px; font-weight: 600;
+  color: var(--text); font-size: 13px; font-weight: 600;
   cursor: pointer;
 }
 
@@ -6713,7 +6713,7 @@ a.pill { text-decoration: none; }
   border: 1px solid var(--p1, var(--line));
   border-radius: 10px;
   background: var(--surface-2);
-  font-size: 14px;
+  font-size: 13px;
 }
 .adopt-kind {
   flex: none;
@@ -6745,7 +6745,7 @@ a.pill { text-decoration: none; }
   font-size: 13px;
 }
 .adopt-btn[disabled] { opacity: 0.5; }
-.adopt-none, .adopt-err { color: var(--muted); font-size: 12px; }
+.adopt-none, .adopt-err { color: var(--muted); font-size: 11px; }
 
 /* What a session on this bead runs on — the model row on the bead sheet (bc-nc6o.5,
    `modelRowHtml`). Shaped like `.owner-row` and `.sheet-session` because it sits directly
@@ -6760,7 +6760,7 @@ a.pill { text-decoration: none; }
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-2);
-  font-size: 14px;
+  font-size: 13px;
 }
 .model-kind {
   flex: none;
@@ -6799,7 +6799,7 @@ a.pill { text-decoration: none; }
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-2);
-  font-size: 14px;
+  font-size: 13px;
 }
 .approval-kind {
   flex: none;
@@ -6827,7 +6827,7 @@ a.pill { text-decoration: none; }
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-2);
-  font-size: 14px;
+  font-size: 13px;
 }
 .owner-kind {
   flex: none;
@@ -6850,12 +6850,12 @@ a.pill { text-decoration: none; }
   border-radius: 6px;
   background: var(--surface);
   color: var(--text);
-  font: inherit; font-size: 12.5px;
+  font: inherit; font-size: 13px;
   cursor: pointer;
 }
 .owner-btn:disabled { opacity: 0.5; cursor: default; }
 .owner-btn.is-clear { color: var(--muted); }
-.owner-err { font-size: 12px; color: var(--danger); }
+.owner-err { font-size: 11px; color: var(--danger); }
 
 /* The epics assigned to you, as a section rather than as the top of the list — see
    `p0SectionHtml`, and bc-eevn for why the heading no longer says "Your P0s". The
@@ -6884,7 +6884,7 @@ a.pill { text-decoration: none; }
    numbers. */
 .p0-kind-n {
   margin-left: auto;
-  letter-spacing: 0; font-size: 11.5px; font-weight: 600;
+  letter-spacing: 0; font-size: 11px; font-weight: 600;
   color: var(--muted);
 }
 /* How many agents are waiting on an answer, across the whole board (bc-rfnr.9.7). Beside
@@ -6895,7 +6895,7 @@ a.pill { text-decoration: none; }
    levels deep has something waiting in it, which since bc-khoe.28 is the whole reason the
    heading is still drawn at all. */
 .p0-kind-asks {
-  letter-spacing: 0; font-size: 11.5px; font-weight: 600;
+  letter-spacing: 0; font-size: 11px; font-weight: 600;
   color: var(--warn);
 }
 /* The status filter over every tree on the board (bc-rfnr.9.6) — `p0StatusHtml`.
@@ -6973,8 +6973,8 @@ a.pill { text-decoration: none; }
 .p0-card.asks { border-left-width: 5px; }
 /* Pushed to the far end, and the two counts in a fixed order — how much is left is the
    number you scan for, so it sits where the eye lands last and stays put between polls. */
-.p0-open { margin-left: auto; font-size: 11.5px; color: var(--muted); }
-.p0-flight { font-size: 11.5px; color: var(--accent); }
+.p0-open { margin-left: auto; font-size: 11px; color: var(--muted); }
+.p0-flight { font-size: 11px; color: var(--accent); }
 /* After the counts rather than before the id, so it is the last thing on the line and
    the two numbers keep the position the eye already knows. */
 .p0-caret { flex: none; font-size: 11px; color: var(--muted); }
@@ -6988,17 +6988,17 @@ a.pill { text-decoration: none; }
    the page grows a horizontal scrollbar and every card on the board pays for one title.
    `.p0-row-title` in the tree has carried the same rule since the indent was capped. */
 .p0-title {
-  font-size: 14px; line-height: 1.35;
+  font-size: 13px; line-height: 1.35;
   color: var(--text); text-decoration: none;
   min-width: 0; overflow-wrap: anywhere;
 }
 /* Only drawn when the advocate has written one (bc-rfnr.3). Quiet, because it is a
    status line under a title rather than a second title. */
-.p0-waiting { font-size: 12px; color: var(--muted); }
+.p0-waiting { font-size: 11px; color: var(--muted); }
 /* How far along it is — the total, where `.p0-open` is what is left. Quietest line on
    the card: it is a footnote to the title, and a footnote as loud as the title is one
    you read instead of the title. */
-.p0-hint { font-size: 11.5px; color: var(--muted); }
+.p0-hint { font-size: 11px; color: var(--muted); }
 /* The same fact as a shape (bc-grut). A grid of cards is read in one pass and
    a proportion is the only thing on a card that can be taken in without being read; the
    numbers beside it are what say whether the proportion is of five beads or sixty.
@@ -7038,15 +7038,15 @@ a.pill { text-decoration: none; }
   border-left: 2px solid var(--line);
   border-radius: 0 6px 6px 0;
   color: var(--text); text-decoration: none;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .p0-row:hover { background: var(--surface); }
-.p0-row-id, .p0-adv-kid-id { flex: none; font-size: 11.5px; color: var(--muted); }
+.p0-row-id, .p0-adv-kid-id { flex: none; font-size: 11px; color: var(--muted); }
 /* The marks ride on the first line beside the id, ahead of the title rather than after
    it, because the title is the part that wraps: a pill pushed past a three-line title
    lands alone on a line of its own, where a word in upper case shouts. Smaller than a
    pill anywhere else in the app for the same reason — there can be sixty of these. */
-.p0-row .pill { flex: none; font-size: 9.5px; padding: 2px 6px; }
+.p0-row .pill { flex: none; font-size: 9px; padding: 2px 6px; }
 /* `min-width: 0` with `overflow-wrap` because a bead title is a sentence and an id is
    not: without it a long unbroken token pushes the row wider than the card, and a card
    wider than the screen shrink-fits the whole page (see the note on measuring layout). */
@@ -7097,7 +7097,7 @@ a.pill { text-decoration: none; }
   margin: 6px 0 2px;
   padding-top: 6px;
   border-top: 1px solid var(--line);
-  font-size: 12px; color: var(--muted);
+  font-size: 11px; color: var(--muted);
 }
 
 /* A row is a disclosure since bc-rfnr.9.4, not a link out to the graph — so it is a
@@ -7111,7 +7111,7 @@ button.p0-row {
   margin-top: 0; margin-right: 0; margin-bottom: 0;
   border-top: 0; border-right: 0; border-bottom: 0;
   background: none;
-  font: inherit; font-size: 12.5px;
+  font: inherit; font-size: 13px;
   text-align: left;
   cursor: pointer;
   -webkit-appearance: none; appearance: none;
@@ -7119,7 +7119,7 @@ button.p0-row {
 /* Leading the row rather than ending it, unlike the card's. `.p0-row` wraps, so a caret
    after the title lands alone on a line of its own past a long one — and the left edge
    of a tree is where the eye already is when it is looking for the next level down. */
-.p0-row-caret { flex: none; font-size: 10px; color: var(--muted); }
+.p0-row-caret { flex: none; font-size: 9px; color: var(--muted); }
 /* The row whose details are open under it. Just a tint: the block below it is the loud
    part, and a row that changed weight or size when opened would move the sixty rows
    under it every time you tapped one. */
@@ -7163,14 +7163,14 @@ button.p0-row {
    the headings between its fields and the thread. The card's own sizes are set for a
    full-screen sheet, and at 15.5px a description in here would be larger than the title
    of the epic it is filed under. */
-.p0-bead .md { font-size: 13.5px; line-height: 1.55; color: var(--prose); }
+.p0-bead .md { font-size: 13px; line-height: 1.55; color: var(--prose); }
 .p0-bead .md p, .p0-bead .md ul, .p0-bead .md ol { margin-bottom: 9px; }
 .p0-bead .md > *:last-child { margin-bottom: 0; }
-.p0-bead .md h1, .p0-bead .md h2, .p0-bead .md h3 { font-size: 14px; }
+.p0-bead .md h1, .p0-bead .md h2, .p0-bead .md h3 { font-size: 13px; }
 .p0-bead .section-label { margin: 12px 0 6px; padding-top: 8px; }
 .p0-bead .comments { margin: 8px 0 0; gap: 8px; }
 .p0-bead .comment .md { font-size: 13px; }
-.p0-bead .pill { font-size: 9.5px; padding: 2px 6px; }
+.p0-bead .pill { font-size: 9px; padding: 2px 6px; }
 /* What kind of bead it is, whose it is, and what it carries — one wrapping row, because
    a bead in this tracker can carry six labels and a column of them would be taller than
    the description under it. */
@@ -7182,10 +7182,10 @@ button.p0-row {
 /* How a closed bead ended — straight under the pills, because the row's `closed` pill is
    what raises the question and this is the only place in the board that answers it. */
 .p0-bead-closed { margin: 0 0 8px; padding-left: 8px; border-left: 2px solid var(--line); }
-.p0-bead-when { margin-bottom: 4px; font-size: 11.5px; color: var(--muted); }
+.p0-bead-when { margin-bottom: 4px; font-size: 11px; color: var(--muted); }
 /* Reading, or refused. A sentence rather than a blank block, for the reason `.p0-none`
    is one: an empty expansion is indistinguishable from a tap that did nothing. */
-.p0-bead-note { font-size: 12px; color: var(--muted); }
+.p0-bead-note { font-size: 11px; color: var(--muted); }
 .p0-bead-note.bad { color: var(--danger); }
 /* The relay's trail (bc-bmry.4). A column of rows rather than a table, because the note is
    a sentence and the three fields before it are two words each: a table would give the
@@ -7197,7 +7197,7 @@ button.p0-row {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 6px;
   padding-left: 8px;
   border-left: 2px solid var(--line);
-  font-size: 12px;
+  font-size: 11px;
 }
 /* The hand-back is the only row that says nothing will move on its own, so it is the only
    one that gets a colour — see `.p0-relay.back`, which is the same fact one screen out. */
@@ -7221,7 +7221,7 @@ button.p0-row {
 .p0-rel-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
 .p0-rel-kind {
   flex: none;
-  font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--muted);
 }
 /* Each on its own line — `flex: 1 1 100%` — because these carry a title and a title
@@ -7230,7 +7230,7 @@ button.p0-row {
   display: flex; align-items: baseline; gap: 6px; flex: 1 1 100%;
   min-width: 0;
   color: var(--text); text-decoration: none;
-  font-size: 12px;
+  font-size: 11px;
 }
 .p0-rel-title { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
 /* What happened to this bead — the pull requests that name it and its session
@@ -7253,7 +7253,7 @@ button.p0-row {
   border-radius: 6px;
   background: var(--surface);
   color: var(--text);
-  font: inherit; font-size: 12px; text-align: left; text-decoration: none;
+  font: inherit; font-size: 11px; text-align: left; text-decoration: none;
   cursor: pointer;
 }
 /* Not a control at all: the two states that are a `<div>` say something and offer
@@ -7264,7 +7264,7 @@ div.p0-hap-row { cursor: default; opacity: 0.75; }
    the live-session row draws nothing at all where its dot belongs — measured, and it is a
    row whose whole subject is that a window is running. `inline-flex` rather than `flex`
    so the emoji the other rows use still sits on the text baseline beside it. */
-.p0-hap-glyph { display: inline-flex; align-items: center; min-height: 12px; flex: none; font-size: 12px; }
+.p0-hap-glyph { display: inline-flex; align-items: center; min-height: 12px; flex: none; font-size: 11px; }
 .p0-hap-row .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 /* `1 1 100%` for the same reason `.p0-rel-row` uses it one block up — a title beside the
    rung wraps into the rung's column and reads as part of it. */
@@ -7272,7 +7272,7 @@ div.p0-hap-row { cursor: default; opacity: 0.75; }
 .p0-hap-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
 /* The sentence for a bead nothing has happened to, which is most of them. Muted and
    without a box, so it reads as an answer rather than as a row that failed to draw. */
-.p0-hap-none { font-size: 12px; color: var(--muted); }
+.p0-hap-none { font-size: 11px; color: var(--muted); }
 /* The way out to the graph, on the bead you tapped rather than on the card above it.
    It is where this row used to send you, and it stays reachable: the expansion is this
    bead, and the graph is everything around it. */
@@ -7326,7 +7326,7 @@ div.p0-hap-row { cursor: default; opacity: 0.75; }
   border-radius: 6px;
   background: var(--surface);
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13px;
   text-decoration: none;
 }
 /* The same control as a link, once there is an advocate to go and look at (bc-d6yk).
@@ -7361,7 +7361,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   border-radius: 6px;
   background: var(--surface);
   color: var(--muted);
-  font: inherit; font-size: 12.5px;
+  font: inherit; font-size: 13px;
   cursor: pointer;
 }
 .p0-off:disabled { opacity: 0.6; cursor: default; }
@@ -7388,7 +7388,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
 }
 .p0-cand:disabled { opacity: 0.6; cursor: default; }
 .p0-cand-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.p0-cand-title { min-width: 0; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.35; }
+.p0-cand-title { min-width: 0; overflow-wrap: anywhere; font-size: 13px; line-height: 1.35; }
 /* `.p0-board.bare` was here: nothing started yet, and the section drawn as the offer and
    nothing else. With the offer on ＋ there is no such section — an empty board draws
    nothing at all now, and the way to end that state is a button that is always on screen
@@ -7429,7 +7429,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   margin: 0; padding: 0 10px 0 0;
   border: 0; background: none;
   color: var(--accent);
-  font: inherit; font-size: 14px;
+  font: inherit; font-size: 13px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -7445,7 +7445,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
 }
 /* Bigger than it is on the board: there it is one card among several and the id is what
    you scan, here it is the whole screen's subject. */
-.p0-full-head .p0-title { font-size: 17px; font-weight: 600; line-height: 1.3; }
+.p0-full-head .p0-title { font-size: 16px; font-weight: 600; line-height: 1.3; }
 /* The tree. Basis 0 so it takes what is left rather than bidding for its content's
    height, `min-height: 0` so it may shrink below it, and `contain` so reaching the end of
    a tree stops rather than starting to scroll the inbox behind the layer. */
@@ -7520,20 +7520,20 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
    the app that legitimately opens over another one: the advocate is reached from the epic's
    own tab as well as from the card on the board. */
 .p0-adv { z-index: 41; }
-.p0-adv-title { font-size: 17px; font-weight: 600; line-height: 1.3; }
-.p0-adv-sub { color: var(--muted); font-size: 12.5px; }
+.p0-adv-title { font-size: 16px; font-weight: 600; line-height: 1.3; }
+.p0-adv-sub { color: var(--muted); font-size: 13px; }
 .p0-adv-done { display: flex; margin-top: 4px; }
 /* Where it is: a label column narrow enough that the values line up, and wrapping rather
    than truncating, because every one of these is a sentence somebody has to act on. */
 .p0-adv-facts { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; }
-.p0-adv-fact { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12.5px; }
+.p0-adv-fact { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 13px; }
 .p0-adv-key { flex: none; min-width: 108px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 .p0-adv-val { flex: 1 1 200px; color: var(--text); }
 /* Nothing there, said in the same place rather than by leaving the row out. A sheet whose
    rows appear and disappear is one you cannot learn the shape of. */
 .p0-adv-val.is-none { color: var(--muted); }
-.p0-adv-none { color: var(--muted); font-size: 12.5px; }
-.p0-adv-warn { color: var(--warn); font-size: 12.5px; }
+.p0-adv-none { color: var(--muted); font-size: 13px; }
+.p0-adv-warn { color: var(--warn); font-size: 13px; }
 /* The advocate's sentence in full, which the card shows a line of. Bordered on the leading
    edge because it is quoted from somewhere else — it is the advocate's own words. */
 .p0-adv-waiting {
@@ -7541,7 +7541,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   border-left: 3px solid var(--accent);
   background: var(--surface);
   border-radius: 0 10px 10px 0;
-  font-size: 12.5px;
+  font-size: 13px;
 }
 /* The plan: one block per group, which is one window's worth of work in one checkout. */
 .p0-adv-groups { display: flex; flex-direction: column; gap: 6px; }
@@ -7562,7 +7562,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
 .p0-adv-haps { display: flex; flex-direction: column; gap: 4px; }
 .p0-adv-kid { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .p0-adv-kid-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
-.p0-adv-kid-title { flex: 1 1 160px; font-size: 12.5px; }
+.p0-adv-kid-title { flex: 1 1 160px; font-size: 13px; }
 
 /* ------------------------------------------------------------- edit mode
 
@@ -7628,7 +7628,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
   background: var(--warn);
   color: var(--accent-ink);
-  font-size: 13.5px; font-weight: 600;
+  font-size: 13px; font-weight: 600;
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
 }
 .editbar-dot {
@@ -7720,7 +7720,7 @@ body.editing::after {
   background: var(--surface);
   box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
 }
-.app-update-ask p { margin: 0 0 10px; font-size: 14px; }
+.app-update-ask p { margin: 0 0 10px; font-size: 13px; }
 .app-update-row { display: flex; gap: 8px; justify-content: flex-end; }
 .app-update-row button {
   min-height: 36px;
@@ -7844,12 +7844,12 @@ body.editing::after {
 }
 .editnote-what {
   margin: 0;
-  font-size: 13.5px; font-weight: 600;
+  font-size: 13px; font-weight: 600;
   color: var(--text);
 }
 .editnote-ask {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--muted);
 }
 .editnote-box {
@@ -7860,7 +7860,7 @@ body.editing::after {
   border-radius: 10px;
   background: var(--bg);
   color: var(--text);
-  font: inherit; font-size: 15px;
+  font: inherit; font-size: 16px;
   resize: vertical;
   -webkit-user-select: text;
   user-select: text;
@@ -7873,7 +7873,7 @@ body.editing::after {
   border: 1px solid var(--line);
   background: transparent;
   color: var(--text);
-  font: inherit; font-size: 14px; font-weight: 600;
+  font: inherit; font-size: 13px; font-weight: 600;
   cursor: pointer;
 }
 /* Filled, because it is the one that files something — and refused while the box is
@@ -7902,7 +7902,7 @@ body.editing::after {
   box-shadow: 0 -10px 30px rgb(0 0 0 / 0.4);
 }
 .editlist-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.editlist-count { font-size: 13.5px; font-weight: 700; color: var(--warn); }
+.editlist-count { font-size: 13px; font-weight: 700; color: var(--warn); }
 .editlist-close {
   min-height: 34px;
   padding: 4px 14px;
@@ -7926,7 +7926,7 @@ body.editing::after {
   display: flex; align-items: flex-start; gap: 9px;
   padding: 8px 0;
   border-top: 1px solid var(--line);
-  font-size: 13.5px;
+  font-size: 13px;
 }
 .editlist-kind { flex: none; width: 18px; text-align: center; }
 .editlist-said { flex: 1 1 auto; color: var(--text); overflow-wrap: anywhere; }
@@ -7944,7 +7944,7 @@ body.editing::after {
   cursor: pointer;
 }
 .editlist-none { padding: 10px 0; color: var(--muted); font-size: 13px; }
-.editlist-foot { margin: 8px 0 0; color: var(--muted); font-size: 11.5px; }
+.editlist-foot { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
 /* The one control in this mode that makes anything real, and the sentence saying nothing
    is real yet, on one line. The sentence takes the space that is left so the button keeps
    its width on a narrow phone — a Save that wrapped to two characters would be the least
@@ -7959,7 +7959,7 @@ body.editing::after {
   border-radius: 999px;
   background: var(--warn);
   color: var(--warn-ink);
-  font: inherit; font-size: 14px; font-weight: 700;
+  font: inherit; font-size: 13px; font-weight: 700;
   cursor: pointer;
 }
 /* Disabled while a Save is in flight and while there is nothing to save. Faded rather
@@ -7983,8 +7983,8 @@ body.editing::after {
 }
 .req-row.is-detail { cursor: default; }
 .req-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.req-meta { color: var(--muted); font-size: 12px; }
-.req-files { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--muted); }
+.req-meta { color: var(--muted); font-size: 11px; }
+.req-files { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--muted); }
 .req-files code { font-size: 11px; }
 .reqbar {
   position: relative; height: 6px; border-radius: 999px;
@@ -8019,8 +8019,8 @@ body.editing::after {
    something that is not there yet rather than as a record of something that is. */
 .skill-row.is-untracked { background: transparent; border-style: dashed; }
 .skill-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.skill-title { color: var(--text); font-size: 14px; line-height: 1.35; }
-.skill-meta { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.skill-title { color: var(--text); font-size: 13px; line-height: 1.35; }
+.skill-meta { color: var(--muted); font-size: 11px; line-height: 1.4; }
 .skill-meta a { color: var(--accent); }
 .skill-untracked { font-style: italic; }
 /* The two links a row can carry. The title opens the bead — a block, so the tap target is
@@ -8074,7 +8074,7 @@ body.editing::after {
   flex: none; width: 30px; height: 30px; border-radius: 50%;
   display: grid; place-items: center;
   background: var(--line); color: var(--text);
-  font-size: 14px; font-weight: 650;
+  font-size: 13px; font-weight: 650;
 }
 .sound-play {
   flex: none; min-height: 44px; padding: 0 18px;
@@ -8101,7 +8101,7 @@ body.editing::after {
   border-radius: 10px; border: 1px solid var(--line);
   background: transparent; color: var(--muted); font: inherit;
 }
-.sound-verdict { margin: 14px 0 0; font-size: 14px; }
+.sound-verdict { margin: 14px 0 0; font-size: 13px; }
 .sound-verdict.is-pass { color: var(--text); }
 .sound-verdict.is-fail { color: var(--muted); }
 
@@ -8112,7 +8112,7 @@ body.editing::after {
 }
 .sound-row:first-child { border-top: 0; }
 .sound-words { min-width: 0; }
-.sound-file { margin-left: 8px; font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sound-file { margin-left: 8px; font-size: 11px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .sound-detail { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
 
 
