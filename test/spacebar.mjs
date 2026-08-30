@@ -136,16 +136,15 @@ function load({ token = 'tok', fetch = async () => ({ ok: false }), clock = null
   });
 
   const select = el('space-pick');
-  /* The span the bar actually draws its label in. The `<select>` over it is invisible and
-     carries the whole names; this is where the cut-down one lands. See `.spacepick` in
-     public/style.css. */
-  const shown = el('space-shown');
   const bar = {
     className: '',
     hidden: true,
     innerHTML: '',
     classes: new Set(),
-    querySelector: (sel) => (sel === '#space-pick' ? select : sel === '#space-shown' ? shown : null),
+    /* One control. There was a `#space-shown` span beside it holding a cut-down label
+       until bc-ka5y.34 — see `.spacepick` in public/style.css — and the whole of what it
+       drew is the select's own selected option now. */
+    querySelector: (sel) => (sel === '#space-pick' ? select : null),
     classList: {
       toggle(name, on) {
         if (on) bar.classes.add(name);
@@ -199,7 +198,7 @@ function load({ token = 'tok', fetch = async () => ({ ok: false }), clock = null
   vm.runInContext(fs.readFileSync(PUBLIC('spacebar.js'), 'utf8'), ctx, { filename: 'spacebar.js' });
   // `win` so a check can hang something else off `beadcause` after the file has loaded —
   // which is how edit mode reaches this file, and the order the page loads them in.
-  return { space: ctx.window.beadcause.space, win: ctx.window, bar, select, shown, topbar };
+  return { space: ctx.window.beadcause.space, win: ctx.window, bar, select, topbar };
 }
 
 /* One space with two repos, one muted space with one, and a repo in neither — every
@@ -411,41 +410,48 @@ check('and nothing extra is drawn while the pin is a row the list really has', (
   assert.ok(!select.innerHTML.includes('No longer configured'), select.innerHTML);
 });
 
-/* --------------------------------------------- the face, and the list behind it */
+/* ------------------------------------------ the control, and the list behind it */
 
 /*
-  The picker shares the top row with the mark since bc-khoe.5, so what it *draws* is a
-  cut-down label while the dropdown keeps every whole name. Twelve characters through,
-  nine and an ellipsis past that. The rule is asserted here and the geometry it buys is
-  measured in `scripts/topbar-check.mjs`, which fails the repo for a second row.
+  The picker shares the top row with the mark since bc-khoe.5, so its *width* is part of
+  the bar's budget — and until bc-ka5y.34 it paid for that with a second element: a span
+  drawn where the select's text would be, filled by `paint()` with a label cut to twelve
+  characters, with the select laid over it at `opacity: 0`.
+
+  There is one element now. The cut is a `max-width` and a `text-overflow` on the select
+  itself (`.spacepick` in public/style.css) and what is drawn is its own selected option,
+  which the browser keeps in step with the value — so the drawn string is not something a
+  `node:vm` can measure at all, and there is nothing here that could assert it.
+
+  What this file can hold is that the second element is *gone*: a control that draws its
+  own value cannot fall out of step with itself, which is the whole of why bc-ka5y.32
+  cannot come back. The geometry it costs is measured in `scripts/topbar-check.mjs`, which
+  fails the repo for a second row and for a picker over its cap.
 */
-check('a name of twelve characters or fewer is drawn whole', () => {
+check('there is one control and no label beside it', () => {
   const h = fresh();
-  h.select.value = 'ws:beadcause';
-  h.select.events.change();
-  assert.equal(h.shown.textContent, 'beadcause');
+  // The markup the bar is built from, so this catches a span put back rather than a
+  // querySelector that happens to answer null.
+  assert.ok(!h.bar.innerHTML.includes('spacepick-shown'), h.bar.innerHTML);
+  assert.ok(!h.bar.innerHTML.includes('space-shown'), h.bar.innerHTML);
+  assert.ok(h.bar.innerHTML.includes('id="space-pick"'), h.bar.innerHTML);
+  // The caret stays: the control is `appearance: none`, so nothing else draws one.
+  assert.ok(h.bar.innerHTML.includes('spacepick-caret'), h.bar.innerHTML);
 });
 
-check('and a longer one is cut to nine and an ellipsis, so the bar cannot widen', () => {
-  const h = load();
+check('and nothing exports a cut-down label any more', () => {
+  const h = fresh();
+  // `shortLabel()` was the same string the span drew, and four pages write `label()` into
+  // a sentence — "Nothing in climative-platform." — so the whole name is what is left.
+  assert.equal(typeof h.space.shortLabel, 'undefined', 'shortLabel() is still exported');
   h.space.adopt({
     spaces: [{ name: 'Work', workspaces: ['climative-platform'] }],
     workspaces: ['climative-platform', 'beadcause'],
     filter: { space: 'Work', workspace: 'climative-platform' },
   });
-  assert.equal(h.shown.textContent, 'climative…');
-  // Ten drawn characters, not eighteen. The number is the whole point of the rule.
-  assert.ok(h.shown.textContent.length <= 12, h.shown.textContent);
-});
-
-check('the twelfth character is in and the thirteenth is not — the boundary, both sides', () => {
-  const at = (name) => {
-    const h = load();
-    h.space.adopt({ spaces: [{ name: 'S', workspaces: [name] }], workspaces: [name, 'other'], filter: { space: 'S', workspace: name } });
-    return h.shown.textContent;
-  };
-  assert.equal(at('abcdefghijkl'), 'abcdefghijkl');
-  assert.equal(at('abcdefghijklm'), 'abcdefghi…');
+  assert.equal(h.space.label(), 'climative-platform');
+  // And the whole name is on the control, for a hover on one the cap has cut.
+  assert.equal(h.select.title, 'climative-platform');
 });
 
 check('but the dropdown itself is untouched — a whole name per row', () => {
@@ -459,19 +465,6 @@ check('but the dropdown itself is untouched — a whole name per row', () => {
   // *from*, and two repos sharing their first nine characters would be one row twice.
   assert.ok(h.select.innerHTML.includes('>climative-platform<'), h.select.innerHTML);
   assert.ok(!h.select.innerHTML.includes('…'), `a row was cut too: ${h.select.innerHTML}`);
-});
-
-check('shortLabel() is what the bar draws and label() is still the whole thing', () => {
-  const h = load();
-  h.space.adopt({
-    spaces: [{ name: 'Work', workspaces: ['climative-platform'] }],
-    workspaces: ['climative-platform', 'beadcause'],
-    filter: { space: 'Work', workspace: 'climative-platform' },
-  });
-  // Four pages write `label()` into a sentence — "Nothing in climative-platform." — and a
-  // sentence with an ellipsis in the middle of it is the cut leaking out of the chrome.
-  assert.equal(h.space.label(), 'climative-platform');
-  assert.equal(h.space.shortLabel(), 'climative…');
 });
 
 check('the picker draws no numbers — not on the bar, and not on a row', () => {
@@ -612,12 +605,18 @@ check('and it registers one listener however many polls land under the freeze', 
   assert.equal(edit.listeners.length, 1, 'a listener per skipped paint is a leak on a long edit');
 });
 
-check('a pick made while the screen is frozen still moves the label and the title, in the same turn', () => {
+check('a pick made while the screen is frozen still moves the title, in the same turn', () => {
   // bc-ka5y.33. The freeze holds the *rows* still so a poll cannot move an option out
   // from under a thumb — but the browser moves the `<select>`'s own value on the tap
   // itself, no code involved, and the bar used to leave the shown label and the title
   // naming the space the pick replaced until the thaw, under a banner promising the
   // screen was held still.
+  //
+  // The shown label is what made that visible, and bc-ka5y.34 has since deleted that
+  // span — so the assertion it carried is gone with it, and what is left to check is the
+  // pair that survived: the title, still written whether or not the mode is frozen, and
+  // the control's own value, which the browser moved and no code here undid. The split
+  // is what this test is about, and both halves of it are still under test.
   const h = fresh();
   const edit = editStub();
   h.win.beadcause.editMode = edit.mode;
@@ -625,7 +624,6 @@ check('a pick made while the screen is frozen still moves the label and the titl
   h.select.value = 'ws:beadcause';
   h.select.events.change();
 
-  assert.equal(h.shown.textContent, 'beadcause', 'the bar still names the space the pick replaced');
   assert.equal(h.select.title, 'beadcause', 'the title still names the space the pick replaced');
   assert.equal(h.select.value, 'ws:beadcause', 'the control disagrees with its own pick');
 });

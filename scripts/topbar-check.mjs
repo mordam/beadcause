@@ -23,10 +23,14 @@
 //     the frame for everything under it and therefore wanted the width; what it is now is
 //     the narrow value of that frame, and the accent border is what still says something
 //     is being kept off the screen;
-//   * its label is **cut rather than wide**: at most twelve characters drawn, and past
-//     that nine and an ellipsis (`shorten` in public/spacebar.js). Both halves are
-//     asserted, because "it fits" and "it is the rule the code says it is" are different
-//     claims and only the second survives a font change;
+//   * its label is **cut rather than wide**: the control is the `<select>` itself now
+//     (bc-ka5y.34), capped by a `max-width` and ellipsised past it, so what is measured
+//     is the box and not a character count. Both halves are asserted — the box is inside
+//     the cap *and* the two declarations that do the cutting are still in force — because
+//     "it fits today" and "it is the rule the code says it is" are different claims and
+//     only the second survives a font change. The cap is asserted with a short name
+//     selected as well as a long one, because a select is sized by its widest *option*
+//     and not by its selected one: a bare one is over budget while `ehatt` is picked;
 //   * and the **dropdown is untouched** — every row in it is a whole name, because that
 //     list is the one place the whole name is the point;
 //   * the bar **plus the pill row** stays inside a **170px** budget on a 640px screen.
@@ -80,6 +84,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
    today's measurement would fail the repo for a 2px line-height. What stops a second row
    arriving is the line count above, which is exact. */
 const CHROME_BUDGET = 170;
+
+/* What the picker itself is allowed to take of that row — the `max-width` on
+   `.spacepick select` in public/style.css, said again here so the two can disagree out
+   loud. 130px is what the twelve-character rule this replaced measured at (bc-ka5y.34),
+   so the row's arithmetic is unchanged; what moved is where the cut is made. Asserted as
+   a *box* rather than as a character count, because the box is what the bar pays and a
+   character count stops being true the moment a font is substituted. */
+const PICKER_CAP = 130;
 
 if (!fs.existsSync(CHROME)) {
   console.error(`Google Chrome not found at ${CHROME}`);
@@ -189,7 +201,8 @@ const evalJs = async (s, expr) => {
 
   The label widths are measured with a span carrying the select's own resolved font
   rather than with the select's `scrollWidth`, which under `appearance: none` and
-  `text-overflow: ellipsis` reports the box and not the text.
+  `text-overflow: ellipsis` reports the box and not the text — so it can never answer
+  "was this name cut", which is the one question this file is here to ask.
 */
 const PROBE = `(() => {
   const bar = document.querySelector('.topbar');
@@ -214,20 +227,19 @@ const PROBE = `(() => {
   const sb = document.querySelector('.spacebar');
   const shown = !!(sb && !sb.hidden && getComputedStyle(sb).display !== 'none');
   const sel = sb && sb.querySelector('#space-pick');
-  const face = sb && sb.querySelector('.spacepick-shown');
   /*
-    What is *drawn* and what is in the *list* are two different strings now — the face is
-    a span the script fills with a cut-down label and the select over it is invisible
-    (see .spacepick in public/style.css). So both are reported: the face for the bar's
-    width and the truncation rule, the options for the promise that the dropdown still
-    carries whole names.
+    What is *drawn* and what is in the *list* are two readings of one control now — the
+    select draws its own selected option, capped by a max-width and ellipsised past it
+    (see .spacepick in public/style.css). So both are reported: the box for the bar's
+    width and the cut, the options for the promise that the dropdown still carries whole
+    names.
 
-    The face's room is its content box, because the caret is drawn over its right-hand
+    The room is the select's content box, because the caret is drawn over its right-hand
     padding.
   */
   const label = (() => {
-    if (!sel || !face) return null;
-    const c = getComputedStyle(face);
+    if (!sel) return null;
+    const c = getComputedStyle(sel);
     const span = document.createElement('span');
     span.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:' + c.fontFamily +
       ';font-size:' + c.fontSize + ';font-weight:' + c.fontWeight + ';letter-spacing:' + c.letterSpacing;
@@ -236,26 +248,40 @@ const PROBE = `(() => {
     const texts = [...sel.options].map((o) => o.textContent);
     const widths = texts.map(w);
     const most = Math.max(...widths);
-    const shownText = face.textContent;
+    const shownText = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+    const room = Math.round(sel.clientWidth - parseFloat(c.paddingLeft) - parseFloat(c.paddingRight));
     const out = {
       shownText,
       shown: w(shownText),
-      /* Clipped is the browser's own answer, not a re-measurement: the face is sized to
-         its own content, so a span measured at ceil() precision is a pixel wider than the
-         box it is describing and every page reads as one pixel short. */
-      clipped: face.scrollWidth > face.clientWidth + 1,
+      /** The control's own border box — what the row actually pays. */
+      box: Math.round(sel.getBoundingClientRect().width),
+      /** The two declarations that do the cutting, read back rather than assumed. */
+      cap: c.maxWidth,
+      ellipsis: c.textOverflow,
+      overflow: c.overflowX,
+      border: Math.round(parseFloat(c.borderLeftWidth) + parseFloat(c.borderRightWidth)),
+      pad: Math.round(parseFloat(c.paddingLeft) + parseFloat(c.paddingRight)),
+      /* Measured against the box rather than read off \`scrollWidth\`, which under
+         \`appearance: none\` reports the box and not the text. A pixel of slack, because
+         the measuring span is ceil()ed and would otherwise call every exact fit a cut. */
+      clipped: w(shownText) > room + 1,
       /* What the picker says is selected, in its own words — 'everything' when nothing is,
-         which is not what the option row says. The face is cut from this. */
-      selectedText: String(window.beadcause?.space?.label?.() ?? sel.options[sel.selectedIndex].textContent),
-      optionText: sel.options[sel.selectedIndex].textContent,
+         which is not what the option row says. */
+      selectedText: String(window.beadcause?.space?.label?.() ?? shownText),
+      optionText: shownText,
+      /** The whole name, for a hover on one the cap has cut. */
+      title: sel.title,
+      /** The accent that says something is being kept off the screen. It keyed on the
+       *  span until bc-ka5y.34 and keys on the select now, which is exactly the kind of
+       *  rule a deleted element takes with it silently. */
+      borderColor: c.borderTopColor,
+      background: c.backgroundColor,
+      narrowed: sb.classList.contains('narrowed'),
       widest: most,
       widestText: texts[widths.indexOf(most)],
       /** Every option, so the check can say the list was left alone. */
       options: texts,
-      /** The whole set of faces this picker can draw, one per option — the truncation
-       *  rule tested over the list rather than over whichever row happens to be on. */
-      faces: texts.map((t) => (t.length > 12 ? t.slice(0, 9) + '…' : t)),
-      room: Math.round(face.clientWidth - parseFloat(c.paddingLeft) - parseFloat(c.paddingRight)),
+      room,
     };
     span.remove();
     return out;
@@ -285,7 +311,7 @@ const PROBE = `(() => {
     /* The bar's own box, so this is in the same units as \`need\` on a page the browser
        has scaled (see \`content\`). */
     spare: Math.round(bar.clientWidth - pad - brandW - (actsW ? actsW + gap : 0) - gap),
-    need: label && face ? label.shown + Math.round(parseFloat(getComputedStyle(face).paddingLeft) + parseFloat(getComputedStyle(face).paddingRight)) : null,
+    need: label ? label.box : null,
     brandW,
     actsW,
     rowH: row ? Math.round(row.getBoundingClientRect().height) : 0,
@@ -465,26 +491,47 @@ try {
 
       const L = m.picker.label;
 
-      /* The truncation rule, over every row the picker can select rather than over
-         whichever one happens to be on. Twelve characters through, nine and an ellipsis
-         past that — `shorten` in public/spacebar.js. Asserted against the rule and not
-         against a width, because a width is what a font change moves. */
+      /*
+        The cap, measured with a *short* name selected while a long one is in the list —
+        which is this pass, because the fixture starts on `All spaces` and carries
+        `climative-platform` five rows down. That combination is the whole reason the cap
+        exists: a `<select>` is sized by its widest option and not by its selected one, so
+        an uncapped one is over budget on the day you are looking at `ehatt`.
+      */
       const longest = L.options.reduce((a, b) => (b.length > a.length ? b : a), '');
-      const wrong = L.options.filter((t, i) => (t.length > 12 ? L.faces[i] !== t.slice(0, 9) + '…' : L.faces[i] !== t));
-      if (!wrong.length && L.faces.every((f) => f.length <= 12))
-        ok(`${at}: no face is over 12 characters (longest name "${longest}" would draw "${L.faces[L.options.indexOf(longest)]}")`);
-      else bad(`${at}: no face is over 12 characters`, `these do not follow the rule: ${wrong.join(', ')}`);
+      if (L.box <= PICKER_CAP)
+        ok(`${at}: the picker is ${L.box}px with "${L.shownText}" up and "${longest}" in the list, cap ${PICKER_CAP}px`);
+      else
+        bad(
+          `${at}: the picker is inside its ${PICKER_CAP}px cap`,
+          `it is ${L.box}px with "${L.shownText}" selected — "${L.widestText}" needs ${L.widest + L.pad + L.border}px and the list is what sizes a select`
+        );
 
-      // And the one actually on the bar is the cut form of what the picker says is selected
-      // — `label()`, which answers 'everything' where the option row says 'All spaces'.
-      const want = L.selectedText.length > 12 ? `${L.selectedText.slice(0, 9)}…` : L.selectedText;
-      if (L.shownText === want) ok(`${at}: the bar draws "${L.shownText}" for "${L.selectedText}"`);
-      else bad(`${at}: the bar draws the cut form of the selection`, `it draws "${L.shownText}"; the rule says "${want}"`);
+      /* And the rule is the one the code says it is, not a width that happens to fit
+         today. Both declarations, read back off the control: the cap is what stops the
+         box, `text-overflow` is what makes the cut readable, and an overflow that is not
+         `visible` is what makes `text-overflow` apply at all.
 
-      // What is drawn is not clipped on top of being cut — a face the layout has to
-      // ellipsise a second time is the rule failing to do its job.
-      if (!L.clipped) ok(`${at}: the face is not clipped ("${L.shownText}", ${L.room}px of room)`);
-      else bad(`${at}: the face is not clipped`, `"${L.shownText}" is ellipsised inside ${L.room}px`);
+         `hidden` is what the stylesheet says and `clip` is what comes back — a `<select>`
+         cannot scroll, so Chrome computes the one to the other. Both are accepted here
+         rather than pinning the computed value, because which of the two a browser
+         reports is not a thing this repo decides. */
+      const cutting = L.cap === `${PICKER_CAP}px` && L.ellipsis === 'ellipsis' && /^(hidden|clip)$/.test(L.overflow);
+      if (cutting) ok(`${at}: and it is cut by the stylesheet (max-width ${L.cap}, overflow ${L.overflow}, text-overflow ${L.ellipsis})`);
+      else
+        bad(
+          `${at}: the cut is declared rather than incidental`,
+          `max-width ${L.cap} (want ${PICKER_CAP}px), overflow ${L.overflow} (want hidden or clip), text-overflow ${L.ellipsis} (want ellipsis)`
+        );
+
+      // A name that fits is drawn whole. There is one string now — the select's own
+      // selected option — so this is also the claim that nothing else is drawing a label.
+      if (!L.clipped) ok(`${at}: "${L.shownText}" is drawn whole (${L.shown}px in ${L.room}px of room)`);
+      else bad(`${at}: a name this short is drawn whole`, `"${L.shownText}" needs ${L.shown}px and has ${L.room}px`);
+
+      // The whole name is still reachable, for a hover on one the cap has cut.
+      if (L.title === L.selectedText) ok(`${at}: the control's title is the whole name, "${L.title}"`);
+      else bad(`${at}: the control's title is the whole name`, `it says "${L.title}"; the selection is "${L.selectedText}"`);
 
       // The dropdown is the one place the whole name is the point.
       const cut = L.options.filter((t) => /…$/.test(t));
@@ -557,36 +604,114 @@ try {
       /*
         And the acceptance itself: the longest name in the config actually *selected*.
 
-        Everything above is measured on `All spaces`, which is ten characters and cuts to
-        nothing — so without this the whole truncation rule could be deleted and every
-        assertion in this file would still pass. Picked through the control rather than by
-        calling `space.set`, because what is being asked is what a person's tap does.
+        Everything above is measured on `All spaces`, which fits with room to spare — so
+        without this the cap could be lifted and every assertion in this file would still
+        pass. Picked through the control rather than by calling `space.set`, because what
+        is being asked is what a person's tap does.
       */
-      const picked = await evalJs(
-        s,
-        `(() => {
-           const sel = document.querySelector('#space-pick');
-           const opt = [...sel.options].reduce((a, b) => (b.textContent.length > a.textContent.length ? b : a));
-           sel.value = opt.value;
-           sel.dispatchEvent(new Event('change'));
-           return opt.textContent;
-         })()`
-      );
+      const pick = (how) =>
+        evalJs(
+          s,
+          `(() => {
+             const sel = document.querySelector('#space-pick');
+             const rows = [...sel.options].filter((o) => o.value.startsWith('ws:'));
+             const opt = rows.reduce((a, b) => (${how} ? b : a));
+             sel.value = opt.value;
+             sel.dispatchEvent(new Event('change'));
+             return opt.textContent;
+           })()`
+        );
+
+      const picked = await pick('b.textContent.length > a.textContent.length');
       await sleep(250);
       const long = await evalJs(s, PROBE);
       const lat = `${at}, "${picked}" picked`;
-      const wanted = picked.length > 12 ? `${picked.slice(0, 9)}…` : picked;
-      if (long.picker && long.picker.label.shownText === wanted)
-        ok(`${lat}: the bar draws "${long.picker.label.shownText}"`);
-      else bad(`${lat}: the bar draws the cut form`, `it draws "${long.picker?.label?.shownText}"; the rule says "${wanted}"`);
+      const LL = long.picker && long.picker.label;
       if (long.lines.length === 1) ok(`${lat}: the bar is still one line, ${long.barH}px`);
       else
         bad(
           `${lat}: the bar is still one line`,
           long.lines.map((L) => L.items.map((i) => `${i.cls || '(none)'} ${i.w}px`).join(' + ')).join('  /  ')
         );
-      if (long.picker && !long.picker.label.clipped) ok(`${lat}: and the face is not clipped on top of being cut`);
-      else bad(`${lat}: the face is not clipped on top of being cut`, `"${long.picker?.label?.shownText}" is ellipsised`);
+      // The box did not widen to hold it. This is the assertion the old character rule
+      // was standing in for, said in the unit the row actually pays.
+      if (LL && LL.box <= PICKER_CAP) ok(`${lat}: the picker is still ${LL.box}px, cap ${PICKER_CAP}px`);
+      else bad(`${lat}: the picker is still inside its ${PICKER_CAP}px cap`, `it is ${LL?.box}px`);
+      // And the name is cut rather than the bar widened — the other half of the same
+      // claim, and the one that fails if `text-overflow` is quietly dropped.
+      if (LL && LL.clipped) ok(`${lat}: the name is ellipsised inside it (${LL.shown}px of text in ${LL.room}px)`);
+      else bad(`${lat}: a name this long is cut by the control`, `"${LL?.shownText}" measures ${LL?.shown}px in ${LL?.room}px and was not cut`);
+      // The row itself is still the whole name — the list is what you choose *from*.
+      if (LL && LL.shownText === picked && LL.title === picked)
+        ok(`${lat}: the row and the title are both the whole name`);
+      else bad(`${lat}: the row and the title are the whole name`, `row "${LL?.shownText}", title "${LL?.title}"`);
+      /* The accent that says five other repos are being kept off this screen. It was a
+         rule on the span (`.spacebar.narrowed .spacepick-shown`), so it is exactly the
+         kind of thing deleting an element takes with it and nobody notices. */
+      if (LL && LL.narrowed && LL.borderColor !== L.borderColor)
+        ok(`${lat}: and the narrowed accent is on the control (${L.borderColor} → ${LL.borderColor})`);
+      else
+        bad(
+          `${lat}: the narrowed accent is on the control that is left`,
+          `narrowed=${LL?.narrowed}, border ${L.borderColor} → ${LL?.borderColor}`
+        );
+
+      /*
+        And back to a short one, with the long one still in the list.
+
+        A `<select>` is sized by its widest *option*, not by its selected one, so this is
+        the state an uncapped control is over budget in while looking perfectly fine on
+        screen — the reason the cut had to become a `max-width` rather than a shorter
+        string. It is also the repaint after the one above, which is where a box that grew
+        would stay grown.
+      */
+      const shortPick = await pick('b.textContent.length < a.textContent.length');
+      await sleep(250);
+      const small = await evalJs(s, PROBE);
+      const sat = `${at}, "${shortPick}" picked`;
+      const SL = small.picker && small.picker.label;
+      if (small.lines.length === 1) ok(`${sat}: the bar is one line, ${small.barH}px`);
+      else
+        bad(
+          `${sat}: the bar is one line`,
+          small.lines.map((L2) => L2.items.map((i) => `${i.cls || '(none)'} ${i.w}px`).join(' + ')).join('  /  ')
+        );
+      if (SL && SL.box <= PICKER_CAP && !SL.clipped)
+        ok(`${sat}: ${SL.box}px and drawn whole, with "${SL.widestText}" still in the list`);
+      else
+        bad(
+          `${sat}: a short name is inside the cap and drawn whole`,
+          `${SL?.box}px${SL?.clipped ? ', and it was cut' : ''} — "${SL?.widestText}" needs ${SL ? SL.widest + SL.pad + SL.border : '?'}px and the list is what sizes a select`
+        );
+
+      /* The focus ring. It was drawn on the span through `:has()` because the control
+         that had the focus was invisible; it is the select's own now, which is a rule
+         that can be deleted without anything else on the bar moving.
+
+         Tabbed to rather than `.focus()`ed: `:focus-visible` is a heuristic about how the
+         focus *arrived*, and a scripted focus does not match it — measured, and it is why
+         this is a key press and a loop rather than one line. The loop is bounded and the
+         count is reported, because "we never reached it" and "we reached it and there was
+         no ring" are different failures. */
+      await evalJs(s, `(document.activeElement && document.activeElement.blur && document.activeElement.blur()), 1`);
+      let ring = { on: false };
+      let tabs = 0;
+      const RING = `(() => {
+         const sel = document.querySelector('#space-pick');
+         const c = getComputedStyle(sel);
+         return { on: sel === document.activeElement, style: c.outlineStyle, w: c.outlineWidth, color: c.outlineColor };
+       })()`;
+      for (; tabs < 30 && !ring.on; tabs += 1) {
+        const key = { key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 };
+        await s.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...key });
+        await s.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
+        ring = await evalJs(s, RING);
+      }
+      if (ring.on && ring.style !== 'none' && parseFloat(ring.w) > 0)
+        ok(`${at}: the focus ring is on the control (${ring.w} ${ring.style} ${ring.color}, ${tabs} tabs in)`);
+      else if (!ring.on) bad(`${at}: the picker is reachable by keyboard`, `${tabs} tabs and the focus never landed on it`);
+      else bad(`${at}: the focus ring is on the control that is left`, `focused after ${tabs} tabs, outline ${ring.w} ${ring.style}`);
+      await evalJs(s, `document.querySelector('#space-pick').blur(), 1`);
     }
 
     /*
@@ -669,11 +794,19 @@ try {
 
     A notice rather than a failure while there is any room at all: the line count above is
     the assertion, and this is the thing that would have told you a week earlier.
+
+    What the picker takes is its **cap** now and not the width of whatever is selected
+    (bc-ka5y.34): a `<select>` is sized by its widest option, so the box is the same 130px
+    on a page showing `All spaces` as on one showing `climative-platform`. The margins
+    below therefore read ~22px tighter than they did against the old span, which was
+    `width: max-content`. That is not room the change spent — the old worst case was the
+    same 130px the moment a long repo was picked, and this file only ever measured it on
+    `All spaces`. The number below is the one that was always true.
   */
   console.log('\n\x1b[1mthe row, and what is left of it for the picker\x1b[0m');
   for (const r of room)
     console.log(
-      `  · ${r.at}: ${r.spare}px left (brand ${r.brandW}${r.actsW ? ` + actions ${r.actsW}` : ''}), the face takes ${r.need}px — ${r.spare >= r.need ? `${r.spare - r.need}px to spare` : `\x1b[31mover by ${r.need - r.spare}px\x1b[0m`}`
+      `  · ${r.at}: ${r.spare}px left (brand ${r.brandW}${r.actsW ? ` + actions ${r.actsW}` : ''}), the picker takes ${r.need}px — ${r.spare >= r.need ? `${r.spare - r.need}px to spare` : `\x1b[31mover by ${r.need - r.spare}px\x1b[0m`}`
     );
   for (const size of SIZES) {
     const mine = room.filter((r) => r.width === size.width);

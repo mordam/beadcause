@@ -725,15 +725,35 @@ selects is what the whole app is about:
 **It is on the mark's row, and it is narrow.** It had a full-width row of its own until
 bc-khoe.5 — the first row was full at four icon buttons, so 43px of every screen went on
 a second row of chrome. Those buttons are rows in the mark's menu now, so the picker came
-up beside it, and it pays for the fit with its *label*: what the bar draws is at most
-twelve characters, and a longer name is cut to nine and an ellipsis. Only the bar. Every
-row in the dropdown is the whole name, because the list is what you are choosing *from*
-and two repos sharing nine characters would be one row printed twice.
+up beside it, and it pays for the fit with its *label*: the control is capped at 130px and
+a name that does not fit is ellipsised. Only the bar. Every row in the dropdown is the
+whole name, because the list is what you are choosing *from* and two repos sharing their
+first nine characters would be one row printed twice.
 
 The cut is affordable for the same reason the row was not: what the picker has to say is
-*where you are*, and `climative-…` still says it while `beadcause` — nine characters, the
+*where you are*, and `climative-pl…` still says it while `beadcause` — nine characters, the
 common case — is not cut at all. `scripts/topbar-check.mjs` measures both halves and
 fails the repo if the bar ever needs a second row again.
+
+**The control is the `<select>` itself, and that is a correctness decision as much as a
+visual one.** It was three boxes until bc-ka5y.34: a span holding the cut-down label, the
+caret, and the select laid over both of them invisibly, because a native select draws its
+selected option whole and `climative-platform` on that row is a bar with nothing left on
+it. The span was a *second* reading of the selection, written by a repaint — and the value
+under it is moved by the browser, on the pick itself and on a form restore after a back
+navigation. Two readings and one writer is a control that can contradict itself, and it
+did: the bar said one repo while the dropdown held another, until the page was reloaded
+(bc-ka5y.32). There is one reading now and the browser keeps it in step, so the bug is not
+fixed a second time, it is unavailable.
+
+The width constraint moved into the stylesheet rather than going away: `max-width: 130px`
+with `overflow: hidden` and `text-overflow: ellipsis` on `.spacepick select`, so the cut is
+made by the layout at whatever the font actually measures rather than by a character count
+in a script — and the option list is untouched. The cap has to be a number rather than a
+percentage, because **a select is sized by its widest option and not by its selected one**:
+left to grow, having `climative-platform` somewhere in the list makes it a 170px box on a
+day you are looking at `ehatt`. 130px is what the twelve characters it replaced measured
+at, so the row's arithmetic is the one bc-khoe.5 spent.
 
 **A title beside it has to name the page and not the space, which is the whole of what
 the picker being there costs.** `/monitor` was *the details of the selected space*, so a
@@ -930,15 +950,18 @@ What bc-khoe.5 did is none of those. It **emptied the first row** rather than tr
 the picker past what was on it. The loose icon buttons — up to four of them, 128px at
 360px — are rows in the mark's menu; the account chip's address is a line inside that menu;
 and what is left up there is a 26px mark in a gear. The picker moved up beside it, and the
-one thing it gives up is *width*: the bar draws at most twelve characters of the label, and
-a longer name is cut to nine and an ellipsis, while every row in the dropdown stays whole.
+one thing it gives up is *width*: the control is capped at 130px and a longer name is
+ellipsised inside it, while every row in the dropdown stays whole.
 
 That is the trade the old arithmetic refused, and the reason it is affordable now is that
 the value is still on screen. `beadcause` — nine characters, and the common case — is not
-cut at all; `climative-…` still says which one; and the accent border says something is
-being kept off the screen either way. Measured after: the bar is **one line on all six
-pages at both widths**, and the bar plus the pill row is **108px** against the 159px the
-two of them replaced. The narrowest margin left on the row is 31px, on `/foundations`.
+cut at all; `climative-pl…` still says which one; and the accent border says something is
+being kept off the screen either way. Measured after: the bar is **one line on every page
+at both widths**, and the bar plus the pill row is **108px** against the 159px the two of
+them replaced. The narrowest margin left on the row is **20px**, on `/foundations`. That
+number used to read 31px, and the 11px is not room bc-ka5y.34 spent: a select is sized by
+its widest option, so the picker is at its cap on every page rather than only on the pages
+where a long repo happens to be selected, and 20px is what the old worst case always was.
 
 The one cost worth naming separately is **refresh**. It was the last icon left loose in the
 bar, deliberately, because it is the most-pressed control in the app and the least worth two
@@ -947,14 +970,23 @@ and the picker is the shape being got rid of, and it is two taps now.
 
 `node scripts/topbar-check.mjs [--out=DIR]` is what stops this being decided once and
 forgotten — and it is where those numbers come from. Two widths, every page with a picker:
-the bar is **exactly one line**, the picker is on it and sharing it, no name the picker can
-select would draw a face over twelve characters, the face on the bar is the cut form of what
-is selected, every row in the dropdown is a whole name, and the bar plus the pill row stays
-inside a **170px** budget. Then it picks the longest workspace in the fixture through the
-control itself and measures the bar again — because everything before that is measured on
-`All spaces`, which is under the cut, so without that pass the truncation could be deleted
-and the file would still pass. The fixture carries one deliberately over-length repo name
-for the same reason: every real workspace on this Mac is nine or ten characters.
+the bar is **exactly one line**, the picker is on it and sharing it, the control is inside
+its **130px** cap, the two declarations that do the cutting are still in force on it
+(`max-width`, and a `text-overflow: ellipsis` that an overflow of `hidden` or `clip` makes
+apply), a name that fits is drawn whole, the control's `title` is the whole name, every row
+in the dropdown is a whole name, and the bar plus the pill row stays inside a **170px**
+budget.
+
+Then it picks, through the control itself, the **longest** workspace in the fixture — the
+bar is still one line, the box is still 130px, the name is ellipsised inside it rather than
+the box widened, the row and the title are still whole, and the narrowed accent is on the
+control — and then the **shortest**, with the long one still in the list, which is the state
+an uncapped select is over budget in while looking perfectly fine on screen. It tabs to the
+picker with a real key press and reads the focus ring off it, because `:focus-visible` is a
+heuristic about how the focus arrived and a scripted `.focus()` does not match it. The
+fixture carries one deliberately over-length repo name throughout: every real workspace on
+this Mac is nine or ten characters, so a fixture built from them would never once exercise
+the cap.
 
 It also prints, per page, how much of the row is left once the brand has taken its share,
 and says so when any page is inside 24px of it. That is the same arithmetic bc-hne3 turned
