@@ -1,0 +1,339 @@
+#!/usr/bin/env node
+/**
+ * `b7e-role` — a relay role's whole operating contract, in one call.
+ *
+ *   b7e-role -w <workspace> <role>          the contract: charter block, one law, the
+ *                                            role's own file in full, its output
+ *                                            template, and the legal --next targets
+ *   b7e-role -w <workspace> <role> --next   only the legal handoff targets
+ *   b7e-role -w <workspace> --all           the roster — every role, its department,
+ *                                            and the gate it answers to
+ *   b7e-role -w <workspace> <role> --json   the same answer, structured
+ *   b7e-role ... --dir <root>               resolve docs and role files against <root>
+ *                                            instead — the default is the workspace's own
+ *                                            checkout (lib/session.js's resolveSessionDir),
+ *                                            falling back to the cwd where that cannot be
+ *                                            placed, which is where a relay session is
+ *
+
+ * `bc-dgx7.77` names five sessions (`dv-5eu.1.1`, `dv-gr6.43`, `dv-gr6.41`, `dv-b5d.4.3`,
+ * `dv-gr6.38`) that each opened by slicing `docs/STUDIO_CHARTER.md` (726 lines),
+ * `docs/APPROVAL_PIPELINE.md` (445) and a role file by hand — `wc -l` then a guessed run
+ * of `sed -n`, or a `cat` that blew the tool-result cap and needed three more `sed` calls
+ * to recover. Every one sliced differently, and `dv-gr6.43`'s clio step read a rule off
+ * trunk that had already been superseded, because the slice it took happened to include
+ * the retired line and not the ruling that replaced it. The same gap showed on the way
+ * out: `beadcause-relay --next` rejected with exit 3 in four of the five, each session
+ * discovering the legal role list from the error message rather than being told it up
+ * front. `lib/relay.js` already knows the whole roster (`rolesOf`) and where a role's own
+ * profile lives (`profilePath`); this is what reads the rest of the contract off the
+ * workspace's own charter and prints it as one answer instead of an argument from a
+ * refusal.
+ *
+ * The extraction is deliberately narrow, not a dump of either document: `lib/rolecontract.js`
+ * cuts exactly the role's own `####` block from the charter and the studio's one law
+ * (`## 2. The one law`, wherever it sits) — never the other ~700 lines around them. Every
+ * printed section is followed by its source and the line range it came from, so a
+ * disputed sentence can be checked against the file it was cut from rather than trusted.
+ *
+ * Exit codes: `0` full contract printed; `1` bad usage; `2` refused — no relay definition
+ * for the workspace, or `--dir`/the cwd is not a directory; `3` `<role>` is not a role
+ * this workspace's relay knows (mirrors `beadcause-relay`'s own exit code for the same
+ * fact); `4` the role is real but one or more of its sections could not be found — the
+ * profile file is not on disk, the charter has no block for it, or its file declares no
+ * output section. Everything findable is still printed; `4` just says something is not.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { relayFor, rolesOf, departmentOf, profilePath } from '../lib/relay.js';
+import { charterBlock, oneLawSection, outputTemplate, departmentGates, functionRange } from '../lib/rolecontract.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const RELAY_JS = path.join(HERE, '..', 'lib', 'relay.js');
+
+const USAGE = `usage: b7e-role -w <workspace> <role> [--next] [--json] [--dir <root>]
+       b7e-role -w <workspace> --all [--json] [--dir <root>]
+
+A relay role's whole operating contract, in one call.
+
+  -w, --workspace <name>   which workspace's relay definition to read (config.relays)
+  <role>                   the role to print the contract for
+  --next                   print only the legal handoff targets, not the whole contract
+  --all                    list every role this workspace's relay knows, with its
+                            department and the gate it answers to — no <role> needed
+  --dir <root>             resolve docs and role files against <root> — default is the
+                            workspace's own checkout, falling back to the cwd
+  --json                   the same answer as one JSON object instead of the printed form`;
+
+function arg(...names) {
+  for (const n of names) {
+    const i = process.argv.indexOf(n);
+    if (i > -1 && process.argv[i + 1] !== undefined) return process.argv[i + 1];
+  }
+  return undefined;
+}
+const has = (n) => process.argv.includes(n);
+const warn = (msg) => console.error(`b7e-role: ${msg}`);
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const workspace = arg('--workspace', '-w');
+const ALL = has('--all');
+const NEXT = has('--next');
+const JSON_MODE = has('--json');
+const DIR = arg('--dir');
+
+const positionals = [];
+for (let i = 2; i < process.argv.length; i += 1) {
+  const a = process.argv[i];
+  if (a === '--workspace' || a === '-w' || a === '--dir') {
+    i += 1;
+    continue;
+  }
+  if (['--all', '--next', '--json', '--help', '-h'].includes(a)) continue;
+  if (a.startsWith('-') && a !== '-') {
+    warn(`unrecognised flag: ${a}`);
+    console.error(USAGE);
+    process.exit(1);
+  }
+  positionals.push(a);
+}
+const role = String(positionals[0] || '').trim().toLowerCase();
+
+if (!workspace || (!ALL && !role)) {
+  warn('needs -w <workspace> and either <role> or --all');
+  console.error(USAGE);
+  process.exit(1);
+}
+
+const cfg = loadConfig();
+const def = relayFor(cfg, workspace);
+if (!def) {
+  const known = Object.keys(cfg.relays || {});
+  warn(`no relay definition for workspace "${workspace}"${known.length ? ` — configured: ${known.join(', ')}` : ''}`);
+  process.exit(2);
+}
+
+// `--dir` wins outright. Failing that, the workspace's own checkout — `resolveSessionDir`,
+// the pair every other "which checkout is this workspace" caller in this repo already
+// uses (lib/advocate.js, lib/deploy.js, lib/jiraingest.js, lib/mergesweep.js,
+// lib/prboard.js) — so this works from wherever it is run, not only from a cwd that
+// happens to already be inside the checkout. Falls back to cwd when the workspace is not
+// one `cfg.workspaces` knows (a relay can be configured for a name with no tracker of its
+// own) or `resolveSessionDir` cannot place it (no `sessionDirs` override, no `projectRoot`
+// match) — cwd is still the right default for a relay session, which already opens there.
+function defaultDir() {
+  const ws = (cfg.workspaces || []).find((w) => w.name === workspace);
+  if (ws) {
+    try {
+      return resolveSessionDir(cfg, ws);
+    } catch {
+      // falls through to cwd
+    }
+  }
+  return process.cwd();
+}
+const dir = DIR ? path.resolve(DIR) : defaultDir();
+if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+  warn(`refusing — ${dir} is not a directory`);
+  process.exit(2);
+}
+
+const roles = rolesOf(def);
+
+function readDoc(rel) {
+  if (!rel) return { path: rel, found: false, text: '' };
+  const full = path.join(dir, rel);
+  try {
+    return { path: rel, found: true, text: fs.readFileSync(full, 'utf8') };
+  } catch {
+    return { path: rel, found: false, text: '' };
+  }
+}
+
+const docReads = (def.docs || []).map(readDoc);
+const charterDoc = docReads.find((d) => d.found && oneLawSection(d.text)) || docReads.find((d) => d.found) || null;
+
+function firstHit(finder) {
+  for (const d of docReads) {
+    if (!d.found) continue;
+    const hit = finder(d.text);
+    if (hit) return { doc: d.path, ...hit };
+  }
+  return null;
+}
+
+if (ALL) {
+  let gates = {};
+  for (const d of docReads) {
+    if (!d.found) continue;
+    gates = { ...gates, ...departmentGates(d.text) };
+  }
+  const roster = [...roles]
+    .sort()
+    .map((r) => {
+      const found = departmentOf(def, {}, r);
+      return {
+        role: r,
+        department: found ? found.dept.name || found.key : null,
+        dept: found ? found.key : null,
+        gate: found ? gates[found.key] || [] : [],
+        executive: !found,
+      };
+    });
+  if (JSON_MODE) {
+    console.log(JSON.stringify({ workspace, roles: roster }, null, 2));
+  } else {
+    console.log(`${workspace}: ${roster.length} roles`);
+    for (const r of roster) {
+      const where = r.executive ? 'executive' : `${r.department} (${r.dept})`;
+      const gate = r.gate.length ? ` · gate ${r.gate.join(', ')}` : '';
+      console.log(`  ${r.role.padEnd(10)} ${where}${gate}`);
+    }
+  }
+  process.exit(0);
+}
+
+if (!roles.has(role)) {
+  warn(`"${role}" is not a role in ${workspace} — one of: ${[...roles].sort().join(', ')}`);
+  process.exit(3);
+}
+
+const nextRoles = [...roles].filter((r) => r !== role).sort();
+
+if (NEXT) {
+  if (JSON_MODE) console.log(JSON.stringify({ workspace, role, next: nextRoles }));
+  else console.log(nextRoles.join('\n'));
+  process.exit(0);
+}
+
+let incomplete = false;
+
+const deptFound = departmentOf(def, {}, role);
+const gatesHere = charterDoc ? departmentGates(charterDoc.text) : {};
+const gate = deptFound ? gatesHere[deptFound.key] || [] : [];
+
+const oneLaw = firstHit(oneLawSection);
+if (!oneLaw) incomplete = true;
+
+const block = firstHit((text) => charterBlock(text, role));
+if (!block) incomplete = true;
+
+const profileRel = profilePath(def, role);
+const profileFull = profileRel ? path.join(dir, profileRel) : '';
+let profileText = '';
+let profileFound = false;
+if (profileRel) {
+  try {
+    profileText = fs.readFileSync(profileFull, 'utf8');
+    profileFound = true;
+  } catch {
+    incomplete = true;
+  }
+} else {
+  incomplete = true;
+}
+const lineCount = (text) => (text.endsWith('\n') ? text.slice(0, -1) : text).split('\n').length;
+const profileLines = profileFound ? lineCount(profileText) : 0;
+const outTpl = profileFound ? outputTemplate(profileText) : null;
+if (profileFound && !outTpl) incomplete = true;
+
+const relaySrc = (() => {
+  try {
+    return fs.readFileSync(RELAY_JS, 'utf8');
+  } catch {
+    return '';
+  }
+})();
+const rolesOfRange = relaySrc ? functionRange(relaySrc, 'rolesOf') : null;
+
+if (JSON_MODE) {
+  console.log(
+    JSON.stringify(
+      {
+        workspace,
+        role,
+        department: deptFound ? { key: deptFound.key, name: deptFound.dept.name || deptFound.key, gate } : null,
+        oneLaw: oneLaw
+          ? { path: oneLaw.doc, startLine: oneLaw.startLine, endLine: oneLaw.endLine, text: oneLaw.body }
+          : null,
+        charterBlock: block
+          ? { path: block.doc, startLine: block.startLine, endLine: block.endLine, text: block.body }
+          : null,
+        profile: profileRel
+          ? {
+              path: profileRel,
+              found: profileFound,
+              startLine: profileFound ? 1 : null,
+              endLine: profileFound ? profileLines : null,
+              text: profileFound ? profileText : '',
+            }
+          : null,
+        outputTemplate: outTpl
+          ? { path: profileRel, startLine: outTpl.startLine, endLine: outTpl.endLine, text: outTpl.body }
+          : null,
+        next: {
+          roles: nextRoles,
+          source: rolesOfRange ? { path: 'lib/relay.js', ...rolesOfRange } : { path: 'lib/relay.js' },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(incomplete ? 4 : 0);
+}
+
+const rule = (label, cite) => console.log(`\n── ${label} ${'─'.repeat(Math.max(1, 50 - label.length))} ${cite}`);
+
+const deptLine = deptFound
+  ? `${deptFound.dept.name || deptFound.key} (${deptFound.key})${gate.length ? ` · gate ${gate.join(', ')}` : ''}`
+  : 'executive — no relay department';
+console.log(`b7e-role: ${workspace} / ${role} — ${deptLine}`);
+
+if (oneLaw) {
+  rule('One law', `${oneLaw.doc}:${oneLaw.startLine}-${oneLaw.endLine}`);
+  console.log(oneLaw.body.trimEnd());
+} else {
+  rule('One law', 'MISSING');
+  console.log(`  not found in: ${(def.docs || []).join(', ') || '(no docs configured)'}`);
+}
+
+if (block) {
+  rule('Charter profile', `${block.doc}:${block.startLine}-${block.endLine}`);
+  console.log(block.body.trimEnd());
+} else {
+  rule('Charter profile', 'MISSING');
+  console.log(`  no #### ${role} block found in: ${(def.docs || []).join(', ') || '(no docs configured)'}`);
+}
+
+if (outTpl) {
+  rule('Output template', `${profileRel}:${outTpl.startLine}-${outTpl.endLine}`);
+  console.log(outTpl.body.trimEnd());
+} else if (profileFound) {
+  rule('Output template', 'MISSING');
+  console.log(`  ${profileRel} declares no Output/Outputs heading — check Production Contract instead`);
+} else {
+  rule('Output template', 'MISSING');
+}
+
+if (profileFound) {
+  rule('Role file, in full', `${profileRel}:1-${profileLines}`);
+  console.log(profileText.trimEnd());
+} else {
+  rule('Role file', 'MISSING');
+  console.log(profileRel ? `  ${profileRel} is not on disk under ${dir}` : `  ${workspace}'s relay declares no profile path for ${role}`);
+}
+
+rule('Legal --next targets', rolesOfRange ? `lib/relay.js:${rolesOfRange.startLine}-${rolesOfRange.endLine} (rolesOf)` : 'lib/relay.js (rolesOf)');
+console.log(`  ${nextRoles.length}: ${nextRoles.join(', ')}`);
+
+process.exit(incomplete ? 4 : 0);
