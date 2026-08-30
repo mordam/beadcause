@@ -1,0 +1,130 @@
+#!/usr/bin/env node
+/**
+ * `b7e-unlanded` — where does this exist, if it is not on `main` yet, and what does it
+ * say there?
+ *
+ *     b7e-unlanded viewHop                          every place the symbol exists
+ *     b7e-unlanded viewHop lib/pagealias.js          scoped to one path
+ *     b7e-unlanded public/releases.js                the whole file, wherever it is
+ *     b7e-unlanded public/releases.js --diff         that place's change vs. main instead
+ *     b7e-unlanded lib/server.js --branch <ref>      pin the place — skip the search
+ *     b7e-unlanded lib/server.js --pr 520            pin it by PR number instead
+ *
+ * bc-68ou.15: four sessions each read a symbol, a file or a hunk out of a branch or pull
+ * request nobody had merged, and each built the read by hand — six-plus `git`/`gh` calls
+ * apiece, one of them lost to a shell gluing a ref and a path together wrong. lib/unlanded.js
+ * carries the search and the read; this file is the argv parsing and the printing around
+ * it, same split as every other `b7e-*` command.
+ *
+ * **This is not `b7e-prior` or `b7e-siblings`.** Neither of those hands back text — they
+ * say *whether* work exists (a branch, a commit, a pull request) and leave reading it to
+ * the caller. Every session this bead is named for already knew which branch or PR
+ * mattered; this is what they needed once they got there.
+ *
+ * Exit codes: `0` ran to completion, whether or not anything was found — `nowhere` is the
+ * ordinary answer for a query nothing has, not a failure. `2` bad usage. `4` `--branch`
+ * or `--pr` named something this checkout does not have.
+ *
+ * Read-only in the same construction sense as `b7e-prior`: every path through it is a
+ * `git`/`gh` read (`git grep`, `git cat-file`, `git diff`, `gh pr list`/`gh pr view`)
+ * against refs already fetched, and nothing it does ever touches a working tree or a
+ * branch of its own.
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { REPO_ROOT } from '../lib/gate.js';
+import { unlandedFor, describeUnlanded } from '../lib/unlanded.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-unlanded <symbol|path> [<path>] [options]
+
+Where does this exist, if it is not on main yet — and what does it say there? One block
+per place found: main, or a branch with its pull request number, state, merge state and
+tip commit — followed by the matching lines (a symbol) or the whole file (a path).
+Nothing anywhere gets a plain "nowhere", not an empty diff.
+
+  <symbol> [<path>]   a symbol, optionally scoped to one path — grep, word-bounded
+  <path>              a path on its own — its whole file, at every place it exists
+  --show                the whole file, made explicit (this is already the default)
+  --diff                a path's change against main, instead of the whole file
+  --branch <ref>       pin the place instead of searching every branch
+  --pr <n>              pin it by pull request number instead
+  --all                  also search every branch even when main already has it
+  --dir <root>          run against another tree — this is how it is tested
+  --json                one object per place instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const FLAG_VALUES = new Set(['--dir', '--branch', '--pr']);
+const positional = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--json' || a === '--diff' || a === '--show' || a === '--all' || a === '--help' || a === '-h') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('--') && a.includes('=')) continue;
+  if (a.startsWith('-')) {
+    console.error(`\x1b[31mb7e-unlanded: unrecognised flag: ${a}\x1b[0m`);
+    process.exit(2);
+  }
+  positional.push(a);
+}
+
+if (!positional.length) {
+  console.error('b7e-unlanded: nothing to look for — pass a symbol, a path, or both');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (positional.length > 2) {
+  console.error(`b7e-unlanded: too many arguments — a symbol and a path is the most this takes: ${positional.join(' ')}`);
+  process.exit(2);
+}
+
+const [query, pathHint = null] = positional;
+const DIR = path.resolve(value('--dir') || REPO_ROOT);
+const JSON_MODE = has('--json');
+const DIFF = has('--diff');
+const branchArg = value('--branch');
+const prArg = value('--pr');
+const prNumber = prArg == null ? null : Number(prArg);
+if (prArg != null && !Number.isFinite(prNumber)) {
+  console.error(`b7e-unlanded: --pr wants a number, got ${JSON.stringify(prArg)}`);
+  process.exit(2);
+}
+if (branchArg && prArg != null) {
+  console.error('b7e-unlanded: --branch and --pr are two ways of pinning the same thing — pass one, not both');
+  process.exit(2);
+}
+
+let found;
+try {
+  found = await unlandedFor(DIR, query, { pathHint, branch: branchArg || null, prNumber, diff: DIFF, all: has('--all') });
+} catch (err) {
+  console.error(`b7e-unlanded: ${err.message}`);
+  process.exit(4);
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(found));
+  process.exit(0);
+}
+
+for (const line of describeUnlanded(found)) console.log(line);
+process.exit(0);

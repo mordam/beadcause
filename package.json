@@ -129,6 +129,7 @@
     "b7e-swbump": "bin/b7e-swbump",
     "b7e-take": "bin/b7e-take",
     "b7e-triage": "bin/b7e-triage",
+    "b7e-unlanded": "bin/b7e-unlanded",
     "b7e-usage": "bin/b7e-usage",
     "b7e-vouch": "bin/b7e-vouch",
     "b7e-watch": "bin/b7e-watch",
