@@ -1,0 +1,176 @@
+#!/usr/bin/env node
+/**
+ * `b7e-covers` — which of a workspace repo's own gate scripts actually read a given
+ * file, before you decide what to run.
+ *
+ *     b7e-covers -w deluvia "novel/Deluvia Book 3/INTERLUDE_035.summary.md"
+ *     b7e-covers -w deluvia                     # the working tree diff vs the delivery base
+ *     b7e-covers --dir <root> some/file.md
+ *     b7e-covers -w deluvia --why some/file.md  # + the reason each gate matched
+ *     b7e-covers -w deluvia --json some/file.md
+ *     b7e-covers -w deluvia --refresh some/file.md   # rebuild the coverage map, ignore the cache
+ *
+ * bc-dgx7.126: six sessions each hand-derived this with `grep -rl <name> scripts/`,
+ * disagreed on the answer twice, and one spent five extra calls working out that a
+ * gate covered a brand-new file through a directory walk that never names it. `lib/
+ * covers.js` runs each gate once under a Python audit hook and caches the result by
+ * the gate's own content hash; this is the argv parsing and the printing around it.
+ *
+ * **Plain mode is built to be piped straight into `b7e-checks --only`.** stdout
+ * carries nothing but matched gate names, one per line — no prose, no reasons —
+ * unless at least one of the given paths matched nothing, in which case stdout is
+ * left EMPTY rather than a partial list, the same rule `b7e-affected` uses for the
+ * same reason: a narrowed `--only` would be silently wrong for whichever path came
+ * back with no cover. Each unmatched path still gets a loud, explicit line, on
+ * stderr so it cannot corrupt the pipe.
+ *
+ * Exit codes: `0` every given path (or, with no paths, every changed file) matched
+ * at least one gate. `1` at least one did not. `2` refused — bad usage, or no
+ * manifest recognises the repo.
+ *
+ * Not on `DEFAULT_TOOL_LIST` — same reason as `b7e-checks`, which this spawns every
+ * gate script under, one `python3` child per gate, exactly to build the coverage map
+ * a cold cache has none of yet. That first call on a tree costs what a full `b7e-checks`
+ * run costs; only a warm cache (script content unchanged since the last build) is cheap.
+ *
+ * @grant excluded
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { coverAll, coverageMap, defaultChangedFiles, manifestFor } from '../lib/covers.js';
+
+const USAGE = `usage: b7e-covers -w <workspace> | --dir <root> [<path>...] [options]
+
+  -w, --workspace <name>   a beadcause workspace whose checkout is the repo to check
+  --dir <root>             a checkout directly, instead of a workspace name
+  <path>                   one or more repo-relative paths; omitted defaults to the
+                            working tree diff vs the delivery base (committed since
+                            origin/main, plus anything uncommitted)
+  --why                    one line per match, with the reason it matched
+  --json                   one object per query path, then a summary
+  --refresh                rebuild the coverage map instead of trusting the cache
+  --timeout <s>            per-gate seconds when building the coverage map (default 300)`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const has = (f) => argv.includes(f);
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+const wsName = value('-w', value('--workspace', null));
+const dirArg = value('--dir', null);
+const WHY = has('--why');
+const JSON_MODE = has('--json');
+const REFRESH = has('--refresh');
+const TIMEOUT_ARG = value('--timeout', null);
+const TIMEOUT_MS = TIMEOUT_ARG == null ? undefined : Math.max(0, Number(TIMEOUT_ARG) || 0) * 1000;
+
+if (!wsName && !dirArg) {
+  console.error('b7e-covers: one of -w/--workspace or --dir is required');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (wsName && dirArg) {
+  console.error('b7e-covers: -w/--workspace and --dir are mutually exclusive');
+  process.exit(2);
+}
+
+// Everything left over once the known flags and their values are pulled out is a path.
+const FLAG_VALUES = new Set(['-w', '--workspace', '--dir', '--timeout']);
+const paths = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--why' || a === '--json' || a === '--refresh') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1; // skip its value
+    continue;
+  }
+  if (a.startsWith('--') || (a.startsWith('-') && a !== '-')) {
+    console.error(`b7e-covers: unrecognised flag: ${a}`);
+    process.exit(2);
+  }
+  paths.push(a);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+
+let ROOT;
+/** Set only when `-w` resolved a beadcause workspace — a check that shells out to
+ * `bd` (studio_status.py's DRIFT probe) needs the target's own `BEADS_DIR`, not
+ * whatever this process happened to inherit. */
+let RUN_ENV;
+
+if (dirArg) {
+  ROOT = path.resolve(dirArg);
+} else {
+  const cfg = loadConfig();
+  const ws = cfg.workspaces.find((w) => w.name === wsName);
+  if (!ws) {
+    console.error(`b7e-covers: no workspace named "${wsName}"`);
+    console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+    process.exit(2);
+  }
+  try {
+    ROOT = resolveSessionDir(cfg, ws);
+  } catch (err) {
+    console.error(`b7e-covers: ${err.message}`);
+    process.exit(2);
+  }
+  RUN_ENV = { BEADS_DIR: ws.dir };
+}
+
+if (!manifestFor(ROOT)) {
+  console.error(`b7e-covers: no manifest recognises ${ROOT} (no scripts/check_*.py found)`);
+  process.exit(2);
+}
+
+// Paths are repo-relative to ROOT, not to this process's own cwd — the whole point
+// of -w/--dir is asking about a tree this process is not sitting in.
+const queryPaths = paths.length ? paths : defaultChangedFiles(ROOT);
+
+if (!queryPaths.length) {
+  console.error(dim('no changed files — nothing to cover; pass a path or run the full checks'));
+  process.exit(0);
+}
+
+const map = coverageMap(ROOT, { refresh: REFRESH, timeoutMs: TIMEOUT_MS, env: RUN_ENV });
+const { results, unmatched, names } = coverAll(ROOT, map, queryPaths);
+
+if (JSON_MODE) {
+  for (const { path: p, matches } of results) {
+    console.log(JSON.stringify({ path: p, matches }));
+  }
+  console.log(JSON.stringify({ summary: true, names, unmatched }));
+  process.exit(unmatched.length ? 1 : 0);
+}
+
+if (WHY) {
+  for (const { path: p, matches } of results) {
+    if (!matches.length) {
+      console.log(dim(`# ${p}\tunmatched — no gate reads it`));
+      continue;
+    }
+    for (const { name, reason } of matches) console.log(`${name}\t${reason} — ${p}`);
+  }
+  process.exit(unmatched.length ? 1 : 0);
+}
+
+if (unmatched.length) {
+  for (const p of unmatched) console.error(red(`unmatched — no gate reads ${p}`));
+  // Nothing on stdout: a narrowed list is only trustworthy when every given path
+  // resolved to something, exactly the rule b7e-affected uses for the same reason.
+  process.exit(1);
+}
+
+for (const name of names) console.log(name);
+process.exit(0);
