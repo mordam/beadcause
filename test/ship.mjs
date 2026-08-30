@@ -1,35 +1,31 @@
 #!/usr/bin/env node
 /**
- * **Ship it** — the answer that merges *and* deploys, end to end through the daemon.
+ * **Ship it, and Merge it** — neither deploys, and neither merges, any more (bc-xl7n.135).
  *
  *     npm test
  *     node test/ship.mjs
  *
- * `test/delivery.mjs` proves `SHIP:` is a distinct word and that the card offers it
- * only where there is a deploy. This proves what happens when it is answered, which is
- * a different claim and the one with teeth: a real `POST /api/respond`, a real
- * `createApp`, a fake `bd` and a fake `gh`, and a declared deploy whose command is a
- * script that writes a file. Nothing here restarts anything.
+ * `test/delivery.mjs` proves `SHIP:` is a distinct word and that the card offers it only
+ * where there is a deploy. This used to prove what happened when it was answered: a real
+ * merge, immediately, and — for `SHIP:` — a deploy started once the answer was durably
+ * written, guarded against the SIGKILL a beadcause deploy sends itself mid-request. That
+ * guard is retired rather than moved: `resolveDeliveryFor` no longer merges anything, so
+ * there is no merge for a deploy to race, and this file's job changed with it.
  *
- * Four failures are worth the file, and the first is the one this whole shape exists
- * for.
+ * Three failures are worth it now:
  *
- * 1. **The deploy running before the answer is written.** A beadcause deploy SIGKILLs
- *    beadcause, mid-request. If it starts before `bd respond` has closed the question,
- *    the process can die between the merge and the answer — leaving a merged pull
- *    request behind an open question that says nothing happened. So the deploy command
- *    here copies the fake `bd`'s call log at the moment it runs, and the assertion is
- *    that the answer was already in it. A clock could not prove this; the log can.
- * 2. **Merge quietly widening into ship.** `MERGE:` must deploy nothing at all, ever,
- *    and the assertion is the absence of a record — the only way that regression is
- *    ever visible, since a merge that also deployed still looks like a merge.
+ * 1. **Either tap merging, or deploying, on its own.** The bug this repo actually hit
+ *    (bc-xl7n.135): `pr.merge` straight through, no queue, no record. Both taps have to
+ *    reach neither `gh pr merge` nor a declared deploy — ever, whatever the workspace.
+ * 2. **`SHIP:`'s note claiming a deploy that has not run.** The whole reason `SHIP:` is a
+ *    separate word from `MERGE:` is that it promises more; a promise it cannot keep from
+ *    this tap any more has to say so, in a workspace with a declared deploy and in one
+ *    without.
  * 3. **Free text doing either.** The consent model is `startsWith` on a marker and
- *    nothing else, and this checks it at the endpoint rather than at the parser: an
- *    ordinary comment on a delivery card must reach neither `gh` nor a deploy.
- * 4. **A missing declaration eating the merge.** Ship in a repo with no `deploys`
- *    entry has to merge anyway and say why nothing deployed. Refusing the merge over a
- *    config entry would be the worst possible reading of "ship it" — the merge is the
- *    half that was asked for by both buttons.
+ *    nothing else, checked at the endpoint rather than at the parser: an ordinary
+ *    comment on a delivery card must reach neither `gh` nor the queue.
+ *
+ * A real `POST /api/respond` through a real `createApp`, with `bd` and `gh` as fakes.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -72,21 +68,6 @@ const check = async (fn, name) => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Wait for `fn` to stop throwing, or give up. Deploys are another process. */
-async function until(fn, { ms = 8000, every = 40 } = {}) {
-  const deadline = Date.now() + ms;
-  let last;
-  for (;;) {
-    try {
-      return await fn();
-    } catch (err) {
-      last = err;
-      if (Date.now() > deadline) throw last;
-      await sleep(every);
-    }
-  }
-}
-
 /* ------------------------------------------------------------------- fake bd */
 
 const CALLS = path.join(tmp, 'bd-calls.log');
@@ -108,38 +89,99 @@ const DELIVERY = {
   method: 'squash',
   summary: 'Something small.',
 };
+// A distinct bead and branch, not only a distinct repo — the fake `bd` below shares one
+// `w.issues` for both fixture workspaces (a real `bd.listLive` is scoped by workspace
+// directory and could never see the other one), so a fixture that reused `zz-work` here
+// would let `admitPlan`'s bead match cross a boundary nothing in production has.
+const DELIVERY_BARE = {
+  ...DELIVERY,
+  workspace: 'bare',
+  bead: 'bb-work',
+  repo: 'acme/other',
+  url: 'https://github.com/acme/other/pull/7',
+  branch: 'bead/bb-work',
+};
 const SHIPPABLE = deliveryBody(DELIVERY, { ship: 'runs `writer` · restarts beadcause' });
-const PLAIN = deliveryBody({ ...DELIVERY, workspace: 'bare' });
+const PLAIN = deliveryBody(DELIVERY_BARE);
 
-const QUESTIONS = path.join(tmp, 'questions.json');
-fs.writeFileSync(QUESTIONS, JSON.stringify({ 'zz-pr': SHIPPABLE, 'bb-pr': PLAIN }));
+const WORLD = path.join(tmp, 'world.json');
+const world = () => JSON.parse(fs.readFileSync(WORLD, 'utf8'));
+const writeWorld = (w) => fs.writeFileSync(WORLD, JSON.stringify(w, null, 2));
 
 fs.writeFileSync(
   FAKE_BD,
   `#!/usr/bin/env node
 const fs = require('fs');
+const WORLD = ${JSON.stringify(WORLD)};
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(CALLS)}, JSON.stringify(args) + '\\n');
-const bodies = JSON.parse(fs.readFileSync(${JSON.stringify(QUESTIONS)}, 'utf8'));
+const w = JSON.parse(fs.readFileSync(WORLD, 'utf8'));
+const save = () => fs.writeFileSync(WORLD, JSON.stringify(w, null, 2));
+const flag = (n) => { const i = args.indexOf(n); return i === -1 ? null : args[i + 1]; };
+const flags = (n) => args.map((a, i) => (a === n ? args[i + 1] : null)).filter((v) => v !== null);
+const die = (m) => { process.stderr.write(m + '\\n'); process.exit(1); };
+const hydrate = (i) => ({ ...i, dependencies: (i.dependencies || []).map((d) => ({ ...d, status: (w.issues[d.id] || {}).status || 'closed' })) });
+
 if (args[0] === 'show') {
-  const id = args[1];
-  process.stdout.write(JSON.stringify([{
-    id, issue_type: 'task', status: 'open', title: 'Merge #7?', comment_count: 0,
-    labels: ['human', 'pr-delivery'], dependencies: [],
-    description: bodies[id] || '',
-  }]));
+  const issue = w.issues[args[1]];
+  if (!issue) die('Error fetching ' + args[1] + ': no issue found');
+  process.stdout.write(JSON.stringify([hydrate(issue)]));
   process.exit(0);
 }
 if (args[0] === 'comments') { process.stdout.write('[]'); process.exit(0); }
+if (args[0] === 'list' && !args.includes('--parent')) {
+  process.stdout.write(JSON.stringify(Object.values(w.issues).map(hydrate)));
+  process.exit(0);
+}
+if (args[0] === 'create') {
+  w.next = (w.next || 0) + 1;
+  const id = 'zz-q' + w.next;
+  w.issues[id] = {
+    id,
+    title: flag('--title') || '',
+    description: flag('--description') || '',
+    notes: flag('--notes') || '',
+    labels: flags('--label'),
+    assignee: '',
+    status: 'open',
+    issue_type: flag('--type') || 'task',
+    priority: Number(flag('--priority') || 2),
+    dependencies: [],
+    comments: [],
+  };
+  save();
+  process.stdout.write(JSON.stringify({ id }));
+  process.exit(0);
+}
+if (args[0] === 'update') {
+  const issue = w.issues[args[1]];
+  if (!issue) die('Error: no issue found matching "' + args[1] + '"');
+  const assignee = args.find((a) => a.startsWith('--assignee='));
+  if (assignee) issue.assignee = assignee.slice('--assignee='.length);
+  save();
+  process.exit(0);
+}
+if (args[0] === 'dep' && args[1] === 'add') {
+  const issue = w.issues[args[2]];
+  if (!issue) die('Error: no issue found matching "' + args[2] + '"');
+  (issue.dependencies = issue.dependencies || []).push({ id: args[3], dependency_type: 'blocks' });
+  save();
+  process.exit(0);
+}
+if (args[0] === 'comment') {
+  const issue = w.issues[args[1]];
+  if (!issue) die('Error: no issue found matching "' + args[1] + '"');
+  (issue.comments = issue.comments || []).push(args[2]);
+  save();
+  process.exit(0);
+}
 process.stdout.write('[]');
 `,
   { mode: 0o755 }
 );
 
 const calls = () =>
-  fs.existsSync(CALLS)
-    ? fs.readFileSync(CALLS, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
-    : [];
+  fs.existsSync(CALLS) ? fs.readFileSync(CALLS, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
 const resetCalls = () => fs.writeFileSync(CALLS, '');
 
 /* ------------------------------------------------------------------- fake gh */
@@ -147,27 +189,6 @@ const resetCalls = () => fs.writeFileSync(CALLS, '');
 const BIN = path.join(tmp, 'bin');
 fs.mkdirSync(BIN, { recursive: true });
 const GH_LOG = path.join(tmp, 'gh-calls.log');
-const PR_STATE = path.join(tmp, 'pr.json');
-
-const rawPR = () => ({
-  number: 7,
-  title: 'Something small',
-  url: 'https://github.com/acme/widgets/pull/7',
-  state: 'OPEN',
-  isDraft: false,
-  mergeable: 'MERGEABLE',
-  headRefName: 'bead/zz-work',
-  baseRefName: 'main',
-  additions: 4,
-  deletions: 1,
-  changedFiles: 1,
-  statusCheckRollup: [],
-  reviewDecision: null,
-  mergedAt: null,
-  mergeCommit: null,
-});
-const resetPR = () => fs.writeFileSync(PR_STATE, JSON.stringify(rawPR()));
-resetPR();
 
 fs.writeFileSync(
   path.join(BIN, 'gh'),
@@ -178,18 +199,7 @@ fs.appendFileSync(${JSON.stringify(GH_LOG)}, JSON.stringify(args) + '\\n');
 const out = (s) => { process.stdout.write(s); process.exit(0); };
 const fail = (s) => { process.stderr.write(s + '\\n'); process.exit(1); };
 if (args[0] === 'auth') out('Logged in to github.com\\n');
-if (args[0] === 'pr') {
-  const pr = JSON.parse(fs.readFileSync(${JSON.stringify(PR_STATE)}, 'utf8'));
-  if (args[1] === 'view') out(JSON.stringify(pr));
-  if (args[1] === 'merge') {
-    pr.state = 'MERGED';
-    pr.mergedAt = '2026-08-10T12:00:00Z';
-    pr.mergeCommit = { oid: 'abcdef0123456789' };
-    fs.writeFileSync(${JSON.stringify(PR_STATE)}, JSON.stringify(pr));
-    out('Merged pull request #7\\n');
-  }
-  if (args[1] === 'close' || args[1] === 'comment') out('done\\n');
-}
+if (args[0] === 'pr' && (args[1] === 'close' || args[1] === 'comment')) out('done\\n');
 fail('unknown gh invocation: ' + args.join(' '));
 `,
   { mode: 0o755 }
@@ -197,31 +207,8 @@ fail('unknown gh invocation: ' + args.join(' '));
 process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
 
 const ghCalls = () =>
-  fs.existsSync(GH_LOG)
-    ? fs.readFileSync(GH_LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
-    : [];
+  fs.existsSync(GH_LOG) ? fs.readFileSync(GH_LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
 const resetGh = () => fs.writeFileSync(GH_LOG, '');
-
-/* ------------------------------------------------------- the "deploy" command */
-
-/**
- * The deploy, which restarts nothing and proves the ordering instead.
- *
- * It copies the fake `bd`'s call log the instant it runs. That file is the evidence
- * for the claim this whole test exists to make: by the time the deploy started, the
- * answer had already been written and the question already closed — so a deploy that
- * kills the daemon a moment later cannot lose either of them.
- */
-const DEPLOYED = path.join(tmp, 'deployed.json');
-const WRITER = path.join(BIN, 'writer');
-fs.writeFileSync(
-  WRITER,
-  `#!/usr/bin/env node
-const fs = require('fs');
-fs.writeFileSync(${JSON.stringify(DEPLOYED)}, fs.existsSync(${JSON.stringify(CALLS)}) ? fs.readFileSync(${JSON.stringify(CALLS)}, 'utf8') : '');
-`,
-  { mode: 0o755 }
-);
 
 /* ----------------------------------------------------------------- the config */
 
@@ -249,10 +236,12 @@ const base = {
   terminal: false,
   ntfy: { enabled: false },
   advocates: { enabled: false, workspaces: [] },
-  // Only `demo` can be deployed. `bare` is every repo that declares nothing, which is
-  // most of them, and is what the fourth case is about.
+  // Only `demo` declares a deploy. `bare` is every repo that declares nothing, which is
+  // most of them, and is what the second case's other half is about. Neither script is
+  // ever run any more — nothing here starts a deploy — but the declaration still has to
+  // change what the note says.
   deploys: {
-    demo: { command: [WRITER], dir: wsDir, pull: false, graceMs: 0, restarts: false },
+    demo: { command: [path.join(BIN, 'writer')], dir: wsDir, pull: false, graceMs: 0, restarts: false },
   },
 };
 
@@ -294,12 +283,57 @@ const call = (pathname, body) =>
 const reset = () => {
   resetCalls();
   resetGh();
-  resetPR();
-  try {
-    fs.unlinkSync(DEPLOYED);
-  } catch {
-    /* first run */
-  }
+  writeWorld({
+    issues: {
+      'zz-pr': {
+        id: 'zz-pr',
+        title: 'Merge #7?',
+        description: SHIPPABLE,
+        notes: '',
+        labels: ['human', 'pr-delivery'],
+        assignee: '',
+        status: 'open',
+        issue_type: 'task',
+        dependencies: [],
+        comments: [],
+      },
+      'zz-work': {
+        id: 'zz-work',
+        title: 'The work',
+        description: '',
+        notes: '',
+        labels: [],
+        assignee: '',
+        status: 'in_progress',
+        issue_type: 'task',
+        dependencies: [{ id: 'zz-pr', dependency_type: 'blocks' }],
+      },
+      'bb-pr': {
+        id: 'bb-pr',
+        title: 'Merge #7?',
+        description: PLAIN,
+        notes: '',
+        labels: ['human', 'pr-delivery'],
+        assignee: '',
+        status: 'open',
+        issue_type: 'task',
+        dependencies: [],
+        comments: [],
+      },
+      'bb-work': {
+        id: 'bb-work',
+        title: 'The other work',
+        description: '',
+        notes: '',
+        labels: [],
+        assignee: '',
+        status: 'in_progress',
+        issue_type: 'task',
+        dependencies: [{ id: 'bb-pr', dependency_type: 'blocks' }],
+      },
+    },
+    next: 0,
+  });
   for (const rec of listDeploys({ limit: 200 })) {
     for (const suffix of ['.json', '.announced', '.log']) {
       try {
@@ -311,7 +345,7 @@ const reset = () => {
   }
 };
 
-console.log('\nship it\n');
+console.log('\nneither taps deploys, and neither merges\n');
 
 /* ------------------------------------------------------------ merge only */
 
@@ -324,18 +358,19 @@ const merged = await call('/api/respond', {
 
 await check(() => assert.equal(merged.status, 200), 'MERGE: is answered');
 await check(
-  () => assert.ok(ghCalls().some((a) => a[0] === 'pr' && a[1] === 'merge'), JSON.stringify(ghCalls())),
-  'and the pull request is merged');
-await check(() => assert.equal(merged.json.delivery.action, 'merge'), 'and the answer says it was a merge');
+  () => assert.ok(!ghCalls().some((a) => a[0] === 'pr' && a[1] === 'merge'), JSON.stringify(ghCalls())),
+  'and the pull request is not merged');
+await check(() => assert.equal(merged.json.delivery.action, 'queue'), 'the answer says it was queued');
 await check(
-  () => assert.ok(calls().some((a) => a[0] === 'close' && a[1] === 'zz-work'), JSON.stringify(calls())),
-  'and the work bead is closed with it');
-// The whole of case 2: the absence of a record is the only visible form of this bug.
+  () => assert.ok(calls().some((a) => a[0] === 'close' && a[1] === 'zz-pr'), JSON.stringify(calls())),
+  'the delivery card closes, answered — the ordinary way any question does');
+await check(
+  () => assert.equal(world().issues['zz-work'].status, 'in_progress'),
+  'the work bead stays open — the merge has not happened');
 await check(async () => {
   await sleep(200);
   assert.deepEqual(listDeploys(), []);
-  assert.equal(merged.json.deploy, null);
-}, 'and NOTHING is deployed — merge never widens into ship');
+}, 'and NOTHING is deployed — a queued merge is not a landed one');
 
 /* ----------------------------------------------------------------- ship it */
 
@@ -348,44 +383,65 @@ const shipped = await call('/api/respond', {
 
 await check(() => assert.equal(shipped.status, 200), 'SHIP: is answered');
 await check(
-  () => assert.ok(ghCalls().some((a) => a[0] === 'pr' && a[1] === 'merge'), JSON.stringify(ghCalls())),
-  'and it merges exactly the same pull request merge does');
-await check(() => assert.equal(shipped.json.delivery.action, 'ship'), 'and the answer says it was a ship');
-await check(
-  () => assert.ok(calls().some((a) => a[0] === 'close' && a[1] === 'zz-work'), JSON.stringify(calls())),
-  'the work bead still closes on the merge');
-await check(
-  () => assert.ok(shipped.json.deploy?.id, JSON.stringify(shipped.json.deploy)),
-  'and a deploy comes back on the response, written down before the reply left');
-await check(
-  () => assert.equal(shipped.json.deploy.workspace, 'demo'),
-  'for the workspace the question was in');
+  () => assert.ok(!ghCalls().some((a) => a[0] === 'pr' && a[1] === 'merge'), JSON.stringify(ghCalls())),
+  'it does not merge either — the deploy it promises has nothing to deploy yet');
+await check(() => assert.equal(shipped.json.delivery.action, 'queue'), 'the answer says it was queued, not shipped');
+await check(async () => {
+  await sleep(200);
+  assert.deepEqual(listDeploys(), []);
+  assert.equal(shipped.json.deploy, null);
+}, 'and nothing is deployed — there is no landed merge for a deploy to be about');
+await check(() => {
+  const answer = calls().find((a) => a[0] === 'comment' && a[1] === 'zz-pr');
+  assert.ok(answer, JSON.stringify(calls()));
+  assert.match(answer.join(' '), /no automatic ship declared/, answer.join(' '));
+  assert.match(answer.join(' '), /deploy it from the PR board/, answer.join(' '));
+}, 'the card says what happens once it lands, rather than implying it has already shipped');
 
-const record = await until(() => {
-  const rec = listDeploys()[0];
-  assert.ok(rec && rec.status === 'ok', `still ${rec ? rec.status : 'absent'}`);
-  return rec;
-});
-await check(() => assert.equal(record.status, 'ok'), 'the runner outlives the request and settles the deploy');
-await check(() => assert.equal(record.bead, 'zz-work'), 'the record names the bead that was shipped');
-await check(() => assert.match(record.reason, /#7/), 'and the pull request it came from');
+/* --------------------------------------------------------- and once it auto-ships */
 
-// Case 1, the reason this file is an HTTP test rather than a unit test.
-const sawWhenDeploying = JSON.parse(`[${fs.readFileSync(DEPLOYED, 'utf8').trim().split('\n').join(',')}]`);
-await check(
-  () =>
-    assert.ok(
-      sawWhenDeploying.some((a) => a[0] === 'close' && a[1] === 'zz-work'),
-      JSON.stringify(sawWhenDeploying)
-    ),
-  'by the time the deploy ran, the work bead was already closed');
-await check(
-  () =>
-    assert.ok(
-      sawWhenDeploying.some((a) => (a[0] === 'comment' || a[0] === 'close' || a[0] === 'update') && a[1] === 'zz-pr'),
-      JSON.stringify(sawWhenDeploying)
-    ),
-  'and the question was already answered — nothing durable is riding on this process surviving');
+{
+  reset();
+  const shippy = { ...cfg, autoShipPerWorkspace: { demo: true } };
+  const app2 = createApp(shippy);
+  const servers2 = listen({ ...shippy, port: 0 }, app2.handler);
+  const port2 = await boundPort(servers2);
+  const call2 = (body) =>
+    new Promise((resolve, reject) => {
+      const payload = JSON.stringify(body);
+      const req = http.request(
+        {
+          host: '127.0.0.1',
+          port: port2,
+          path: '/api/respond',
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), 'x-beadcause-token': cfg.token },
+        },
+        (res) => {
+          let out = '';
+          res.setEncoding('utf8');
+          res.on('data', (c) => (out += c));
+          res.on('end', () => resolve({ status: res.statusCode, json: JSON.parse(out || '{}') }));
+        }
+      );
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+  const res = await call2({ workspace: 'demo', id: 'zz-pr', response: 'SHIP: squash and merge #7, then deploy demo.' });
+  await check(() => assert.equal(res.status, 200), 'still answered');
+  await check(async () => {
+    await sleep(200);
+    assert.deepEqual(listDeploys(), []);
+  }, 'still nothing deployed by this request');
+  await check(() => {
+    const answer = calls().find((a) => a[0] === 'comment' && a[1] === 'zz-pr');
+    assert.ok(answer, JSON.stringify(calls()));
+    assert.match(answer.join(' '), /deploys itself once a merge lands/, answer.join(' '));
+  }, 'and the card says the workspace deploys itself instead');
+  for (const s of servers2) s.close?.();
+  if (servers2[0]?.front) servers2[0].front.close?.();
+}
 
 /* ------------------------------------------------- a repo with nothing declared */
 
@@ -398,19 +454,18 @@ const bare = await call('/api/respond', {
 
 await check(() => assert.equal(bare.status, 200), 'ship in a repo with no deploy is not an error');
 await check(
-  () => assert.ok(ghCalls().some((a) => a[0] === 'pr' && a[1] === 'merge'), JSON.stringify(ghCalls())),
-  'the merge still happens — it is the half both buttons asked for');
+  () => assert.ok(!ghCalls().some((a) => a[0] === 'pr' && a[1] === 'merge'), JSON.stringify(ghCalls())),
+  'it still does not merge — queuing needs no declared deploy to work');
 await check(async () => {
   await sleep(200);
   assert.deepEqual(listDeploys(), []);
   assert.equal(bare.json.deploy, null);
 }, 'and nothing is deployed');
 await check(() => {
-  const answer = calls().find((a) => (a[0] === 'comment' || a[0] === 'close') && a[1] === 'bb-pr');
+  const answer = calls().find((a) => a[0] === 'comment' && a[1] === 'bb-pr');
   assert.ok(answer, JSON.stringify(calls()));
-  assert.match(answer.join(' '), /Not deployed/, answer.join(' '));
-  assert.match(answer.join(' '), /no deploy is declared for bare/, answer.join(' '));
-}, 'and the answer on the bead says why, rather than implying it shipped');
+  assert.match(answer.join(' '), /no automatic ship declared/, answer.join(' '));
+}, 'and the answer on the bead says so, rather than implying it will ship itself');
 
 /* ------------------------------------------------------------------ free text */
 
@@ -421,10 +476,13 @@ await check(() => assert.equal(comment.status, 200), 'an ordinary comment on a d
 await check(
   () => assert.ok(!ghCalls().some((a) => a[0] === 'pr' && a[1] === 'merge'), JSON.stringify(ghCalls())),
   'and merges nothing, even saying the words');
+await check(
+  () => assert.ok(!calls().some((a) => a[0] === 'create'), JSON.stringify(calls())),
+  'and queues nothing either — consent is the marker and nothing else');
 await check(async () => {
   await sleep(200);
   assert.deepEqual(listDeploys(), []);
-}, 'and deploys nothing either — consent is the marker and nothing else');
+}, 'and deploys nothing either');
 
 /* -------------------------------------------------------------------- verdict */
 

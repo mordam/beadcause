@@ -637,10 +637,27 @@ reset();
   const r = await post(onPort, '/api/respond', { workspace: 'demo', id: 'zz-pr', response: `${MERGE_MARKER} in it goes` }, COOKIE);
   check(() => assert.equal(r.status, 200), 'merging from a signed-in browser works');
   check(
-    // One tap closes two beads: the question because it was answered, and the work
-    // because it landed. Two names across them would read as two people.
-    () => assert.deepEqual(actorsFor('close'), [SIGNED_IN, SIGNED_IN]),
-    'both closes are yours — the work bead and the question are one act'
+    // One close, not two, since bc-xl7n.135: the tap no longer merges here, it admits
+    // the pull request to the merge queue. The question closes because it was answered;
+    // the work bead stays open until the queue has actually merged, and closing it now
+    // would put your name on a landing that has not happened.
+    () => assert.deepEqual(actorsFor('close'), [SIGNED_IN]),
+    'the close is yours — the question was answered, and only the question'
+  );
+  check(
+    // Two comments, and the split is the point. The queue entry beadcause files is
+    // bookkeeping and carries the daemon, exactly like the reopen-and-unclaim above;
+    // your name is on the answer, which is the act you performed. That the approval was
+    // yours is said inside the entry — `approvedBy` in its queue block — rather than by
+    // a byline on a bead you never saw.
+    () => assert.deepEqual(actorsFor('comment'), [DAEMON, SIGNED_IN]),
+    'the queue entry is the daemon’s and the answer is yours'
+  );
+  check(
+    // And the entry itself. Filing it is the same bookkeeping: an attributed create
+    // would read as a bead you wrote, on a queue you only pressed a button for.
+    () => assert.deepEqual(actorsFor('create'), [DAEMON]),
+    'the merge-bead it files is the daemon’s too'
   );
   bodyFor({});
 }
