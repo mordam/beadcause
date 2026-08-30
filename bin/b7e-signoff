@@ -1,0 +1,306 @@
+#!/usr/bin/env node
+/**
+ * End a delivered run — the pull request, the debrief and the rename, in one call.
+ *
+ *   b7e-signoff -w beadcause -b bc-dgx7.44 \
+ *     --summary summary.md --debrief debrief.md [--tests t.md] [--risk r.md] [--left l.md] \
+ *     [--marker "DEPLOYED, REBUILT"] [--title "..."] [--base main] [--method merge] [--review]
+ *
+ *   b7e-signoff -w beadcause -b bc-dgx7.44 --dry     print the plan, do nothing
+ *
+ * `bc-dgx7.44`, filed by the session audit that found the same four steps done by hand,
+ * no two sessions the same way, at the end of `bc-1kwl.32`, `bc-ibt8g.1`, `bc-xl7n.120`,
+ * `bc-xl7n.118` and `bc-36xx.27`. Every one of the twelve worker briefs that used them
+ * ends this way, and the two traps below cost real time on real runs:
+ *
+ * **The ordering trap.** `bin/deliver.js` decides the pull request's head from the
+ * *branch checked out where it runs*, so a delivery run from the main checkout —
+ * which is on `main` — dies with "refusing to open a PR from main into main", even
+ * though the actual work is finished and sitting on a branch one directory over. This
+ * resolves the bead's own worktree itself (its branch's tag is the bead id with the
+ * workspace prefix and punctuation stripped — see `lib/notinmain.js`'s `tagOf`) and
+ * hands `deliver.js` `--dir <that worktree>` explicitly, so deliver never has to guess
+ * from a cwd this process may not share with it. When no live worktree owns the
+ * branch, or more than one does, this refuses and says which pattern it looked for —
+ * `deliver.js`'s own "refusing to open a PR from main into main" never fires, because
+ * deliver is never reached with the wrong directory.
+ *
+ * **The quoting trap.** `beadcause-memory debrief "…"`, `deliver.js`'s own
+ * `--tests`/`--risk`/`--left`, and a hand-typed rename have all, at one time or
+ * another, taken prose as a literal token inside a Bash tool call's double-quoted
+ * command string — and a backtick or `$(...)` inside that prose is resolved by the
+ * shell *before* the command it is quoting ever runs. `--summary`, `--debrief`,
+ * `--tests`, `--risk` and `--left` here all take a **file path** (or `-` for stdin) —
+ * never inline text — so nothing this process reads ever passes through a shell a
+ * second time: it is read with `fs.readFileSync` and forwarded to `deliver.js` as one
+ * argv element of a real `child_process` call, which never re-parses it.
+ *
+ * Four steps, run in order by `lib/signoff.js#runSteps`, which stops — without
+ * touching the ones after it — the moment one throws:
+ *
+ *   1. **deliver** — `node bin/deliver.js -w <ws> -b <bead> --dir <worktree> …`,
+ *      forwarding `--summary` as deliver's own `-f`/stdin, `--tests`/`--risk`/`--left`
+ *      as its inline flags (safe now — no shell is involved in the forwarding), and
+ *      `--marker`'s words as `--owed`. Prints deliver's own last line of output
+ *      unchanged, whichever of its three endings it took (queued / landed / a question
+ *      card — see `lib/signoff.js#parseDeliverOutcome`).
+ *   2. **debrief** — `lib/memory.js#debrief(agent, bead, text)`, called in-process
+ *      exactly as `bin/b7e-say.js --debrief` does, so the report lands wherever
+ *      `process.cwd()` resolves to (the worktree or the main checkout — `debrief`
+ *      resolves the *main* checkout either way, so it does not matter which one this
+ *      process happens to be standing in).
+ *   3. **rename** — reads this session's current name (`~/.claude/rename-session.sh
+ *      --show`, override with `--rename-script`) and prepends `QUEUED-`
+ *      (`lib/signoff.js#queuedTitle`) — never re-derives the rest of the name, and
+ *      never stacks a second prefix on a session that already carries one. With no
+ *      current name to prepend to, falls back to the bead's own title in full
+ *      (`fallbackTitle`) — never hand-truncated.
+ *   4. **marker** — prints the closing `** BEAD WORK DONE **` line
+ *      (`lib/signoff.js#markerLine`). A delivery that ended in a question card (auto-
+ *      merge off, `--review`, an in-app edit) can only ever owe `REVIEWED` — nothing
+ *      after a merge can be owed by work that has not merged — so this overrides
+ *      `--marker` to `REVIEWED` in that one case and says so on stderr, rather than
+ *      printing a marker that quietly disagrees with what actually happened.
+ *
+ * Exit codes: `0` every step ran. `2` bad usage. `4` no such workspace or bead. `5`
+ * the worktree could not be resolved (see the ordering trap above). `6` a later step
+ * threw — the message names which one, and `results` up to that point are on stderr
+ * so a re-run's caller can see what had already happened.
+ *
+ * @grant excluded
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { mainCheckout } from '../lib/gitref.js';
+import { debrief } from '../lib/memory.js';
+import {
+  liveWorktrees,
+  chooseWorktree,
+  queuedTitle,
+  fallbackTitle,
+  markerLine,
+  parseDeliverOutcome,
+  ownedMarkerFor,
+  runSteps,
+} from '../lib/signoff.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const DELIVER = path.join(HERE, 'deliver.js');
+
+function arg(...names) {
+  for (const n of names) {
+    const i = process.argv.indexOf(n);
+    if (i > -1) return process.argv[i + 1];
+  }
+  return undefined;
+}
+const has = (n) => process.argv.includes(n);
+
+function die(msg, code = 2) {
+  console.error(`b7e-signoff: ${msg}`);
+  process.exit(code);
+}
+
+const USAGE = `usage: b7e-signoff -w <workspace> -b <bead> --summary <path|-> --debrief <path|->
+                   [--tests <path|->] [--risk <path|->] [--left <path|->]
+                   [--marker "DEPLOYED, REBUILT"] [--title "..."] [--base <branch>]
+                   [--method merge|squash|rebase] [--review] [--agent <id>] [--dir <path>]
+                   [--rename-script <path>] [--dry]
+
+--summary/--debrief/--tests/--risk/--left each take a FILE PATH, or "-" for stdin —
+never inline text, so a backtick or $(...) in the prose is never re-read by a shell.
+At most one of them may be "-".`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const cfg = loadConfig();
+const wsName = arg('-w', '--workspace');
+const beadId = arg('-b', '--bead');
+if (!wsName || !beadId) die(`-w and -b are required\n${USAGE}`);
+
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) die(`no workspace named "${wsName}" — configured: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 4);
+
+const DRY = has('--dry');
+const summaryPath = arg('--summary');
+const debriefPath = arg('--debrief');
+if (!DRY && !summaryPath) die(`--summary <path|-> is required (or --dry)\n${USAGE}`);
+if (!DRY && !debriefPath) die(`--debrief <path|-> is required (or --dry)\n${USAGE}`);
+
+const testsPath = arg('--tests');
+const riskPath = arg('--risk');
+const leftPath = arg('--left');
+const stdinUsers = [summaryPath, debriefPath, testsPath, riskPath, leftPath].filter((p) => p === '-');
+if (stdinUsers.length > 1) die(`only one of --summary/--debrief/--tests/--risk/--left may read stdin ("-")`);
+
+const titleArg = arg('--title', '-t');
+const baseArg = arg('--base');
+const methodArg = arg('--method');
+const reviewFlag = has('--review');
+const agentId = arg('--agent') || process.env.BEADCAUSE_AGENT || 'worker';
+const dirFlag = arg('--dir');
+const renameScript = arg('--rename-script') || path.join(os.homedir(), '.claude', 'rename-session.sh');
+const requestedOwed = String(arg('--marker') || '')
+  .split(',')
+  .map((w) => w.trim())
+  .filter(Boolean);
+
+/** `path` read whole, trimmed, `utf8` — or stdin for the one flag allowed to say "-". */
+let stdinConsumed = false;
+function readField(p) {
+  if (p === '-') {
+    if (stdinConsumed) die('stdin already consumed by another flag — pass at most one "-"');
+    stdinConsumed = true;
+    return fs.readFileSync(0, 'utf8').trim();
+  }
+  try {
+    return fs.readFileSync(p, 'utf8').trim();
+  } catch (err) {
+    die(`could not read ${p}: ${String(err?.message || err).split('\n')[0]}`, 2);
+    return ''; // unreachable — die exits
+  }
+}
+
+async function main() {
+  const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+  let bead;
+  try {
+    bead = await bd.show(ws, beadId);
+  } catch (err) {
+    die(`${ws.name} has no bead ${beadId}: ${String(err?.message || err).split('\n')[0]}`, 4);
+  }
+  if (!bead) die(`${ws.name} has no bead ${beadId}`, 4);
+
+  /* --------------------------------------------------------- resolve the worktree */
+
+  let dir = dirFlag ? path.resolve(dirFlag) : null;
+  let branch = null;
+  if (!dir) {
+    const main = await mainCheckout(process.cwd());
+    const entries = await liveWorktrees(main);
+    let chosen;
+    try {
+      chosen = chooseWorktree(entries, beadId, { main, cwd: process.cwd() });
+    } catch (err) {
+      die(String(err.message), 5);
+    }
+    dir = chosen.dir;
+    branch = chosen.branch;
+  }
+
+  if (DRY) {
+    console.log(`b7e-signoff --dry — ${beadId} in ${ws.name}`);
+    console.log(`  1. deliver  node ${DELIVER} -w ${ws.name} -b ${beadId} --dir ${dir}${branch ? ` (branch ${branch})` : ''}`);
+    console.log(`  2. debrief  lib/memory.js#debrief(${agentId}, ${beadId}, <--debrief>)`);
+    console.log(`  3. rename   ${renameScript} --show, then prepend QUEUED- (or the bead's own title, if none)`);
+    console.log(`  4. marker   ${markerLine(requestedOwed)}`);
+    process.exit(0);
+  }
+
+  /* ---------------------------------------------------------------- the four steps */
+
+  let deliverOutcome = null;
+
+  const steps = [
+    {
+      name: 'deliver',
+      run: async () => {
+        const dargv = ['-w', ws.name, '-b', beadId, '--dir', dir];
+        if (testsPath) dargv.push('--tests', readField(testsPath));
+        if (riskPath) dargv.push('--risk', readField(riskPath));
+        if (leftPath) dargv.push('--left', readField(leftPath));
+        if (titleArg) dargv.push('--title', titleArg);
+        if (baseArg) dargv.push('--base', baseArg);
+        if (methodArg) dargv.push('--method', methodArg);
+        if (reviewFlag) dargv.push('--review');
+        if (requestedOwed.length) dargv.push('--owed', requestedOwed.join(', '));
+
+        let stdout;
+        let opts = { encoding: 'utf8', stdio: ['pipe', 'pipe', 'inherit'] };
+        if (summaryPath === '-') {
+          opts.input = readField(summaryPath);
+        } else {
+          dargv.push('--file', path.resolve(summaryPath));
+        }
+        try {
+          stdout = execFileSync(process.execPath, [DELIVER, ...dargv], opts);
+        } catch (err) {
+          const out = String(err?.stdout || '').trim();
+          throw new Error(`deliver.js failed${out ? ` — ${out.split('\n').slice(-1)[0]}` : ''}: ${String(err.message).split('\n')[0]}`);
+        }
+        deliverOutcome = parseDeliverOutcome(stdout);
+        return deliverOutcome;
+      },
+    },
+    {
+      name: 'debrief',
+      run: async () => {
+        const text = readField(debriefPath);
+        const r = await debrief(agentId, beadId, text);
+        return { ...r, bytes: Buffer.byteLength(text, 'utf8') };
+      },
+    },
+    {
+      name: 'rename',
+      run: async () => {
+        let current = null;
+        try {
+          const out = execFileSync(renameScript, ['--show'], { encoding: 'utf8' });
+          const m = /title:\s*(.*)/.exec(out);
+          if (m) {
+            const t = m[1].trim();
+            if (t && t !== '(none)') current = t;
+          }
+        } catch {
+          // No current session to read — the fallback below builds a name instead.
+        }
+        if (current) {
+          const q = queuedTitle(current);
+          if (!q) return { title: current, wrote: false };
+          execFileSync(renameScript, [q], { encoding: 'utf8' });
+          return { title: q, wrote: true };
+        }
+        const t = fallbackTitle(beadId, bead.title || '');
+        execFileSync(renameScript, [t], { encoding: 'utf8' });
+        return { title: t, wrote: true };
+      },
+    },
+    {
+      name: 'marker',
+      run: async () => {
+        const { owed, overridden } = ownedMarkerFor(deliverOutcome?.outcome, requestedOwed);
+        if (overridden) {
+          console.error(
+            `b7e-signoff: ${deliverOutcome.line} did not merge — the marker says REVIEWED, not "${requestedOwed.join(', ')}".`
+          );
+        }
+        return markerLine(owed);
+      },
+    },
+  ];
+
+  const { results, failedAt } = await runSteps(steps);
+
+  for (const r of results) {
+    if (!r.ok) continue;
+    if (r.name === 'deliver') console.log(r.value.line);
+    else if (r.name === 'debrief') console.log(`debriefed ${r.value.bead} (${r.value.entries} this run) in ${r.value.repo} — ${r.value.bytes} bytes`);
+    else if (r.name === 'rename') console.log(r.value.wrote ? `renamed ${r.value.title}` : `already ${r.value.title}`);
+    else if (r.name === 'marker') console.log(r.value);
+  }
+
+  if (failedAt) {
+    const failure = results[results.length - 1];
+    die(`${failedAt} failed — ${failure.error}\n${results.length > 1 ? `(${results.length - 1} earlier step${results.length - 1 === 1 ? '' : 's'} already ran — see above)` : ''}`, 6);
+  }
+}
+
+main().catch((err) => die(String(err?.message || err), 1));
