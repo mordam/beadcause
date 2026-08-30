@@ -21496,6 +21496,68 @@ bead named on `-b` and one for each further ancestor `--family` walks to. Plus
 `state.json`'s own `answered` map. Never a write. `Bash(b7e-answered:*)` is on
 `DEFAULT_TOOL_LIST`, and `lib/grants.js` classifies it `read`.
 
+### Say whether the file you just wrote survived being written — `b7e-lint`
+
+`bc-khoe.30.18` names three sessions that each wrote a large, prose-heavy `lib/` module
+in one shot and then had to work out by hand whether the prose had broken the code — a
+different way, at a different moment, and one of them paid for it. `bc-4r10.4` wrote
+`lib/gapassessment.js` (947 lines), noticed a dozen smart-quote apostrophes with `grep`,
+normalised them with a blind `sed -i '' "s/’/'/g"` over the module *and* its suite, and
+thereby closed three single-quoted string literals early. It found out by running the
+suite and reading a `SyntaxError` stack — twice — then discovered by grepping a
+neighbour that the house convention here is an escaped apostrophe (`\'`), not a smart
+quote, and repaired both files by hand. `bc-4r10.13` wrote `lib/engagement.js`, found
+backticks where apostrophes belonged in its own prose, and swept them with a single
+`sed` into smart quotes — replacing one hazard with the exact one `bc-4r10.4` had just
+had to strip. `bc-4r10.3` hunted NUL bytes in `lib/systemdescription.js` by hand, ahead
+of time, on a standing worry that a one-shot `lib/` file gets them, because
+`test/filter.mjs`'s own control-byte check (above) only ever reads `lib/` and `public/`
+— a NUL landing in `test/` or `bin/`, which is exactly where `bc-4r10.4`'s broken
+`test/gapassessment.mjs` landed, is invisible to it.
+
+```
+b7e-lint [path...]      lint the given files; with none, the diff against the merge base
+b7e-lint --dir <root>   "this tree" is <root>, not wherever this file resolves from
+b7e-lint --json         one object per dirty file instead of the printed report
+```
+
+One pass, four checks, per file. **`node --check`** — real syntax validity, not a guess.
+**Every control byte** below 32 that is not tab, LF or CR, with its offset — the same
+predicate `test/filter.mjs`'s own check now imports from `lib/lint.js` rather than
+carrying a second copy, so the two cannot silently drift apart. **Every smart-punctuation
+character** that looks like a quote (the curly single and double quote family, by
+codepoint) — deliberately *not* an em dash, an en dash or an ellipsis, all three of
+which this repo's own prose leans on throughout `lib/` and `bin/` on purpose; flagging
+them would make this command noisy on nearly every file it touched. **Every apostrophe
+that closes a single-quoted string literal early** — a small hand-rolled tokenizer (comments,
+regex literals, double-quoted and template strings, `${…}` nesting all handled, the same
+shape `test/helpers/blank.mjs`'s `blankJs` walks, purpose-built rather than imported
+since a `lib/` module has no import path into a test helper) flags every single-quoted
+string whose closing `'` is immediately followed — no space, no operator — by a letter,
+digit, `_` or `$`. That shape is never valid JavaScript, so it is a low-noise, precise
+way to name the exact character `node --check`'s own stack trace usually points
+somewhere else entirely. And, for anything under `bin/`, a **missing shebang** or a
+**missing exec bit** — the two failures `lib/foundation.js`'s own `PATH` trick depends on
+silently, since a command it cannot execute just never runs.
+
+Prints nothing and exits `0` on a clean file. A dirty one prints `file:line` for each
+finding — `node --check`'s own `SyntaxError` included, trimmed to its first few lines —
+and exits `1`.
+
+**Root resolution matters here specifically**, and differently from `b7e-def`/`b7e-owes`/
+`b7e-affected` above: `lib/foundation.js` puts the *main checkout's* `bin/` on every
+agent's `PATH`, so this file's own directory always resolves to the main checkout no
+matter which worktree the caller is actually sitting in. A worker linting the file it
+just wrote wants *its own worktree's* copy — so, with no `--dir`, root is `git
+rev-parse --show-toplevel` against `process.cwd()`, never a path built from
+`import.meta.url`.
+
+On `DEFAULT_TOOL_LIST` (`lib/toolbelt.js`), classified `read` in `lib/grants.js`, in the
+same construction sense as `b7e-def`/`b7e-owes`/`b7e-affected` despite spawning `node
+--check`: that flag only parses a file, it never runs it, binds a port or touches the
+tracker — and the one write it could plausibly own, fixing what it finds, is left to
+whoever reads its report.
+
 ### Is another live window already on this bead — `b7e-window`
 
 `bc-dgx7.88` is the session audit: seven sessions in the deluvia tracker each opened by
