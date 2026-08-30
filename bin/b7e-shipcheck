@@ -1,0 +1,104 @@
+#!/usr/bin/env node
+/**
+ * `b7e-shipcheck` — what this branch actually ships, and whether `bin/deliver.js`
+ * would refuse it right now.
+ *
+ *     b7e-shipcheck                 this checkout, against origin/main
+ *     b7e-shipcheck --base <ref>    against origin/<ref> instead
+ *     b7e-shipcheck --dir <root>    a different checkout, not this process's cwd
+ *     b7e-shipcheck -b <bead>       name a bead in the printed header (cosmetic only)
+ *     b7e-shipcheck --json          one object instead of the printed report
+ *
+ * bc-khoe.27.10 is the audit; `lib/shipcheck.js` carries the git plumbing and the
+ * verdict, the same split `b7e-blame` and `bin/b7e-blame` already use.
+ *
+ * Exit codes: `0` — `bin/deliver.js` would not refuse on these grounds. `1` — it would:
+ * a detached HEAD, a branch that already is the base, or an uncommitted path anywhere
+ * in the tree. `2` — the base could not be resolved at all (no such ref, locally or on
+ * `origin`), which is a usage problem rather than a verdict.
+ *
+ * Read-only in the same sense as `b7e-def`/`b7e-owes`: every path through it is a
+ * `git fetch`/`diff`/`status`/`merge-base` read, and it never pushes, commits or talks
+ * to `gh`.
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { shipcheck } from '../lib/shipcheck.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-shipcheck                 this checkout, against origin/main',
+      'b7e-shipcheck --base <ref>    against origin/<ref> instead',
+      'b7e-shipcheck --dir <root>    a different checkout, not this process\'s cwd',
+      'b7e-shipcheck -b <bead>       name a bead in the printed header (cosmetic only)',
+      'b7e-shipcheck --json          one object instead of the printed report',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+// Defaults to the caller's own cwd, not this script's REPO_ROOT — `bin/` resolves off
+// the *main checkout* on PATH (see the bin-resolution memory note), so an agent running
+// this from a worktree wants that worktree checked, never wherever this file happens to
+// live.
+const DIR = path.resolve(value('--dir', process.cwd()));
+const BASE = value('--base', 'main');
+const BEAD = value('--bead', value('-b', null));
+const JSON_MODE = has('--json');
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+
+const result = await shipcheck(DIR, { baseRef: BASE });
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ bead: BEAD, dir: DIR, ...result }));
+  process.exit(result.base.sha ? (result.verdict.refuses ? 1 : 0) : 2);
+}
+
+if (BEAD) console.log(`# ${BEAD}`);
+console.log(`branch: ${result.branch ?? '(detached HEAD)'}`);
+
+if (!result.base.sha) {
+  console.log(red(`base: could not resolve — ${result.base.method}`));
+  process.exit(2);
+}
+
+console.log(`base: ${result.base.ref} @ ${result.base.sha.slice(0, 7)} (${result.base.method})`);
+console.log(`ahead: ${result.diff.ahead} commit${result.diff.ahead === 1 ? '' : 's'}`);
+
+if (result.diff.files.length) {
+  console.log(`files (${result.diff.files.length}):`);
+  for (const f of result.diff.files) console.log(`  ${f}`);
+  console.log('stat:');
+  for (const line of result.diff.stat.split('\n')) console.log(`  ${line}`);
+} else {
+  console.log(dim('files: none committed against the base yet'));
+}
+
+if (result.dirty.length) {
+  console.log(`working tree (${result.dirty.length} path${result.dirty.length === 1 ? '' : 's'}):`);
+  for (const d of result.dirty) console.log(red(`  ${d.status} ${d.file}  — deliver.js will refuse: uncommitted`));
+} else {
+  console.log(dim('working tree: clean'));
+}
+
+if (result.verdict.refuses) {
+  console.log(red(`verdict: deliver.js would REFUSE — ${result.verdict.reason}`));
+} else {
+  console.log(green('verdict: clean — deliver.js would not refuse on these grounds'));
+}
+
+process.exit(result.verdict.refuses ? 1 : 0);
