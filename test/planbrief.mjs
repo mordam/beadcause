@@ -227,6 +227,36 @@ const solo = workPromptFor('alpha', { ...bead, group: { ...bead.group, beads: []
 check('a group of one still gets its prompt and its PR plan', /Yours is `x-1\.1` on its own/.test(solo) && /The plan expects 1 pull request/.test(solo));
 check('and does not claim beads that are not there', !/bd show x-1\.2/.test(solo));
 
+/**
+ * bc-ogicx.12. `group.beads` is queue-scoped on purpose — `absent` is the plan's own
+ * membership the queue never reached, and it has to read differently from the ready list
+ * above: a `'priority'` reason says "do it too", every other reason says "leave it alone".
+ */
+const withAbsent = workPromptFor(
+  'alpha',
+  {
+    ...bead,
+    group: {
+      ...bead.group,
+      absent: [
+        { id: 'x-1.10', title: 'the P4 one', reason: 'priority' },
+        { id: 'x-1.11', title: 'waiting on a question', reason: 'human' },
+      ],
+    },
+  },
+  1,
+  pr,
+  'Adam'
+);
+check('a priority-cut member is offered as more work, not a mystery', /bd show x-1\.10    # the P4 one/.test(withAbsent) && /do it too/.test(withAbsent), withAbsent);
+check(
+  'a member nobody has cleared is named but not handed a `bd show`',
+  /x-1\.11    # waiting on a question — waiting on a question only Adam can answer/.test(withAbsent) &&
+    !/bd show x-1\.11/.test(withAbsent),
+  withAbsent
+);
+check('and it says outright not to work the second kind', /leave (it|them) alone rather than working (it|them) anyway/.test(withAbsent));
+
 /* and a bead the advocate never touched must be byte-for-byte what it always was. */
 const plainA = workPromptFor('alpha', { id: 'x-1.1', title: 'Read the certificate' }, 1, pr, 'Adam');
 const plainB = workPromptFor('alpha', { id: 'x-1.1', title: 'Read the certificate', group: null, batch: [] }, 1, pr, 'Adam');
