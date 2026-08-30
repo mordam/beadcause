@@ -278,7 +278,34 @@
     { id: 'config', href: '/config', icon: '🎛', label: 'Config' },
   ];
 
-  const route = window.beadcause.route;
+  /**
+   * The grammar — still a hard failure when it is missing, but one that says which file
+   * is missing (bc-l8ub).
+   *
+   * Failing rather than degrading is the decision, and it is the one argued two
+   * paragraphs below: every page needs `route`, so a page without it cannot say where it
+   * is, and a row that quietly marks nothing current is worse than no row. What bc-l8ub
+   * cost was that the loudness said nothing useful.
+   *
+   * Both shapes of the absence are one message here, because which of the two you get is
+   * an accident of the page. `window.beadcause` is created by whichever of
+   * public/hashroute.js, public/presence.js and public/stream.js runs first — so on
+   * /console, /monitor, /endorse, /config, /admin and the shell, where one of
+   * the other two is above this file, a `/hashroute.js` that did not arrive leaves the
+   * namespace behind and only `route` missing: `Cannot read properties of undefined
+   * (reading 'viewOfPath')`, thrown on a line of this file that does not mention
+   * hashroute.js at all. On /flow, /skills, /sounds and /requirements, which load
+   * neither, the same cause reads `(reading 'route')` instead. One bug, two
+   * fingerprints, neither naming the file.
+   *
+   * It arrives over the network, so "did not arrive" is an ordinary event rather than a
+   * programming mistake — a deploy swapping the backend under a page that is still
+   * fetching its scripts is exactly what bc-l8ub was, and public/sw.js answers that one
+   * out of the cache now. This message is for the next cause, whatever that turns out
+   * to be.
+   */
+  const route = window.beadcause?.route;
+  if (!route) throw new Error('viewbar.js: window.beadcause.route is missing — /hashroute.js did not load');
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
   /**
@@ -294,12 +321,14 @@
   /**
    * The panes of this document, on the one page that has any (bc-khoe.30.3).
    *
-   * `?.` here where `route` above is reached flat, and the difference is which absence is
-   * a bug. Every page needs the grammar, so a missing `route` is a page that cannot say
-   * where it is and should fail loudly. Panes are a fact about the shell alone — this row
-   * is drawn on ten pages and nine of them have nothing to show and hide — so a
-   * missing `panes` is the ordinary case, and every question below is asked with that
-   * answer as its default. See public/panes.js.
+   * A default here where `route` above throws, and the difference is which absence is a
+   * bug. Both are read with `?.` — that part is only about not crashing on the *shape* of
+   * the namespace — and then they part company: every page needs the grammar, so a
+   * missing `route` is a page that cannot say where it is and should fail loudly, which
+   * is why there is a `throw` under it (bc-l8ub). Panes are a fact about the shell alone
+   * — this row is drawn on ten pages and nine of them have nothing to show and hide —
+   * so a missing `panes` is the ordinary case, and every question below is asked with
+   * that answer as its default. See public/panes.js.
    */
   const panes = window.beadcause?.panes || null;
 
