@@ -22,19 +22,35 @@
  *
  * WHAT THIS DOES NOT PARSE. Definitions and call sites are found by matching each
  * *line*, not by a real JS parser, so a match inside a multi-line string or a
- * comment that happens to look like a definition is not filtered out. Template
- * literals are treated as opaque strings when finding a definition's closing
- * brace, so a `${...}` interpolation that itself contains braces can throw off
- * the span by a line or two — narrower than a real tokenizer, on purpose, the
- * same tradeoff test/lockfile.mjs makes against a real `npm ci --dry-run`. Good
- * enough for the application code in this repo; not a substitute for reading the
- * file when the shape is unusual.
+ * comment that happens to look like a definition is not filtered out. Where a
+ * definition *ends*, though, is measured over `blankForBraceWalk(text)` — the file
+ * with every comment, string, template and regex literal spaced out off a real
+ * `acorn` parse — so the hand-rolled brace walk below cannot desync on a quote
+ * inside a regex or an escaped backtick in a nested template (bc-3rjan). When
+ * `acorn` cannot parse the file, or is not installed at all, that falls back to
+ * the raw text and the walk is exactly as good as it was before. Good enough for
+ * the application code in this repo; not a substitute for reading the file when
+ * the shape is unusual.
  *
  * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+/**
+ * Optional on purpose. `acorn` is a devDependency, and this command is on the
+ * default tool list — an agent may well run it from a fresh worktree that has no
+ * `node_modules` yet. Without it `blankForBraceWalk` hands back the raw text and
+ * every walk below behaves exactly as it did before bc-3rjan; with it they stop
+ * meeting quotes, backticks and slashes altogether.
+ */
+let acorn = null;
+try {
+  acorn = await import('acorn');
+} catch {
+  /* no parse available — the raw-text fallback is the whole contingency */
+}
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -108,6 +124,108 @@ function listFiles() {
   };
   for (const d of SEARCH_DIRS) walk(path.join(ROOT, d));
   return files;
+}
+
+/* ------------------------------------------------- blanking, off a real parse */
+
+let lastBlanked = { text: null, scan: null };
+
+/**
+ * Three lists of `[start, end)` char ranges off one `acorn` parse of `text`, or
+ * `null` when `acorn` is missing or cannot parse it.
+ *
+ * `blank` is every comment, every string literal and every template-literal
+ * *chunk* — never the `${ … }` expression between two chunks, which is real code
+ * with balanced braces. `ticks` is the two backticks of each template, and
+ * `regex` every regex literal.
+ */
+function blankRanges(text) {
+  if (!acorn) return null;
+  const comments = [];
+  let ast;
+  try {
+    ast = acorn.parse(text, { ecmaVersion: 2022, sourceType: 'module', allowHashBang: true, onComment: comments });
+  } catch {
+    return null;
+  }
+  const blank = comments.map((c) => [c.start, c.end]);
+  const regex = [];
+  const ticks = [];
+  const seen = new Set();
+  const isNode = (v) => v && typeof v === 'object' && typeof v.type === 'string';
+  const walk = (node) => {
+    if (!isNode(node) || seen.has(node)) return;
+    seen.add(node);
+    if (node.type === 'Literal' && node.regex) {
+      regex.push([node.start, node.end]);
+      return;
+    }
+    if (node.type === 'Literal' && typeof node.value === 'string') {
+      blank.push([node.start, node.end]);
+      return;
+    }
+    if (node.type === 'TemplateElement') {
+      blank.push([node.start, node.end]);
+      return;
+    }
+    if (node.type === 'TemplateLiteral') {
+      // the backticks themselves; the chunks between them are TemplateElements and
+      // the `${ … }` expressions are real code with balanced braces
+      ticks.push([node.start, node.start + 1], [node.end - 1, node.end]);
+    }
+    for (const key of Object.keys(node)) {
+      if (key === 'loc' || key === 'range') continue;
+      const val = node[key];
+      if (Array.isArray(val)) for (const item of val) walk(item);
+      else if (isNode(val)) walk(val);
+    }
+  };
+  walk(ast);
+  return { blank, regex, ticks };
+}
+
+/** `text` with every `[start, end)` in `ranges` spaced out, `\n` left where it was. */
+function spaceOut(text, ranges) {
+  const out = text.split('');
+  for (const [s, e] of ranges) {
+    for (let i = s; i < e; i += 1) if (out[i] !== '\n') out[i] = ' ';
+  }
+  return out.join('');
+}
+
+/**
+ * `text`, same length and same line numbers, with every comment, string, template
+ * and regex literal replaced by spaces — the input `definitionsFor`'s brace walk
+ * runs over, and the only pass that wants it.
+ *
+ * The point is that the walk should never meet a quote, a backtick or a `/` at
+ * all. Every way it was seen to go wrong on this tree is one of those characters
+ * not meaning what it looked like: the `"` inside `/^["']|["']$/` (real,
+ * lib/beadfiles.js:130) is read by `skipString` as a string opener, so the string
+ * "closes" at some later unrelated quote and `matchBrace` ran `normalizeEntry`'s
+ * end from line 136 out to line 525; a `{2,3}` quantifier unbalances the brace
+ * count the same way; and an escaped backtick in a nested template (real in
+ * lib/amendment.js) ends `skipString` in the wrong place again. Blanking the
+ * delimiters costs the walk nothing, because it only ever needed them to get
+ * *past* what they wrapped. Measured over the five directories this command
+ * searches: with the walk reading the raw text, 82 of 3,118 top-level function
+ * declarations got an end line `acorn` disagreed with; over the blanked copy,
+ * none do — pinned in test/b7edef.mjs. bc-3rjan.
+ *
+ * Head matching still runs over the *raw* lines, so a definition that only looks
+ * like one inside a template literal is reported exactly as it was: only where a
+ * definition ends is measured here.
+ */
+function blankForBraceWalk(text) {
+  // One slot, because every caller walks a file at a time and asks about several
+  // names in it — `definitionsFor` runs once per name per file, and lib/server.js
+  // alone holds a few hundred. Re-parsing it per name cost test/b7edef.mjs's
+  // whole-tree check 52 seconds where one slot costs it 20.
+  if (lastBlanked.text === text) return lastBlanked.scan;
+  const ranges = blankRanges(text);
+  const scan = ranges === null ? text : spaceOut(text, [...ranges.blank, ...ranges.regex, ...ranges.ticks]);
+  lastBlanked = { text, scan };
+  return scan;
 }
 
 /* --------------------------------------------------- string/comment aware scan */
@@ -291,6 +409,15 @@ function docCommentStart(lines, startLine) {
  * `name(args) {` (a definition).
  */
 function definitionsFor(name, file, text) {
+  // Every head below requires the name somewhere in the line, so a file that does
+  // not contain the string at all has no definition in it and does not need to be
+  // parsed. Weaker than the \b…\b the heads apply, so it can never drop a real
+  // match — and it is what keeps one `acorn` parse per candidate file rather than
+  // one per file in the tree (b7e-def loadBead: 1.8s down to 0.5s).
+  if (!text.includes(name)) return [];
+  // Heads are matched against the raw lines; where a definition ENDS is measured
+  // over the blanked copy, which is the same length and the same line numbers.
+  const scan = blankForBraceWalk(text);
   const wb = `\\b${escapeRe(name)}\\b`;
   const heads = [
     { re: new RegExp(`^export\\s+default\\s+(async\\s+)?function\\*?\\s+${wb}\\s*\\(`), label: 'export default function' },
@@ -315,10 +442,10 @@ function definitionsFor(name, file, text) {
       const m = head.re.exec(trimmed);
       if (!m) continue;
       const afterHeadChar = charOffset + leadingWs + m[0].length - 1; // just past the head match
-      const body = findBody(text, afterHeadChar, { strict: Boolean(head.verifyBody) });
+      const body = findBody(scan, afterHeadChar, { strict: Boolean(head.verifyBody) });
       if (!body) continue;
       if (head.verifyBody && body.type !== 'brace') continue; // it was a call, not a def
-      const endIndex = body.type === 'brace' ? matchBrace(text, body.index) : body.index;
+      const endIndex = body.type === 'brace' ? matchBrace(scan, body.index) : body.index;
       const startLine = li + 1;
       const endLine = idx(endIndex);
       const docStart = docCommentStart(lines, startLine);

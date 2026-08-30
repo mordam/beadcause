@@ -14,9 +14,12 @@
 // is meant to go red — a b7e-def that stops finding real code is worse than one
 // that never shipped.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import * as acorn from 'acorn';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -32,6 +35,81 @@ const bad = (name, detail) => {
 const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail));
 
 const run = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: ROOT, encoding: 'utf8' });
+
+/**
+ * `definitionsFor`, lifted out of the command and run in a `node:vm`.
+ *
+ * b7e-def is an extensionless bin with no exports and a top-level run section, so
+ * it cannot be imported — and the whole-tree check below needs the function three
+ * thousand times, which is three thousand process spawns as a CLI. This slices the
+ * contiguous region that holds the blanking pass, the brace walk and
+ * `definitionsFor` (plus the one-line `escapeRe` it borrows from above), evaluates
+ * it, and hands back the function. It is a region slice rather than the
+ * per-declaration brace-matching lift test/p0bead.mjs uses on public/app.js, so a
+ * destructured parameter cannot truncate it; if the section markers ever move the
+ * slice stops parsing or the function comes back undefined, and this suite goes red
+ * naming it rather than quietly checking nothing.
+ *
+ * `acornArg` is what the vm sees as `acorn`. Passing `null` is how the
+ * "devDependency is not installed" path gets exercised, since that is exactly what
+ * the command's own optional import leaves behind.
+ */
+const liftDefinitionsFor = (src, acornArg = acorn) => {
+  const startAt = src.search(/\/\*[- ]*blanking, off a real parse[- ]*\*\//);
+  const endAt = src.indexOf('/* ---', src.indexOf('function definitionsFor'));
+  const escapeReLine = src.match(/^const escapeRe = .*$/m);
+  assert.ok(startAt >= 0, "bin/b7e-def has no 'blanking, off a real parse' section marker to slice from");
+  assert.ok(endAt > startAt, 'bin/b7e-def has no section marker after definitionsFor to slice to');
+  assert.ok(escapeReLine, 'bin/b7e-def no longer defines escapeRe on one line');
+  const chunk = `${escapeReLine[0]}\n${src.slice(startAt, endAt)}\ndefinitionsFor;`;
+  const fn = vm.runInNewContext(chunk, { acorn: acornArg });
+  assert.equal(typeof fn, 'function', 'the lifted slice did not end with definitionsFor');
+  return fn;
+};
+
+const SOURCE = fs.readFileSync(BIN, 'utf8');
+
+/** Every top-level `function f` / `export function f` acorn finds in `text`. */
+const topLevelFunctions = (text) => {
+  let ast;
+  try {
+    ast = acorn.parse(text, { ecmaVersion: 2022, sourceType: 'module', allowHashBang: true, locations: true });
+  } catch {
+    return null; // blankForBraceWalk falls back to the raw text for these, by design
+  }
+  const out = [];
+  for (const node of ast.body) {
+    const fn =
+      node.type === 'FunctionDeclaration'
+        ? node
+        : node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'FunctionDeclaration'
+          ? node.declaration
+          : null;
+    if (fn?.id) out.push(fn);
+  }
+  return out;
+};
+
+const sourceFiles = () => {
+  const skip = new Set(['node_modules', '.git', 'vendor', 'coverage']);
+  const out = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith('.') || skip.has(e.name)) continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (/\.(js|mjs|cjs)$/.test(e.name)) out.push(full);
+    }
+  };
+  for (const d of ['lib', 'bin', 'public', 'scripts', 'test']) walk(path.join(ROOT, d));
+  return out;
+};
 
 console.log('\nfinding a real definition, in one call');
 
@@ -118,6 +196,80 @@ console.log('\nno name, or --help, is a usage message rather than a crash');
   const r = run(['--help']);
   check('--help exits 0', r.status === 0, `status was ${r.status}`);
   check('prints usage', /b7e-def <name>/.test(r.stdout), r.stdout);
+}
+
+console.log('\na regex or a nested template in the body does not run the span past the end (bc-3rjan)');
+
+{
+  // The bead's own reproduction: normalizeEntry's second line holds /^["']|["']$/, whose
+  // " was read by skipString as a string opener — the string then "closed" at some later
+  // unrelated quote and matchBrace ran the end from 136 out to 525, the length of the file.
+  // Pinned against acorn's own loc rather than against the literal numbers, so the function
+  // moving down the file does not make this red for the wrong reason.
+  const text = fs.readFileSync(path.join(ROOT, 'lib/beadfiles.js'), 'utf8');
+  const fn = topLevelFunctions(text)?.find((f) => f.id.name === 'normalizeEntry');
+  check('lib/beadfiles.js still defines normalizeEntry', Boolean(fn), 'the reproduction moved — pick another regex-bodied function');
+  if (fn) {
+    const body = text.split('\n').slice(fn.loc.start.line - 1, fn.loc.end.line).join('\n');
+    check(
+      "its body still holds the regex with a quote in it, so this is still testing the bug",
+      /\/\^\["']/.test(body),
+      'the regex literal left normalizeEntry — this check has stopped exercising the desync',
+    );
+    const r = run(['normalizeEntry']);
+    check('exits 0', r.status === 0, `status was ${r.status}\n${r.stderr}`);
+    check(
+      `reports lib/beadfiles.js:${fn.loc.start.line}-${fn.loc.end.line}, the extent acorn gives it`,
+      r.stdout.includes(`lib/beadfiles.js:${fn.loc.start.line}-${fn.loc.end.line}`),
+      r.stdout.split('\n')[0],
+    );
+  }
+}
+
+console.log('\nevery top-level function in this repo gets the extent acorn gives it');
+
+{
+  // The whole-tree pin, and the check to run against ANY future port of this walk: a
+  // hand-rolled scanner and a real parser must agree about where a function ends. Measured
+  // on this tree with the walk reading the raw text, as it did before bc-3rjan: 82 of 3118
+  // disagreed, normalizeEntry among them.
+  const definitionsFor = liftDefinitionsFor(SOURCE);
+  const wrong = [];
+  let checked = 0;
+  for (const f of sourceFiles()) {
+    const text = fs.readFileSync(f, 'utf8');
+    const fns = topLevelFunctions(text);
+    if (!fns) continue;
+    const rel = path.relative(ROOT, f);
+    for (const fn of fns) {
+      checked += 1;
+      const def = definitionsFor(fn.id.name, rel, text).find((d) => d.startLine === fn.loc.start.line);
+      if (!def) wrong.push(`${rel}:${fn.loc.start.line} ${fn.id.name} not found at all`);
+      else if (def.endLine !== fn.loc.end.line) {
+        wrong.push(`${rel}:${fn.loc.start.line} ${fn.id.name} endLine ${def.endLine} vs acorn ${fn.loc.end.line}`);
+      }
+    }
+  }
+  check('the whole tree was walked, not a corner of it', checked > 2000, `only checked ${checked}`);
+  check(`all ${checked} agree with acorn`, wrong.length === 0, `${wrong.length} disagree:\n      ${wrong.slice(0, 10).join('\n      ')}`);
+}
+
+console.log('\nwithout acorn, and on a file acorn cannot parse, it falls back rather than throwing');
+
+{
+  // acorn is a devDependency and this command is on the default tool list, so it has to keep
+  // working from a worktree with no node_modules — the blanking pass hands back the raw text
+  // and the walk is exactly as good (and as wrong) as it was before bc-3rjan. Same path for
+  // a file that will not parse at all.
+  const withoutAcorn = liftDefinitionsFor(SOURCE, null);
+  const simple = 'function plain(a) {\n  return a;\n}\n';
+  const defs = withoutAcorn('plain', 'x.js', simple);
+  check('with no acorn at all, a plain function is still found', defs.length === 1 && defs[0].endLine === 3, JSON.stringify(defs));
+
+  const definitionsFor = liftDefinitionsFor(SOURCE);
+  const unparseable = 'function plain(a) {\n  return a;\n}\nthis ( is not ) javascript ===\n';
+  const onGarbage = definitionsFor('plain', 'x.js', unparseable);
+  check('a file acorn cannot parse is scanned raw rather than skipped', onGarbage.length === 1 && onGarbage[0].endLine === 3, JSON.stringify(onGarbage));
 }
 
 console.log(failures ? `\n\x1b[31m${failures} failed\x1b[0m\n` : '\n\x1b[32mall checks passed\x1b[0m\n');

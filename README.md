@@ -18645,6 +18645,14 @@ It searches `lib/`, `bin/`, `public/`, `scripts/` and `test/` and reports, per m
 class method, a top-level function, an exported `const`, all found by the same
 line-by-line scan rather than a real parser (see the doc comment at the top of
 `bin/b7e-def` for exactly where that scan is deliberately narrower than a tokenizer).
+Where a definition *ends* is the one half that does use a parser, since `bc-3rjan`: the
+brace walk runs over the file with every comment, string, template and regex literal
+spaced out off an `acorn` parse, because a hand-rolled scanner reads the `"` inside
+`/^["']|["']$/` as a string opener and then runs the span to the end of the file — 82 of
+this tree's 3,118 top-level functions got the wrong end line that way, and
+`test/b7edef.mjs` now pins every one of them against `acorn`'s own `loc`. `acorn` is a
+devDependency, so a worktree without `node_modules` gets the old raw-text walk rather
+than a crash.
 **Two definitions is a report of two, not a guess** — searching a name reused across
 files (three unrelated `normalize` helpers, say) prints all three rather than silently
 narrowing to the first hit. When the name is only *imported* where it was found, the
