@@ -24,7 +24,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
 
 const { gateVerdict, cardedFor, strandedPrs, anyQueued, queueFor } = await import(LIB('mergeadvocate.js'));
-const { queueState, queueBlock, withQueueBlock, MAX_RECLAIMS, MAX_ATTEMPTS } = await import(LIB('mergebead.js'));
+const { queueState, queueBlock, withQueueBlock, withReviewBlock, MAX_RECLAIMS, MAX_ATTEMPTS, MAX_REVIEW_ROUNDS } =
+  await import(LIB('mergebead.js'));
 
 /* ------------------------------------------------------------------- harness */
 
@@ -171,6 +172,45 @@ await check('a card the queue never refused is left alone — it is a decision, 
   // No queue block at all: a delivery card waiting on Adam, which the queue never touched.
   const delivery = bead({ id: 'zz-delivery', labels: CARD, notes: '' });
   assert.deepEqual(cardedFor([delivery]), [], 'nothing to withdraw, so nothing is taken');
+});
+
+/**
+ * bc-uxrix, answered by Adam 2026-08-24. The queue's own sentence lapses; a reviewer's
+ * does not, and the only reason a vetoed card reaches this function at all is that the
+ * stale queue block is still sitting underneath the review block in the same field.
+ */
+await check('a card a reviewer vetoed is a decision, whatever the queue block still says', async () => {
+  const notes = withQueueBlock('', { attempts: 3, refused: 'waiting on a review.' });
+  const refusedByReviewer = bead({
+    id: 'zz-veto',
+    labels: CARD,
+    notes: withReviewBlock(notes, { round: 1, verdict: 'refused', reviewer: 'r', refused: 'the approach is wrong.' }),
+  });
+  const outOfRounds = bead({
+    id: 'zz-capped',
+    labels: CARD,
+    notes: withReviewBlock(notes, {
+      round: MAX_REVIEW_ROUNDS,
+      verdict: 'changes',
+      reviewer: 'r',
+      comments: [{ id: 'c1', body: 'still wrong', severity: 'blocking' }],
+    }),
+  });
+  const midLoop = bead({
+    id: 'zz-round1',
+    labels: CARD,
+    notes: withReviewBlock(withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }), {
+      round: 1,
+      verdict: 'changes',
+      reviewer: 'r',
+      comments: [{ id: 'c1', body: 'a suggestion', severity: 'suggestion' }],
+    }),
+  });
+  assert.deepEqual(
+    cardedFor([refusedByReviewer, outOfRounds, midLoop]).map((e) => e.issue.id),
+    ['zz-round1'],
+    'a round in progress is the queue holding it; the other two are somebody who has decided'
+  );
 });
 
 await check('and neither is a closed one, or one belonging to somebody else', async () => {
