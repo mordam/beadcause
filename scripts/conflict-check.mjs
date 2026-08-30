@@ -16,7 +16,10 @@
  * git directory unless `core.hooksPath` says otherwise, so a hook written once in the
  * main checkout is already running in all ~25 worktrees of this repo — including ones
  * created after the install. `git rev-parse --git-path hooks` is what says so, from
- * wherever this is run.
+ * wherever this is run. And running `--install-hook` *from* a worktree is equally safe:
+ * the command it writes always points at the main checkout's own copy of this script,
+ * never the installing worktree's, so retiring that worktree later does not take the
+ * hook down with it — bc-xl7n.125.
  *
  * The hook is a real guard rather than a comfort: it fires on `git commit` for every
  * session, human or agent, and it costs a few hundred milliseconds. `git commit
@@ -77,6 +80,26 @@ if (has('--install-hook')) {
     process.exit(1);
   }
 
+  // The command the hook execs has to keep working after *this worktree* is retired —
+  // bc-xl7n.125. `ROOT` above is `import.meta.url`, i.e. wherever this file happens to
+  // live right now, which is the installing worktree's own copy when `--install-hook`
+  // runs from inside one; every worktree gets retired eventually, so a hook pointing
+  // there is a MODULE_NOT_FOUND waiting to happen. `commonDir` just above is already
+  // the answer to "which checkout owns this git directory" — for an ordinary (non-bare)
+  // repo it is `<checkout>/.git`, and that checkout is the *main* one: a worktree
+  // shares the common dir, it does not own it, and the main checkout is what stays put
+  // when worktrees come and go. Confirmed rather than assumed: nothing guarantees the
+  // repo being installed into is even a checkout of *this* project (a scratch fixture
+  // in a test, say), so this only trusts the candidate when it actually holds a copy
+  // of the script — otherwise ROOT, wherever this process is actually running from, is
+  // still the only sane answer.
+  const candidateRoot = path.basename(commonDir) === '.git' ? path.dirname(commonDir) : null;
+  const mainCheckout =
+    candidateRoot && fs.existsSync(path.join(candidateRoot, 'scripts', 'conflict-check.mjs'))
+      ? candidateRoot
+      : ROOT;
+  const script = path.join(mainCheckout, 'scripts', 'conflict-check.mjs');
+
   fs.mkdirSync(hooks, { recursive: true });
   const file = path.join(hooks, 'pre-commit');
   const marker = 'beadcause conflict-check';
@@ -84,8 +107,10 @@ if (has('--install-hook')) {
 # ${marker} — refuses a commit carrying an unresolved merge or a file that does not
 # parse. Installed by \`node scripts/conflict-check.mjs --install-hook\`; delete this
 # file to remove it. Shared by every worktree of this repo, by way of the common git
-# directory. \`git commit --no-verify\` skips it.
-exec node "${path.join(ROOT, 'scripts', 'conflict-check.mjs')}" --staged
+# directory, and points at the *main checkout's* copy of this script regardless of
+# which worktree ran the install — bc-xl7n.125 — so retiring that worktree does not
+# break the hook everywhere else. \`git commit --no-verify\` skips it.
+exec node "${script}" --staged
 `;
 
   if (fs.existsSync(file)) {
@@ -94,7 +119,7 @@ exec node "${path.join(ROOT, 'scripts', 'conflict-check.mjs')}" --staged
     // repo loses a check nobody remembers installing.
     if (!existing.includes(marker)) {
       console.error(`${red('✗')} ${file} already exists and is not ours — not touching it.`);
-      console.error(`  Add this line to it instead:\n\n      exec node "${path.join(ROOT, 'scripts', 'conflict-check.mjs')}" --staged\n`);
+      console.error(`  Add this line to it instead:\n\n      exec node "${script}" --staged\n`);
       process.exit(1);
     }
   }
