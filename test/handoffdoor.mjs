@@ -38,6 +38,13 @@
  *    quietly did the wrong thing. The `--json | jq` form is one of them: bare `bd show`
  *    pretty-prints the description and eats the backticks, fences and long paths a handoff
  *    exists to hand over.
+ * 4. **The fallback's `cd` is a checkout, never a worktree** — bc-tstol, and the one claim
+ *    here that is not read off a source file. When the script is installed it is *run*,
+ *    `--dry-run --no-daemon`, against a real temp worktree, because the day this broke it
+ *    broke in the direction that reads as correct from every screen: the successor came up
+ *    somewhere plausible, in a repo, on a branch, with a green banner saying the worktree
+ *    was its own. Nothing short of looking at the emitted `cd` distinguishes that from the
+ *    right answer. Skipped when the script is not installed.
  *
  * The route's own guards are asserted against the source, the way test/p0advocate.mjs
  * asserts its wiring: every path through this door either opens an iTerm window or is a
@@ -49,6 +56,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { cleanupTmp } from './helpers/tmp.mjs';
 
@@ -233,6 +241,144 @@ check('the window is a worker session, not an agent one', () => {
   assert.ok(!/agent: /.test(body), 'no foundation override — a handoff successor is an ordinary worker');
   assert.match(body, /bead: id, workspace: workspace\.name/, 'and it is registered against its bead');
 });
+
+/* ----------------------------------------------- the fallback half of Step 6 */
+
+/**
+ * `~/.claude/open-handoff.sh`, run for real. Two facts are pinned, and they pull in
+ * opposite directions, which is why both are here:
+ *
+ * - the **`cd` must be the checkout**, even when `-d` names a worktree and even when `-d`
+ *   is omitted and `$PWD` is one. That is the bc-tstol fix.
+ * - the **workspace must not move** when it redirects. `-d` does two jobs — it derives the
+ *   beads workspace on the daemon path and it is the `cd` on the fallback — and the whole
+ *   reason the wrong value survived so long is that it was *correct* for the first job.
+ *   A "fix" that redirected the workspace too would file the successor's `bd` calls into a
+ *   different graph than the handoff, which is a worse bug than the one being fixed.
+ *
+ * A stub `claude` goes on `PATH` (the script refuses to plan a window without one) and a
+ * one-route stand-in for the daemon answers `/api/health`, which is what makes the script
+ * print the workspace it derived. Nothing opens and nothing is POSTed: `--dry-run` returns
+ * before both AppleScript and `/api/handoff`.
+ *
+ * The stand-in is a **separate process**, deliberately. An `http.createServer` in this
+ * process cannot answer, because `spawnSync` blocks the event loop for the whole of the
+ * script's 2-second health probe — the daemon path would silently never be taken and
+ * every assertion below would pass against the fallback for the wrong reason.
+ */
+const OPENER = path.join(os.homedir(), '.claude', 'open-handoff.sh');
+const haveOpener =
+  fs.existsSync(OPENER) &&
+  ['curl', 'jq'].every((c) => spawnSync('command', ['-v', c], { shell: true }).status === 0);
+
+if (!haveOpener) {
+  console.log(`  (${OPENER} is not installed — the fallback half is not checked here)`);
+} else {
+  console.log('open-handoff.sh — where the fallback puts the successor');
+
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(tmp, 'home-')));
+  const stub = path.join(home, 'bin');
+  fs.mkdirSync(stub, { recursive: true });
+  fs.writeFileSync(path.join(stub, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+
+  // Under a fake $HOME, so the workspace derivation runs the real ~/neadamthal.projects
+  // rule against a path this suite controls.
+  const main = path.join(home, 'neadamthal.projects', 'wsrepo');
+  fs.mkdirSync(path.join(main, '.claude', 'worktrees'), { recursive: true });
+  const git = (...args) => execFileSync('git', args, { cwd: main, stdio: 'pipe' });
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'test');
+  fs.writeFileSync(path.join(main, 'README.md'), 'hi\n');
+  git('add', '-A');
+  git('commit', '-qm', 'first');
+  const wt = path.join(main, '.claude', 'worktrees', 'wt');
+  git('worktree', 'add', '-q', '-b', 'worktree-wt', wt);
+
+  const portFile = path.join(home, 'health-port');
+  const daemon = spawn(
+    process.execPath,
+    [
+      '-e',
+      "const http=require('http'),fs=require('fs');" +
+        "const s=http.createServer((q,r)=>{r.writeHead(200,{'content-type':'application/json'});" +
+        "r.end(JSON.stringify({ok:true,workspaces:['wsrepo']}))});" +
+        "s.listen(0,'127.0.0.1',()=>fs.writeFileSync(process.argv[1],String(s.address().port)))",
+      portFile,
+    ],
+    { stdio: 'ignore' }
+  );
+  let port = '';
+  for (let i = 0; i < 200 && !port; i += 1) {
+    try {
+      port = fs.readFileSync(portFile, 'utf8').trim();
+    } catch {
+      spawnSync('sleep', ['0.05']);
+    }
+  }
+  fs.mkdirSync(path.join(home, '.config', 'beadcause'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.config', 'beadcause', 'config.json'),
+    JSON.stringify({ port: Number(port), token: 'test-token' })
+  );
+
+  const esc = (p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // The emitted line is `cd <dir> || return`, so the directory is anchored on both sides:
+  // a substring match would pass for a cd into a *subdirectory* of the checkout too.
+  const cdLine = (dir) => new RegExp(`^cd ${esc(dir)} \\|\\| return$`, 'm');
+
+  const opener = (args, cwd) => {
+    const r = spawnSync('bash', [OPENER, 'bc-hb7j', '--dry-run', ...args], {
+      encoding: 'utf8',
+      timeout: 60000,
+      cwd,
+      env: { ...process.env, HOME: home, PATH: `${stub}:${process.env.PATH}` },
+    });
+    return { code: r.status, out: r.stdout || '', err: r.stderr || '', all: `${r.stdout || ''}${r.stderr || ''}` };
+  };
+
+  check('-d a worktree opens in the parent checkout, and says it redirected', () => {
+    const r = opener(['--no-daemon', '-d', wt]);
+    assert.equal(r.code, 0, r.all);
+    assert.match(r.out, cdLine(main), `the emitted cd is not the checkout:\n${r.all}`);
+    assert.ok(!/^cd .*worktrees\/wt/m.test(r.out), `it cd'd into the worktree:\n${r.out}`);
+    // A silent cd somewhere other than what was asked for is its own trap.
+    assert.match(r.err, /was a worktree/, `the redirect has to be visible: ${r.err}`);
+    assert.match(r.err, /worktrees\/wt/, r.err);
+  });
+
+  check('and so does the $PWD default, which is how it actually happened', () => {
+    // Nobody passed `-d <worktree>` on purpose; the skill said to pass the session's
+    // primary working directory, which for a session in a worktree *is* the worktree —
+    // and `DIR="$PWD"` reaches the same place with no flag at all.
+    const r = opener(['--no-daemon'], wt);
+    assert.equal(r.code, 0, r.all);
+    assert.match(r.out, cdLine(main), r.all);
+    assert.match(r.err, /was a worktree/, r.err);
+  });
+
+  check('a checkout is left exactly as given, with nothing said about it', () => {
+    const r = opener(['--no-daemon', '-d', main]);
+    assert.equal(r.code, 0, r.all);
+    assert.match(r.out, cdLine(main), r.all);
+    assert.ok(!/was a worktree/.test(r.err), `nothing was redirected, so nothing should be said: ${r.err}`);
+  });
+
+  check('the workspace is the same either way — the redirect must not move the graph', () => {
+    // This is the assertion that keeps the fix honest. Both spellings strip to `wsrepo` by
+    // the `_bd_set_workspace` rule, which is why passing the worktree was harmless on the
+    // daemon path and fatal on the fallback; the fix has to preserve the harmless half.
+    const ws = (r) => {
+      const m = r.all.match(/POST \/api\/handoff\s+(\{.*\})/);
+      assert.ok(m, `the daemon path was not taken, so this asserts nothing:\n${r.all}`);
+      return JSON.parse(m[1]).workspace;
+    };
+    assert.equal(ws(opener(['-d', wt])), 'wsrepo');
+    assert.equal(ws(opener(['-d', main])), 'wsrepo');
+  });
+
+  daemon.kill();
+}
 
 /* ------------------------------------------------------------------------ done */
 
