@@ -168,6 +168,17 @@ if (a === 'api' && b === 'graphql') {
   // The one place this fake speaks GraphQL: thread listing and thread resolution, neither
   // of which REST can answer at all. Routed by which field name the query text carries,
   // exactly the way pr.js's two callers are told apart from each other.
+  //
+  // bc-36xx.26: the same flapping repo-view simulates above, on this endpoint instead —
+  // state.graphqlOutage.count 503s are served, on EITHER query, before falling through to
+  // whatever this handler would otherwise have said. One counter for both queries because
+  // the outage this simulates is GraphQL itself answering with a shrug, not one query in
+  // particular.
+  if (state.graphqlOutage && state.graphqlOutage.count > 0) {
+    state.graphqlOutage.count -= 1;
+    save();
+    fail(state.graphqlOutage.message || 'HTTP 503: No server is currently available to service your request (https://api.github.com/graphql)');
+  }
   var qArg = args.filter(function (x) { return x.indexOf('query=') === 0; })[0] || '';
   var query = qArg.slice('query='.length);
   if (query.indexOf('resolveReviewThread') >= 0) {
@@ -1449,6 +1460,105 @@ world({ ...JSON.parse(fs.readFileSync(STATE, 'utf8')), threadsRefusal: 'HTTP 403
 resetLog();
 const failedThreads = await pr.reviewThreads(REPO, 42);
 check('gh refusing the query is null, not a throw the sweep has to catch', failedThreads === null, JSON.stringify(failedThreads));
+check('and a genuine refusal is never reported as an outage', pr.threadsTransient(REPO, 42) === false);
+
+/**
+ * bc-36xx.26: GitHub answering `reviewThreads`'s own GraphQL call with a shrug, the exact
+ * shape bc-36xx.14 fixed for the repo probe — reusing `isTransientErr` here rather than a
+ * second classifier for the same API. `threadsTransient(dir, number)` is `probeTransient`'s
+ * counterpart: a null caused by an outage must be tellable apart from a null that genuinely
+ * means "no threads" or "nobody can read them here", both proven above.
+ */
+console.log('\nreviewThreads and a GraphQL outage');
+
+pr.forgetAvailability();
+twoAccounts();
+world({
+  ...JSON.parse(fs.readFileSync(STATE, 'utf8')),
+  threads: [{ id: 'PRRT_kwABC', isResolved: false, comments: { nodes: [] } }],
+  graphqlOutage: { count: 1 },
+});
+resetLog();
+const blippedThreads = await pr.reviewThreads(REPO, 42);
+check(
+  'a blip that clears within the retries still reads the threads',
+  Array.isArray(blippedThreads) && blippedThreads.length === 1,
+  JSON.stringify(blippedThreads)
+);
+check(
+  'and it did retry — more than one graphql call for the one answer',
+  calls().filter((c) => c.args[0] === 'api').length > 1,
+  JSON.stringify(calls())
+);
+check('a read that succeeded after a blip is not reported as unreachable', pr.threadsTransient(REPO, 42) === false);
+
+pr.forgetAvailability();
+twoAccounts();
+world({ ...JSON.parse(fs.readFileSync(STATE, 'utf8')), graphqlOutage: { count: 9 } });
+resetLog();
+const outagedThreads = await pr.reviewThreads(REPO, 42);
+check(
+  'an outage that outlasts every retry still comes back null, same as a real empty answer',
+  outagedThreads === null,
+  JSON.stringify(outagedThreads)
+);
+check('but it is flagged transient — GitHub never actually answered', pr.threadsTransient(REPO, 42) === true);
+
+/**
+ * The outage does not have to land on the thread query to be an outage, and on 2026-08-17
+ * it did not: `slugFor` -> `resolve` -> `seenBy` is `gh repo view`, GraphQL as well, and
+ * that is the call which 503'd on roughly four requests in five. `reviewThreads` bails on
+ * a null slug before it ever speaks to the thread query, so unless the flag is set there
+ * too it answers `false` — "this pull request genuinely has no threads" — in the middle
+ * of the very outage it was built to name. Measured in round 1 of #655's review; the two
+ * checks below are that measurement, kept.
+ */
+console.log('\nreviewThreads and an outage on the repo probe underneath it');
+
+pr.forgetAvailability();
+twoAccounts();
+world({
+  ...JSON.parse(fs.readFileSync(STATE, 'utf8')),
+  threads: [{ id: 'PRRT_kwABC', isResolved: false, comments: { nodes: [] } }],
+  repoOutage: { count: 9 },
+});
+resetLog();
+const probeOutagedThreads = await pr.reviewThreads(REPO, 42);
+check(
+  'an outage on the repo probe never reaches the thread query, so this is null as well',
+  probeOutagedThreads === null,
+  JSON.stringify(probeOutagedThreads)
+);
+check(
+  'and nothing reaches graphql at all — the repo probe is where it died',
+  !calls().some((c) => c.args[0] === 'api'),
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+check('the repo probe knows it was an outage', pr.probeTransient(REPO) === true);
+check(
+  'so threadsTransient says outage too, rather than "this pull request has no threads"',
+  pr.threadsTransient(REPO, 42) === true
+);
+
+// The same ordering, read the other way: the flag is cleared by every call, including one
+// that bails long before GraphQL, so an outage that has since cleared cannot leave a `true`
+// standing over a read that never asked GitHub anything. Deliberately no
+// `forgetAvailability()` here — it clears `threadsTransientKeys` outright, which would
+// prove nothing about the ordering inside `reviewThreads`.
+world({
+  ...JSON.parse(fs.readFileSync(STATE, 'utf8')),
+  repoOutage: null,
+  repoByToken: { '': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' } },
+});
+resetLog();
+const afterTheOutage = await pr.reviewThreads(REPO, 42);
+check(
+  'the repo resolves again but there is now nobody to read the threads as, so still null',
+  afterTheOutage === null,
+  JSON.stringify(afterTheOutage)
+);
+check('that read never reached graphql either', !calls().some((c) => c.args[0] === 'api'), JSON.stringify(calls().map((c) => c.args.join(' '))));
+check('and the earlier outage does not survive it as a stale true', pr.threadsTransient(REPO, 42) === false);
 
 pr.forgetAvailability();
 world();
@@ -1516,6 +1626,42 @@ check(
   "GitHub refusing the mutation comes back unresolved, with GitHub's own sentence",
   refusedResolve.resolved === false && /403/.test(refusedResolve.reason),
   JSON.stringify(refusedResolve)
+);
+check('and a genuine refusal carries no transient flag', !refusedResolve.transient, JSON.stringify(refusedResolve));
+
+/**
+ * bc-36xx.26: the same outage, on the mutation. `resolveThread` already returns an
+ * object rather than null on every failure, so the outage rides as `transient: true` on
+ * that same shape instead of a separate flag — a caller checks one field rather than a
+ * second lookup keyed by dir+number.
+ */
+console.log('\nresolveThread and a GraphQL outage');
+
+pr.forgetAvailability();
+twoAccounts();
+world({
+  ...JSON.parse(fs.readFileSync(STATE, 'utf8')),
+  threads: [{ id: 'PRRT_kwABC', isResolved: false, comments: { nodes: [] } }],
+  graphqlOutage: { count: 1 },
+});
+resetLog();
+const blippedResolve = await pr.resolveThread(REPO, 'PRRT_kwABC');
+check(
+  'a blip that clears within the retries still resolves the thread',
+  blippedResolve.resolved === true && !blippedResolve.transient,
+  JSON.stringify(blippedResolve)
+);
+check('and it did retry', calls().filter((c) => c.args[0] === 'api').length > 1, JSON.stringify(calls()));
+
+pr.forgetAvailability();
+twoAccounts();
+world({ ...JSON.parse(fs.readFileSync(STATE, 'utf8')), graphqlOutage: { count: 9 } });
+resetLog();
+const outagedResolve = await pr.resolveThread(REPO, 'PRRT_kwABC');
+check(
+  'an outage that outlasts every retry is flagged transient, not read as a genuine refusal',
+  outagedResolve.resolved === false && outagedResolve.transient === true,
+  JSON.stringify(outagedResolve)
 );
 
 pr.forgetAvailability();

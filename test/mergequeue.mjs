@@ -152,9 +152,14 @@ const fakePr = (
     reviewer = null,
     approve = { submitted: true, reviewer: 'NeanderthalMan', url: 'https://github.com/acme/widgets/pull/42#pullrequestreview-1', at: '2026-08-23T00:00:00Z' },
     submitReview = { submitted: true, reviewer: 'NeanderthalMan', url: 'https://github.com/acme/widgets/pull/42#pullrequestreview-1', at: '2026-08-23T00:00:00Z' },
+    // bc-36xx.31: both undefined by default, exactly the shape every fakePr had before
+    // reviewThreads/resolveThread existed — `typeof prApi.reviewThreads === 'function'`
+    // in syncReviewVerdict skips both when a scenario has not opted in.
+    reviewThreads,
+    resolveThread,
   } = {}
 ) => {
-  const calls = { merges: [], updates: [], comments: [], approvals: [], reviews: [] };
+  const calls = { merges: [], updates: [], comments: [], approvals: [], reviews: [], threadReads: [], resolves: [] };
   const api = {
     calls,
     view: async () => view,
@@ -190,6 +195,26 @@ const fakePr = (
       calls.reviews.push({ dir, n, ...opts });
       return submitReview;
     },
+    // bc-36xx.31: `reviewThreads`/`resolveThread`, lib/pr.js — omitted entirely (rather
+    // than defaulting to a stub) when the scenario passed nothing, so `typeof
+    // prApi.reviewThreads === 'function'` in syncReviewVerdict reads false exactly the
+    // way it does against a real `prApi` this bead predates.
+    ...(reviewThreads
+      ? {
+          reviewThreads: async (dir, n) => {
+            calls.threadReads.push({ dir, n });
+            return typeof reviewThreads === 'function' ? reviewThreads(dir, n) : reviewThreads;
+          },
+        }
+      : {}),
+    ...(resolveThread
+      ? {
+          resolveThread: async (dir, threadId) => {
+            calls.resolves.push({ dir, threadId });
+            return typeof resolveThread === 'function' ? resolveThread(dir, threadId) : { resolved: true, reason: '' };
+          },
+        }
+      : {}),
   };
   /**
    * `mergeability`, lib/pr.js — one `view` at `timeoutMs: 0`, plus the one thing the raw
@@ -1739,6 +1764,102 @@ await check('A CHANGES VERDICT WITH INLINE COMMENTS GOES OUT AS submitReview, NE
   assert.deepEqual(out.merged, []);
   assert.deepEqual(out.answering, [], 'no openAnswer was wired up for this scenario, so nothing should claim it opened one');
   assert.deepEqual(out.awaiting, ['zz-merge']);
+});
+
+await check('bc-36xx.31: a fresh inline comment is anchored to the GitHub thread it just created', async () => {
+  const verdict = {
+    pr: 42,
+    bead: 'zz-work',
+    round: 1,
+    approved: false,
+    why: 'the lock is never released on the error path',
+    comments: [{ id: 'c1', file: 'lib/example.js', line: 42, severity: 'blocking', what: 'this leaks a handle', why: 'the finally never runs' }],
+  };
+  const bd = fakeBd({
+    rows: [reviewed({ round: 0 })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    comments: { 'zz-merge': [verdictComment(verdict)] },
+  });
+  // What `reviewThreads` hands back right after the review above went out: one thread,
+  // its comment carrying the exact text `inlineComments` sent.
+  const threads = [
+    {
+      id: 'PRRT_kwABC',
+      resolved: false,
+      comments: [{ id: '9001', path: 'lib/example.js', line: 42, body: '**blocking** — this leaks a handle the finally never runs' }],
+    },
+  ];
+  const prApi = fakePr(openPr(), { reviewThreads: async () => threads });
+  await run(bd, prApi, { policy: REVIEW_ON });
+
+  assert.equal(prApi.calls.threadReads.length, 1, 'reviewThreads was never called to anchor the comment it just posted');
+  assert.deepEqual(prApi.calls.threadReads[0], { dir: '/tmp/widgets', n: 42 });
+
+  const written = bd.calls.updates.find((u) => reviewState({ notes: u.notes }).round === 1);
+  const rev = reviewState({ notes: written.notes });
+  assert.equal(rev.comments[0].threadId, 'PRRT_kwABC', "the comment was never anchored to GitHub's own thread id");
+});
+
+await check('bc-36xx.31: an answered comment the next round drops is resolved on GitHub, not just dropped locally', async () => {
+  const priorRound = {
+    round: 1,
+    verdict: 'changes',
+    reviewedSha: HEAD,
+    comments: [
+      {
+        id: 'c1',
+        path: 'lib/example.js',
+        line: 42,
+        body: 'this leaks a handle',
+        severity: 'blocking',
+        why: 'the finally never runs',
+        answer: 'changed',
+        note: 'wrapped it in a finally',
+        threadId: 'PRRT_kwABC',
+      },
+    ],
+  };
+  // Round 2: the reviewer read the answer and is satisfied, so the fresh verdict simply
+  // does not carry c1 forward.
+  const verdict = { pr: 42, bead: 'zz-work', round: 2, approved: true, comments: [] };
+  const bd = fakeBd({
+    rows: [reviewed(priorRound)],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    comments: { 'zz-merge': [verdictComment(verdict)] },
+  });
+  const prApi = fakePr(openPr(), {
+    reviewer: { login: 'NeanderthalMan', user: '', slug: 'acme/widgets', permission: 'write' },
+    resolveThread: async () => ({ resolved: true, reason: '' }),
+  });
+  const out = await run(bd, prApi, { policy: REVIEW_ON, owner: 'Adam' });
+
+  assert.equal(prApi.calls.resolves.length, 1, 'the settled comment was never resolved on GitHub');
+  assert.deepEqual(prApi.calls.resolves[0], { dir: '/tmp/widgets', threadId: 'PRRT_kwABC' });
+  assert.deepEqual(out.merged, ['zz-merge']);
+});
+
+await check('an unanswered comment dropped by a fresh verdict is not \'settled\' — nothing to resolve for it', async () => {
+  // The reviewer replacing an unanswered comment with a differently-worded one about the
+  // same spot is not the worker's answer being accepted; only `answer` set is.
+  const priorRound = {
+    round: 1,
+    verdict: 'changes',
+    reviewedSha: HEAD,
+    comments: [{ id: 'c1', path: 'lib/example.js', line: 42, body: 'this leaks a handle', severity: 'blocking', threadId: 'PRRT_kwABC' }],
+  };
+  const verdict = { pr: 42, bead: 'zz-work', round: 2, approved: true, comments: [] };
+  const bd = fakeBd({
+    rows: [reviewed(priorRound)],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    comments: { 'zz-merge': [verdictComment(verdict)] },
+  });
+  const prApi = fakePr(openPr(), {
+    reviewer: { login: 'NeanderthalMan', user: '', slug: 'acme/widgets', permission: 'write' },
+    resolveThread: async () => ({ resolved: true, reason: '' }),
+  });
+  await run(bd, prApi, { policy: REVIEW_ON, owner: 'Adam' });
+
+  assert.equal(prApi.calls.resolves.length, 0, 'a comment nobody ever answered was resolved on GitHub anyway');
 });
 
 await check('recorded as approved even with no second GitHub account to submit it as', async () => {
