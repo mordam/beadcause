@@ -125,6 +125,7 @@
     "b7e-show": "bin/b7e-show",
     "b7e-siblings": "bin/b7e-siblings",
     "b7e-stillred": "bin/b7e-stillred",
+    "b7e-suite": "bin/b7e-suite",
     "b7e-surface": "bin/b7e-surface",
     "b7e-swbump": "bin/b7e-swbump",
     "b7e-take": "bin/b7e-take",
