@@ -1,0 +1,170 @@
+#!/usr/bin/env node
+/**
+ * `b7e-manifest` — a book's chapter and interlude manifest: one row per chapter or
+ * interlude, its header fields, its prose files and their measured word counts, and (for
+ * an interlude) its placement key — then a derived block flagging what none of five
+ * hand-built versions of this table caught until a reader noticed by chance: overlapping
+ * or gapped day/BP ranges on the same thread, and a placement key that is non-monotone or
+ * points past the book's own last chapter.
+ *
+ *   b7e-manifest 3                                a bare book number, resolved under
+ *                                                  <repo root>/novel/Deluvia Book 3
+ *   b7e-manifest "novel/Deluvia Book 1"            an explicit directory, relative to cwd
+ *   b7e-manifest 3 --json                          the whole manifest as JSON
+ *   b7e-manifest 3 --ref abc1234                   read the book at a git ref, not the
+ *                                                   working tree
+ *
+ * bc-dgx7.103 — see `lib/manifest.js` for the fuller history (five deluvia sessions each
+ * hand-built this) and for what each field/derived check actually does. This file is the
+ * argv parsing and the printing around it, the same split every other `b7e-*` command in
+ * this family already uses.
+ *
+ * Exit codes: `0` the manifest was built and printed. `2` refused — bad usage, no such
+ * directory, or a `--ref` that git could not read.
+ *
+ * @grant read
+ */
+import { buildManifest, repoRoot, resolveBookDir } from '../lib/manifest.js';
+
+const USAGE = `usage: b7e-manifest <book-dir|book-number> [--json] [--ref <ref>]
+
+  <book-dir|book-number>  a bare integer resolves under "<repo root>/novel/Deluvia
+                           Book <n>" (repo root is git's own toplevel from the
+                           current directory); anything else is a directory path,
+                           relative to the current directory if not absolute
+  --ref <ref>              read the book at this git ref instead of the working tree
+  --json                    the whole manifest as JSON instead of the printed report
+
+Prints one line per chapter, then one per interlude, each with its POV, thread, setting,
+day/BP range and files; then a derived block naming every overlapping or gapped day
+range on the same thread and every interlude placement key that is non-monotone,
+internally inconsistent, or points past the book's own last chapter — silently, if there
+is nothing to report.`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+function value(flag, i) {
+  const v = argv[i + 1];
+  if (v === undefined) {
+    console.error(`b7e-manifest: ${flag} needs a value`);
+    process.exit(2);
+  }
+  return v;
+}
+
+let ref = null;
+let json = false;
+let bookArg = null;
+
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  switch (a) {
+    case '--ref':
+      ref = value(a, i);
+      i += 1;
+      break;
+    case '--json':
+      json = true;
+      break;
+    default:
+      if (a.startsWith('--')) {
+        console.error(`b7e-manifest: unknown flag ${a}`);
+        process.exit(2);
+      }
+      if (bookArg !== null) {
+        console.error(`b7e-manifest: one <book-dir|book-number> only, got a second: ${a}`);
+        process.exit(2);
+      }
+      bookArg = a;
+  }
+}
+
+if (bookArg === null) {
+  console.error('b7e-manifest: needs a <book-dir|book-number>\n');
+  console.error(USAGE);
+  process.exit(2);
+}
+
+const root = repoRoot();
+let dir;
+let manifest;
+try {
+  dir = resolveBookDir(bookArg, { root, cwd: process.cwd() });
+  manifest = buildManifest({ dir, root, ref });
+} catch (err) {
+  console.error(`b7e-manifest: ${err.message}`);
+  process.exit(2);
+}
+
+// `process.exit(0)` after a big write used to drop whatever of it was still pending:
+// stdout to a **pipe** is async in Node, so a large report can cut at the 64KB pipe
+// buffer with a success status and no signal at all (bc-dgx7.45, documented against
+// b7e-census — a book with enough chapters hits the same ceiling here). Falling off the
+// end with `process.exitCode` set, instead of calling `process.exit`, is what flushes.
+if (json) {
+  console.log(JSON.stringify(manifest, null, 2));
+  process.exitCode = 0;
+} else {
+  printReport(manifest);
+  process.exitCode = 0;
+}
+
+function fmtRange(row) {
+  if (row.dayRange) return `Day${row.dayRange.start === row.dayRange.end ? '' : 's'} ${row.dayRange.start}${row.dayRange.end === row.dayRange.start ? '' : `–${row.dayRange.end}`}`;
+  if (row.year) return `Year ${row.year.value}`;
+  if (row.bp) return `~${row.bp.value.toLocaleString('en-US')} BP`;
+  return '—';
+}
+
+function printReport(manifest) {
+  console.log(`${manifest.dir}${manifest.ref ? ` @ ${manifest.ref}` : ''}`);
+  console.log(
+    `${manifest.totals.chapters} chapters (${manifest.totals.summaries} summaries, ${manifest.totals.prose} prose, ${manifest.totals.propagated} propagated), ` +
+      `${manifest.totals.interludeOutlines} interlude outlines (${manifest.totals.interludeProse} with prose)`
+  );
+  if (manifest.uncounted.length) {
+    console.log(`not counted above (named CHAPTER_/INTERLUDE_ but matched none of the count patterns): ${manifest.uncounted.join(', ')}`);
+  }
+  console.log('');
+
+  for (const row of manifest.chapters) {
+    const files = row.files.map((f) => `${f.file}(${f.words ?? '?'}w)`).join(', ');
+    console.log(
+      `Ch.${row.num}\t${row.label}\tPOV:${row.pov || '—'}${row.age ? ` (${row.age})` : ''}\tThread:${
+        row.thread ? row.thread.code : '—'
+      }\t${fmtRange(row)}\t${files}`
+    );
+  }
+  if (manifest.interludes.length) console.log('');
+  for (const row of manifest.interludes) {
+    console.log(
+      `IL.${row.num}\t${row.label}\tPlacement:${row.placement ? row.placement.raw : '—'}\t${fmtRange(row)}\t${row.files
+        .map((f) => `${f.file}(${f.words ?? '?'}w)`)
+        .join(', ')}`
+    );
+  }
+
+  console.log('');
+  const { overlaps, gaps, placement } = manifest.issues;
+  if (!overlaps.length && !gaps.length && !placement.length) {
+    console.log('no day-range overlaps or gaps, no interlude placement issues');
+  } else {
+    for (const o of overlaps) {
+      console.log(
+        `OVERLAP  thread ${o.thread}: Ch.${o.a.num} (Days ${o.a.range.start}–${o.a.range.end}) and Ch.${o.b.num} (Days ${o.b.range.start}–${o.b.range.end})`
+      );
+    }
+    for (const g of gaps) {
+      console.log(
+        `GAP      thread ${g.thread}: Days ${g.missing[0]}–${g.missing[1]} between Ch.${g.a.num} and Ch.${g.b.num}`
+      );
+    }
+    for (const p of placement) {
+      console.log(`PLACEMENT IL.${p.num} (${p.kind}): ${p.detail}`);
+    }
+  }
+}
