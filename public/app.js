@@ -5258,11 +5258,10 @@
    * the list under it cannot disagree.
    *
    * `board` is the one thing this file has to tell the control that it cannot work out
-   * for itself (bc-khoe.49): how many cards My Epics would draw, when My Epics is the
-   * board and draws no list at all. It is `null` whenever there *is* a list there, which
-   * is the state the derivation over there was written for. See `epicsIsBoard` in
-   * `render`, which is where the question is decided, and `survey` in
-   * public/inboxfilter.js, which is where the number is chosen between the two.
+   * for itself: how many cards My Epics is drawing. Since bc-fwp2c that is unconditional
+   * — My Epics is the board on every render — so this is a plain count rather than the
+   * `null`-means-ask-the-other-branch it was under bc-khoe.49. See `survey` in
+   * public/inboxfilter.js, which spends it, and derives Home's own number beside it.
    */
   function surveyKinds(rows, board = null) {
     const f = window.beadcause?.inboxFilter;
@@ -7633,6 +7632,30 @@
     }
   }
 
+  /**
+   * My Epics with nothing on the board — bc-fwp2c.
+   *
+   * Its own copy rather than `emptyHtml()`, because the two are claims about different
+   * things: `emptyHtml` says nothing is waiting on you *anywhere*, and this says only
+   * that you have not started an epic. The inbox may be full while this is true, and on
+   * the install most likely to see it — a fresh account, or a space whose board is
+   * somebody else's — it always is.
+   *
+   * It names the two filters when either is set, for the reason the list's own empty
+   * state does: a board emptied by the space chip looks exactly like a board with nothing
+   * on it, and the way out is a control you have to be told about.
+   *
+   * ＋ is on screen whether or not anything is started (bc-khoe.27.2), so the nudge points
+   * at a button that is genuinely there — this is the reachability argument bc-6s96 made
+   * for the bare offer, spent on a sentence instead of a box.
+   */
+  function epicsEmptyHtml() {
+    const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
+    return `<div class="empty"><strong>No epics started</strong>Nothing of yours is on the board${
+      where ? ` in ${esc(where)}` : ''
+    }. ＋ above picks one of your own epics and starts it.</div>`;
+  }
+
   function p0SectionHtml() {
     const mine = p0Cards();
     // Nothing started: no board, and nothing where it would have been (bc-6s96 — the list
@@ -7767,13 +7790,16 @@
      * same reason: a page served without public/inboxfilter.js must not be a page with
      * half its content missing and nothing on screen saying why.
      *
-     * Three things put a list back under the board, and none is a hedge on the rule.
+     * Two things put a list back under the board, and neither is a hedge on the rule.
      *
-     * **A board with no cards on it**, which is bc-6s96 unchanged: with nothing started the
-     * section switches off and Home is the flat list it has always been. `boardOnly` is
-     * therefore counted off `p0Cards()` rather than off the pill — the bare "start one"
-     * offer is a control on an empty screen, not a board, and a My Epics that drew neither
-     * a card nor a list would be a blank page on the one install most likely to see it.
+     * **There used to be a third, and bc-fwp2c removed it.** A board with no cards on it
+     * fell back to the flat list (bc-6s96), because My Epics *was* Home and a My Epics
+     * that drew neither a card nor a list would have been a blank page on the one install
+     * most likely to see it. Home is its own pill now, so the fallback has somewhere
+     * honest to be: an empty board is an empty My Epics, and it says so in as many words
+     * (`epicsEmptyHtml`) instead of quietly becoming a list of everything. That fallback
+     * is exactly what put `My Epics 46` on screen over a tracker holding three epics —
+     * the badge was counting the list the pill had silently turned into.
      *
      * **A picked bead**, which is the `inBoard` argument directly above stated once more:
      * an explicit filter outranks an implicit one. The bead box is in the panel on every
@@ -7790,25 +7816,8 @@
     const view = window.beadcause?.inboxFilter?.current?.() ?? null;
     const cards = p0Cards().length;
     const boardHere = view === null || view === 'epics';
-    const boardOnly = view === 'epics' && cards > 0;
+    const boardOnly = view === 'epics';
     const listHere = !boardOnly || beadPicked() || state.open.size > 0;
-
-    /**
-     * And the same question asked about a screen we may not be on: **what would My Epics
-     * draw if it were tapped right now?** bc-khoe.49.
-     *
-     * `listHere` above is about the view we are on; this is the identical rule with the
-     * view forced to `epics`, which is the only thing a badge on that pill can honestly
-     * be about. It is `!listHere` on My Epics itself and it is the same answer from
-     * anywhere else, because the two clauses that put a list back under the board —
-     * a picked bead and an open card — are states rather than places and travel with you.
-     *
-     * What it is *for* is the count: with the board on and no list beneath it, the sum of
-     * the four slices is a number of rows that pill will not draw (`survey` in
-     * public/inboxfilter.js does the arithmetic and the whole argument is there). The
-     * cards are what it draws instead, so the cards are what it says.
-     */
-    const epicsIsBoard = cards > 0 && !beadPicked() && state.open.size === 0;
 
     /**
      * Two narrowings, because since bc-khoe.29 the board and the pills ask different
@@ -7828,8 +7837,27 @@
      */
     const forPills = beadPicked() ? inBead(inRepo) : assignedToMe(inRepo);
     const inBoard = beadPicked() || !boardHere ? forPills : underOwnedRoots(inRepo);
-    surveyKinds(forPills, epicsIsBoard ? cards : null);
-    const visible = inBoard.filter(inKind);
+    // The cards, unconditionally — bc-fwp2c. My Epics draws the board on every render
+    // now, so what that pill would leave you with is the cards and nothing else, and
+    // there is no state in which the row sum is the honest answer for it. Home takes the
+    // sum, and takes it from `survey`, which derives it rather than being handed it.
+    surveyKinds(forPills, cards);
+    /*
+      An open card outranks the kind filter, and since bc-fwp2c it has to.
+
+      My Epics' predicate is `false` — no inbox row is ever an epic — so on that pill the
+      kind filter removes *every* row, including the one a full-screen sheet is built out
+      of. `p0-answer` on a bead in a board tree is the ordinary way to answer a question
+      from the board, and it works by opening exactly that sheet: without this clause the
+      one control the board exists to lead you to opens nothing at all.
+
+      `underOwnedRoots` already makes the same exception one step earlier — "the card that
+      is up" — and `listHere` makes it a third time, which is what puts a list back under
+      the board while a card is open. This is that one exception surviving the last of the
+      three filters rather than a fourth rule: a card you have opened is on the screen you
+      opened it from, whatever the pill above it says its list is made of.
+    */
+    const visible = inBoard.filter((q) => state.open.has(q.key) || inKind(q));
 
     // The other channel, always first and never filtered. It is rare enough that
     // putting it at the top costs nothing on the days there is nothing in it, and on
@@ -7884,7 +7912,11 @@
     // there is no board above a list any more on any pill, and copy that named one was
     // the app pointing at something that is not on the screen.
     if (!listHere) {
-      /* the board is the view */
+      // The board is the view. It draws nothing at all when no epic of yours is started
+      // (`p0SectionHtml` returns `''`), and since bc-fwp2c that no longer falls through
+      // to the flat list — Home is where the list lives. So the one screen that would
+      // otherwise be blank says why, and names the control that ends the state.
+      if (!roots) chunks.push({ key: '@empty', html: epicsEmptyHtml() });
     } else if (!rows.length) {
       chunks.push({ key: '@empty', html: emptyHtml() });
     } else if (!visible.length) {

@@ -316,10 +316,23 @@ console.log('\nwhat opens it\n');
 
 await check('＋ branches on the kind, and on the word the kind table gives it', () => {
   // Not a list of kind ids in public/app.js: public/inboxfilter.js is the only place that
-  // knows what the six kinds are, and a second one is a second thing that can be wrong
+  // knows what the seven kinds are, and a second one is a second thing that can be wrong
   // about them with nothing to say which is right.
+  //
+  // Read out of the row rather than by a character window: the window was 2000 and the
+  // `epics` row is 2307 characters from its id to its create since bc-fwp2c, which failed
+  // as "the epics row does not say it creates an epic" — a sentence about the table that
+  // was not true of it. A row ends at the next `id:`, so that is where this stops, and
+  // prose inside one can grow without the assertion quietly becoming about something else.
   const FILTER = read('public/inboxfilter.js');
-  assert.match(FILTER, /id: 'epics',[\s\S]{0,2000}?compose: 'epic',/, "the epics row does not say it creates an epic");
+  const rowOf = (id) => {
+    const at = FILTER.indexOf(`id: '${id}',`);
+    assert.notEqual(at, -1, `there is no ${id} row in the kind table`);
+    const next = FILTER.indexOf("id: '", at + 6);
+    return FILTER.slice(at, next === -1 ? FILTER.length : next);
+  };
+  assert.match(rowOf('epics'), /compose: 'epic',/, 'the epics row does not say it creates an epic');
+  assert.match(rowOf('home'), /compose: 'bead',/, 'the home row does not say it creates a bead');
   assert.match(FILTER, /creates: \(\) => BY_ID\.get\(current\(\)\)\?\.compose \|\| '',/, 'inboxfilter.js exposes no `creates()`');
   const wiring = APP.slice(APP.indexOf("if (composeEl && composePickEl)"));
   assert.match(

@@ -4592,21 +4592,35 @@ navigation nobody uses. Four rows went into two:
 
 | Pill | What it carries | What it absorbed |
 |---|---|---|
-| **My Epics** | Home with nothing narrowed — the P0 board, and nothing under it | — |
+| **Home** | Everything at once — nothing narrowed | — |
+| **My Epics** | The epics you have started — the board, and nothing under it | — |
 | **Questions** | Everything waiting on a word from you | `proposal`, `jira`, `endorsement` |
 | **PRs** | Pull requests, and the finished branches waiting on a merge | `delivery` (Merges) |
 | **Chats** | The conversations you have open | — |
 | **Ledger** | Every bead the space has ever had — a page of its own | — |
 | **All Beads** | Every live bead nobody is asking you about | `claimed`, `blocked`, `unclaimed`, as a sub-filter |
 
-**Two of the six are places rather than slices.** A kind with a `test` is a predicate over
-the rows the list holds, and the four of those partition it — every row answers exactly
-one. `My Epics` and `Ledger` have no predicate: the first is Home with nothing selected,
-the second is a different page. They are in the table anyway, because the row is six pills
-and a reader asking "what are the six" must not have to find two of them somewhere else,
-and `set()` refuses to select one — a place has no predicate, so selecting it would match
-no row at all and leave Home empty with a lit pill above it and nothing to read as the
-reason.
+**Two of the seven are places rather than slices.** A kind with a `test` is a predicate
+over the rows the list holds. `Home` and `Ledger` have no predicate: the first is Home with
+nothing selected, the second is a different page. They are in the table anyway, because the
+row is seven pills and a reader asking "what are the seven" must not have to find two of
+them somewhere else, and `set()` refuses to select one — a place has no predicate, so
+selecting it would match no row at all and leave Home empty with a lit pill above it and
+nothing to read as the reason.
+
+**`My Epics` is the odd slice, and its predicate is `false` — bc-fwp2c.** It was a place
+too, and the same place as Home: one pill that both landed you on the list and drew the
+epic board. That could not survive the badges. A place's number can only ever be the sum of
+every slice — that is what a tap on it leaves you with — so the pill read `My Epics 46` on
+a tracker holding three epics, and the word and the number were about different screens.
+
+Splitting them made My Epics a screen of its own, and the predicate is what earns it a
+place among the slices: no inbox row is *ever* an epic — a started one is a card on
+`rootboard`, an unstarted one an offer in `startable` — so `false` states the measured truth
+about this list, and `pick()` selects the pill instead of clearing the selection the way it
+does for a place. Its badge cannot come from the row loop and does not: `survey` takes it
+from the caller, off the cards just drawn, and the `board: true` flag keeps that number out
+of Home's sum so Home never counts a screen it does not draw.
 
 **A view shows its own kind, and that is one line in `render` rather than six.** Home draws
 every view on top of the same page, and until bc-khoe.28 it drew *both* halves on all of
@@ -4616,26 +4630,31 @@ epic board over it, and `My Epics`, being the empty selection, drew every row th
 produced underneath a board whose trees already held the same work. `render` asks
 `current()` which pill is lit and draws one of the two:
 
-- **`My Epics` is the board, and there is no list beneath it.** Each card already expands to
-  its own tree, so the rows below were a second, flatter copy of what the cards hold — the
-  argument bc-rfnr.9.7 made about your epics' descendants, finished. What that took out of
-  the list was the beads; what this takes out is the rest, and a question under nobody's
-  root is now on `Questions`, where it is the plainest example of a row a tree cannot hold.
-- **The board is not on the other four pills in any form** — not collapsed to a heading, not
-  a count. A board over a list of chats is the thing this bead is about.
+- **`My Epics` is the board, and there is never a list beneath it.** Each card already
+  expands to its own tree, so the rows below were a second, flatter copy of what the cards
+  hold — the argument bc-rfnr.9.7 made about your epics' descendants, finished. What that
+  took out of the list was the beads; what this takes out is the rest, and a question under
+  nobody's root is now on `Questions`, where it is the plainest example of a row a tree
+  cannot hold.
+- **The board is not on any other pill in any form** — not collapsed to a heading, not a
+  count. A board over a list of chats is the thing bc-khoe.28 was about.
 
-Three things put a list back under the board, and none is a hedge on the rule. **A board
-with no cards on it**, which is bc-6s96 unchanged: with nothing started the section
-switches off and Home is the flat list it has always been, the bare "start one" offer
-included — that offer is a control on an empty screen rather than a board, and a `My Epics`
-drawing neither a card nor a list would be a blank page on the one install most likely to
-see it. **A bead picked in the search box**, which is the same sentence `inBoard` already
-makes one line above — an explicit filter outranks an implicit one, and the box is in the
-panel on every pill, so a search run from `My Epics` with no list to answer into would be a
-control that does nothing. And **an open card**, which is not a list at all: `.card.open` is
-a full-screen sheet built out of a list row, so the clause is what makes `p0-answer` on a
+Two things put a list back under the board, and neither is a hedge on the rule. **A bead
+picked in the search box**, which is the same sentence `inBoard` already makes one line
+above — an explicit filter outranks an implicit one, and the box is in the panel on every
+pill, so a search run from `My Epics` with no list to answer into would be a control that
+does nothing. And **an open card**, which is not a list at all: `.card.open` is a
+full-screen sheet built out of a list row, so the clause is what makes `p0-answer` on a
 bead in a tree — the ordinary way to answer a question from the board — open anything.
 It is the same exception `underOwnedRoots` already makes for the card that is up.
+
+**The third clause is gone, and that is bc-fwp2c.** A board with no cards on it used to
+fall back to the flat list (bc-6s96), because `My Epics` *was* Home and a pill drawing
+neither a card nor a list would have been a blank page on the one install most likely to
+see it. It is also exactly what made the badge wrong: an empty board became a list, and the
+number followed the list. Home is its own pill now, so an empty board is an empty
+`My Epics` and says so in as many words — `epicsEmptyHtml`, which names the space or
+workspace chip when either is what emptied it, and points at the ＋ that ends the state.
 
 The control never loading draws both, which is the shape this page had before there was a
 pill row: a page served without `public/inboxfilter.js` must not be a page with half its
@@ -4860,7 +4879,7 @@ the filter pills that view pill can use, and nothing else in the file decides it
 
 | Pill | What it can be narrowed by | Why not the rest |
 |---|---|---|
-| **My Epics** | the bead search | Home holds every kind, so both sub-filters *could* narrow it — and offering two second axes over a list that is mostly neither is two more controls for a view you have not picked. What they still do here is confessed as a note instead. |
+| **Home** | the bead search | Home holds every kind, so both sub-filters *could* narrow it — and offering two second axes over a list that is mostly neither is two more controls for a view you have not picked. What they still do here is confessed as a note instead. |
 | **Questions** | the bead search | A question is not a pull request and it is not one of the live beads nobody is asking you about. |
 | **PRs** | the bead search, PR status | The one pill with both: a pull request follows its beads, so the search narrows it too. |
 | **Chats** | *nothing* | A chat is in no tracker. It is under no bead, and it has no rung. |
@@ -4992,6 +5011,7 @@ across all of them was a control whose meaning depended on a pill it did not loo
 
 | Pill | ＋ | Because |
 |---|---|---|
+| **Home** | yes | File a bead — the same form All Beads opens (bc-fwp2c) |
 | **My Epics** | yes | Take a bead and make it an epic of yours (bc-khoe.27.2) |
 | **Questions** | **no** | A queue of things waiting on a word from you |
 | **PRs** | **no** | The same, arriving off `gh` |
@@ -7111,13 +7131,13 @@ So there is one row now, under the top bar on every page the bottom bar was on:
   │ ● Beadcause                              🗳  ⌨️  ⟳ │
   │ Personal ▾                                    3 ▸    │
   ├──────────────────────────────────────────────────────┤
-  │ [🎯 My Epics 7] ❓ Questions 3 🚢 PRs 2 💬 Chats …  │  ← scrolls sideways
+  │ [🏠 Home 7] 🎯 My Epics 2 ❓ Questions 3 🚢 PRs 2 …  │  ← scrolls sideways
   └──────────────────────────────────────────────────────┘
 ```
 
-Nine pills today, on ten pages: the [six kinds](#one-list-six-kinds--and-the-two-sub-filters)
-bc-khoe.2 promoted out of the inbox's filter panel — My Epics, Questions, PRs, Chats,
-Ledger, All Beads — plus Advocates, plus
+Ten pills today, on ten pages: the [seven kinds](#one-list-six-kinds--and-the-two-sub-filters)
+bc-khoe.2 promoted out of the inbox's filter panel — Home, My Epics, Questions, Chats,
+Ledger, All Beads, PRs — plus Advocates, plus
 [Releases](#releases--the-view-those-queues-are-drawn-on), plus
 [Config](#space-details--every-setting-a-space-has-on-a-page-of-its-own), the selected
 space's own settings, which bc-khoe.10 took off the advocate console. Releases sits next to
@@ -7165,10 +7185,10 @@ into view on load — done by arithmetic on the two rectangles rather than with
 `scrollIntoView`, which is allowed to scroll every ancestor and would quietly move the list
 under it.
 
-**Four counts, and only on Home.** My Epics, Questions, PRs and Chats each carry a number:
-how many rows tapping that pill would leave you with. All Beads, Ledger, Advocates, Releases
-and Config carry none — the first is unbounded and says nothing you would act on, and the
-other four are pages of their own with their own polls.
+**Five counts, and only on Home.** Home, My Epics, Questions, PRs and Chats each carry a
+number: how many rows tapping that pill would leave you with. All Beads, Ledger, Advocates,
+Releases and Config carry none — the first is unbounded and says nothing you would act on,
+and the other four are pages of their own with their own polls.
 
 This reverses a decision this section used to record, and the objection it was written
 against still stands as written. Advocates carried a badge once — how many proposals were
@@ -7183,27 +7203,30 @@ did. The badge is a second reading of that one count, refreshed by the same 25-s
 that redraws the list beneath it, and there is no page it can be stale on because there is
 no other page it is drawn on. Off Home the pills are plain links with nothing on them.
 
-`My Epics` is the one number nothing counts directly, and it is derived in
-`public/inboxfilter.js` rather than by the caller. My Epics is a *place* and not a slice —
-it has no predicate, so no row is ever *of* that kind — and what tapping it does is clear
-the selection, which leaves every row that survives its own sub-filter. That is the sum of
-the four slices, so summing them is the same arithmetic done once, and the badge and the
-list cannot come to disagree about it.
+`Home` is the number nothing counts directly, and it is derived in
+`public/inboxfilter.js` rather than by the caller. Home is a *place* and not a slice — it
+has no predicate, so no row is ever *of* that kind — and what tapping it does is clear the
+selection, which leaves every row that survives its own sub-filter. That is the sum of the
+slices, so summing them is the same arithmetic done once, and the badge and the list cannot
+come to disagree about it.
 
-**Unless there is no list there, which is the board (bc-khoe.49).** With an epic of yours
-started, My Epics is the board and bc-khoe.28 took the list out from under it — so the sum
-above went on describing rows that the one pill it is drawn on would not draw. The badge
-is **the number of cards on the board** in that state, and the sum of the slices in every
-other, which keeps it the same promise it makes everywhere else: what a tap leaves you
-looking at. Which of the two screens the tap opens is a question about the render rather
-than about the filter, so `public/app.js` answers it — `epicsIsBoard`, which is the rule
-that decides whether a list is drawn under the board (`listHere`) asked with the view
-forced to My Epics, because a picked bead and an open card put a list back there from
-wherever you happen to be standing. The other three badges never had the problem:
-`surveyKinds` runs ahead of that gate, so `Questions`, `PRs` and `Chats` still count
-exactly the rows tapping them draws. The two answers this is not: dropping the badge on a
-board would take the number away on the one install with something to count, and adding
-the cards to the rows would print a total nothing on the screen adds up to.
+**`My Epics` is the other one, and it is handed in rather than derived.** Its screen is the
+board, which is not a list of rows at all, so `public/app.js` counts the cards it just drew
+and passes them to `survey` — unconditionally, on every render. The `board: true` flag on
+that row keeps the number out of Home's sum, because a board is not something Home draws.
+
+**This is the shape bc-fwp2c left, and it is worth saying what it replaced.** The two pills
+were one pill. Landing on Home *was* landing on My Epics, so one badge had to describe two
+screens, and bc-khoe.49 made it a choice: the cards when the board was what a tap left you
+with, the row sum when a list was. The condition turned on the board having cards — an
+empty board fell back to the flat list (bc-6s96), and the number honestly followed it. What
+that produced, on an account whose epics are somebody else's, was `My Epics 46` printed over
+`Questions 21` and `PRs 25`: the sum, correct about the screen, sitting under a word about
+epics. Two pills need no such choice. Home draws the list and counts the rows; My Epics
+draws the board and counts the cards; neither number is ever a promise about the other's
+screen. The other three badges never had the problem at all — `surveyKinds` runs ahead of
+any gate, so `Questions`, `PRs` and `Chats` have always counted exactly what tapping them
+draws.
 
 **Pushed at the row, never pulled by it, and written as text.** `public/viewbar.js` is
 loaded on twelve pages and `public/inboxfilter.js` on one, so the row cannot read the
