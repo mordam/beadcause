@@ -167,6 +167,13 @@ const PAGES = [
   // sound can still be argued with is an expensive 404.
   { what: 'the sound audition', marker: '/sounds.js', paths: ['/sounds', '/audition', '/sounds.html'] },
   { what: 'the graph', marker: '/graph.js', paths: ['/graph', '/graph.html'] },
+  // The docket — an epic's whole arc, in the order it happened (bc-it26z). Three paths,
+  // and each is one somebody actually arrives by: `/docket` is what every card links to,
+  // `/epic` is the other name Adam gave it ("epic map") and therefore the one that gets
+  // typed, and `/dockets` is the plural a reader reaches for when they want the index of
+  // them rather than one. All three are the same document, because "which epic" is a
+  // query-string question and the index is simply the answer with no `id` in it.
+  { what: 'the docket', marker: '/docket.js', paths: ['/docket', '/dockets', '/epic', '/docket.html'] },
   { what: 'the reader', marker: '/doc.js', paths: ['/doc', '/doc.html'] },
   // The sign-in screen. Its alias lives in the same run of one-line `if`s as all of
   // the above — and this is the one page a browser is *sent* to rather than typing, so

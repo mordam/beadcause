@@ -7993,6 +7993,114 @@ narrowed request rather than a wide one corrected afterwards. It ends by loading
 as a document and asserting the same list with its filters in the query string, which is the
 compatibility half this bead is standing on until bc-khoe.30.7.
 
+### The docket — an epic's whole arc
+
+Adam, on the cards that arrive on the phone: *"the cards coming to me are sometimes hard to
+understand quickly because a lot of context is missing."* A card carries the bead and
+nothing around it — its title, its description, its decision block, its thread. What it
+cannot say is where the bead sits in the arc it belongs to: what was decided before it,
+what has landed, what is in flight beside it, why it sat for four days. The only way out
+of a card was `/graph?ws=…&id=…&open=1`, which draws what the bead is *wired* to and has no
+dates in it at all.
+
+`/docket?ws=…&id=…` is the rest of it. One page per epic, four blocks, and the order of
+them is the argument:
+
+1. **Where it is** — the epic's own title and description, and one line of counts. First,
+   because it is the question you arrive with: is this nearly done or barely started.
+2. **The phases**, when the epic has [a plan](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window). A planner
+   already broke the work into named groups, and a page that made you re-derive that from
+   a list of thirty beads would be throwing away the best writing on the bead. Each group
+   is `done`, `running` or `waiting`, computed from the family rather than stored — a plan
+   is written once and the beads under it move for weeks afterwards.
+3. **The map** — every bead in the family, indented by depth, **in the order they were
+   filed**. A board sorts done-last because a board is a list of what to do next; a docket
+   is the opposite question, so a bead that closed in June keeps the place it had. The
+   bead you came from is lit.
+4. **The chronology** — everything dated, grouped by day.
+
+**It roots at the top of the family, not at the nearest thing typed `epic`.** `issue_type`
+is what the filer chose and nothing enforces it: there are roots here typed `feature`,
+`task` and `bug` with a dozen children under them, and beads typed `epic` with none. What
+a person means by "the epic this card belongs to" is the top of the tree it hangs from. So
+a card links to `/docket` with **its own** id and the page walks up itself, which is what
+makes it one link rather than a lookup — the inbox does not carry ancestry for every card,
+and a link that needed it would fail exactly when the graph cache was cold.
+
+That also means the second card out of the same epic lands you on a page you have already
+read once, rather than on a fresh wall of text.
+
+#### What is folded, and how each rule knows
+
+Everything dated is in the payload. What the fold does is decide which lines a day draws
+before you ask — and it is not a guess at what is interesting. Each visible kind is tied
+to the one place in this tree that writes the thing:
+
+- **a ruling** — the comment `Bd.respond` writes immediately before closing with
+  `Answered via Beadcause`, found by the clock: the last comment at or before `closed_at`
+  on a bead closed for that reason. Not the "noted, thanks" an agent leaves on the thread
+  the next morning.
+- **a reply** — a comment on a bead carrying `human-replied`, which `POST /api/comment` is
+  the only thing that sets, and it sets it when you typed into the box on a card.
+- **a filing and a close**, the close carrying its reason, which is the best writing in
+  the tracker.
+- **a plan**, because an epic's phases are a decision about the epic.
+- **a pull request opened or merged** — the deliveries.
+
+Everything else folds: every other comment, the claim, and each archived session run. A
+day says how many lines are behind its control, because a control that did not would be
+asking you to tap to find out whether tapping was worth it. **Folded is not dropped** —
+the events are all in the payload, flagged `machine`, and *why was this week quiet* is
+answered by exactly the lines a stream that dropped them could not show. The fold is per
+day rather than one switch for the same reason: the question is always local, and a single
+switch answers it by expanding a fortnight at once.
+
+**Author is not the test, and could not be.** [The byline
+rules](#whose-beadcause-wrote-it--the-byline-on-every-daemon-write) are explicit about
+it: a `beadcause` byline covers both your relayed tap and the daemon's own bookkeeping,
+and a bare address is either you at a terminal or an agent whose shell exported your
+`BEADS_ACTOR`. So who spoke rides on the line as a **voice** for you to weigh — `an agent`,
+`beadcause`, or a name — and never as the thing that decides what the page shows.
+
+#### What it costs, and the two joins it refuses to pay for
+
+One `bd export` per workspace, cached thirty seconds under its own key, and everything on
+the page filtered out of it in process — the ledger's bargain, for the ledger's reason. It
+is deliberately **not** the export `Bd.graph` already keeps: that index drops the
+timestamps, the close reasons and every comment on purpose, because seven hundred bodies
+of prose in a cache every inbox repaint reads would be a cost with no reader. The docket is
+made of exactly what it throws away, and it is opened a few times a day.
+
+The two joins are both borrowed rather than bought:
+
+- **Pull requests come off a board somebody else already swept.** A `gh` sweep is the most
+  expensive thing in the app; a page opened from a card cannot start one. So `prsKnown:
+  false` travels out to the page and it says *pull requests not swept yet* rather than
+  *no deliveries* — those are different sentences, and only one of them is about this epic.
+- **Sessions are one `for-each-ref` for the whole workspace**, intersected with the family
+  before anything is read, and then a `git log` only for the beads that listing says have
+  an archive. A family of twenty on a tracker of eight hundred would otherwise be twenty
+  `git log`s to discover that two of them ran.
+
+There is no poll. A docket describes a fortnight, and the one thing it must not do is
+compete for the daemon with the inbox that is waiting on an answer.
+
+#### Getting to one
+
+Every card links to it — the agent card's actions row, the question card's brief, and every
+bead row on the [epic board](#epics-assigned-to-you-and-the-tree-each-one-carries), where it sits *before* the graph link because
+the tree you are already looking at is this bead's family and the docket is that same
+family with its dates on. `/docket` with no `id` is the index: every root that has
+children, newest activity first, with its counts, for when you want to catch up rather
+than answer something. `/epic` and `/dockets` are the same page — both are names a person
+types.
+
+`node test/docket.mjs` holds the rules: that only `parent-child` edges make a family (a
+`discovered-from`, which `lib/filing.js` puts on everything an agent files, must never pull
+the backlog in), that a ruling is found by the clock and not by the author, that nothing is
+dropped by the fold, that a cycle is answered rather than hung, and that `public/docket.js`
+writes nothing at all.
+
 ### `/closed` and `/done` — what got finished, as a place
 
 Every surface in this app is about work that is **not** done. The inbox is what needs
@@ -33077,6 +33185,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/confluence` | `?p=<abs path>&workspace=` | what [publishing](#publishing-a-document-to-confluence) this document would do, before it happens: `{configured, publishable, site, spaceKey, title, action, existing, lastPublished}`. `{configured: false}` for an install with no `confluence` block, and it reads no credential to say so — the reader tab draws no button at that answer. Costs two GETs to Atlassian when it is on, because `action` is the thing the screen has to be able to say |
 | POST | `/api/confluence` | `{p, workspace, spaceKey, title, bead?}` | publish it. `spaceKey` and `title` are the confirmation — the target as the screen drew it — and a `409` is what you get if either has moved since, rather than a second page under the new name. Updates the page it made last time and overwrites its body; Confluence keeps the version history. Records the URL in `state.json` and, with `bead`, as a comment on that bead. Refused on an observer |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
+| GET | `/api/docket` | `?workspace=` (or `ws=`) `&id=&refresh=1` | `{workspace, root, focus, family[], plan, events[], progress, prsKnown}` — [the docket](#the-docket--an-epics-whole-arc): one epic's whole arc, in the order it happened. Roots at the **top of the family** the bead hangs from, not at the nearest thing typed `epic`, and `focus` echoes the bead you asked about so the page can light it up. `events[]` is everything dated in the family — filings, claims, comments, rulings, closes, plans, sessions and pull requests — each flagged `machine` for the fold rather than filtered out, because a stream that dropped the machine's lines cannot answer why a week was quiet. `prsKnown: false` means nobody has swept the pull requests, which is not the same sentence as "this epic has none": the route reads a warm board and never pays for one. One `bd export` per workspace, cached thirty seconds; `refresh=1` forces it. A bead the workspace has never had is a 404 naming it |
+| GET | `/api/dockets` | `?workspace=` **or** `?space=`, and `&refresh=1` | `{workspace, space, rows[], errors[]}` — every root that has children, newest activity first, each with its counts. The index you browse when you want to catch up rather than answer something. Same scoping as `/api/history` and the same bargain over a workspace whose `bd` fell over: a row in `errors[]`, not a failed request |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
 | GET | `/api/beads` | `?q=` | `{beads[], warming, q}` — what [the inbox's bead search box](#finding-one-bead) drops down: up to 12 `{key, workspace, id, title, status}`, ranked exact id → id prefix → id substring → title, open before closed. **Every workspace at once**, because you type an id knowing the bead rather than knowing its tracker. The one route that can be asked once per keystroke, so it reads the graph `Bd.graph` already caches and **never waits on a `bd export`** — `warming` counts the workspaces it has not read yet, which is what lets the box say *still reading the trackers* instead of claiming a bead does not exist |

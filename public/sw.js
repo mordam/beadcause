@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v105';
+const CACHE = 'beadcause-v106';
 const SHELL = [
   '/',
   '/index.html',
@@ -153,6 +153,16 @@ const SHELL = [
   '/doc.js',
   '/graph.html',
   '/graph.js',
+  // The docket — an epic's whole arc, opened from a card the way /graph is and in the
+  // shell for /graph's reason: it is reached by a tap on a row over a page you are already
+  // reading, and that tap is the slowest possible moment to fetch a document. `/docket`
+  // and `/epic` are here as themselves because both are addresses a person types or
+  // pastes; unlike the ledger's two they are a rewrite rather than a 302, so `Cache.put`
+  // has something to store.
+  '/docket',
+  '/epic',
+  '/docket.html',
+  '/docket.js',
   // The third page a drawer can be: one session's facts and its transcript, linked
   // from every list in the app that names a session. In the shell for the same reason
   // /graph and /doc are — it is opened by a tap on a row, over a page you are already

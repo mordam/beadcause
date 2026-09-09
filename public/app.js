@@ -557,6 +557,21 @@
     return `/graph?ws=${encodeURIComponent(q.workspace)}&id=${encodeURIComponent(q.id)}`;
   }
 
+  /**
+   * The docket for a question — the epic it belongs to, in the order it happened.
+   *
+   * The bead's own id and not its root's, which is the whole of what makes this one link
+   * rather than a lookup: `/docket` walks up to the top of the family itself and lights
+   * up the bead you came from (lib/docket.js's `rootOf`), so a card can link to the arc
+   * it is part of without the inbox having to know what that arc is. The inbox does not
+   * carry ancestry for every card — the P0 board's index is a `bd export` behind a
+   * warming cache and can legitimately be empty for the first seconds after a restart —
+   * and a link that failed on a cold board would fail exactly when you most needed it.
+   */
+  function docketUrl(q) {
+    return `/docket?ws=${encodeURIComponent(q.workspace)}&id=${encodeURIComponent(q.id)}`;
+  }
+
   /** What bd handed us: hard-wrapped, so let the paragraph reflow. */
   const FROM_BD = { breaks: false };
 
@@ -3729,6 +3744,7 @@
         }
       </div>
       <div class="actions">
+        <a class="linkish" href="${esc(docketUrl(q))}" target="_blank" rel="noopener noreferrer">Docket →</a>
         <a class="linkish" href="${esc(graphUrl(q))}" target="_blank" rel="noopener noreferrer">Graph →</a>
       </div>
       <div class="brief"${open ? '' : ' hidden'}>${open ? agentBriefHtml(q) : ''}</div>
@@ -3814,6 +3830,25 @@
           .join('')}</div>`
       );
     }
+
+    /* The way to the rest of the story (bc-it26z).
+     *
+     * Unconditional, unlike the graph link below it, and the difference is what each one
+     * promises. The graph draws what *this bead* is wired to, so on a question that
+     * blocks nothing it is a single lonely node and is rightly withheld. The docket is
+     * about the epic the bead sits in, and a bead that is under something always has an
+     * arc behind it — the beads decided before it, what has landed, what is asking you
+     * elsewhere in the same family. A bead under nothing gets a family of one, which is
+     * itself the answer to "what else is this part of" and is a page that says so.
+     *
+     * Drawn in the brief rather than behind the kebab because the kebab is "the three
+     * ways out of a card that aren't reading it" (see `menuHtml`) and this is reading —
+     * it is the context the card could not fit, which is the whole of why it exists. */
+    parts.push(
+      `<div class="docs"><a class="graph-link" href="${esc(docketUrl(q))}" target="_blank" rel="noopener noreferrer">
+        <span>The docket<span class="path">where this sits in its epic · what happened, in order</span></span>
+      </a></div>`
+    );
 
     // Only when something is actually waiting on this answer. A question that
     // blocks nothing draws as a single lonely node, which is worse than no link.
@@ -6718,11 +6753,19 @@
     // delivery is the end of the chain and reads as its last line. bc-bmry.4.
     parts.push(p0RelayTrailHtml(b.relay));
     parts.push(p0HappenedHtml(card, b));
-    // The answer first and the graph after it, which is the order of how much they are
-    // worth: one of them is the reason this bead is on the screen at all, and the other is
-    // the way out to everything around it.
+    // The answer first and the two ways out after it, which is the order of how much they
+    // are worth: one of them is the reason this bead is on the screen at all, and the
+    // others are the way out to everything around it.
+    //
+    // **The docket before the graph, and on this card more than anywhere else** — the
+    // tree you are looking at is already this bead's family, so what the row is offering
+    // is that same family *with its dates on*, which is the one thing the board cannot
+    // draw (bc-it26z). The graph stays because it answers a different question: not what
+    // happened, but what is wired to what.
     parts.push(
       `<div class="p0-bead-acts">${p0AnswerHtml(workspace, b)}<a class="p0-graph" href="${esc(
+        docketUrl({ workspace, id: b.id })
+      )}">🗓 Docket</a><a class="p0-graph" href="${esc(
         `${graphUrl({ workspace, id: b.id })}&open=1`
       )}">🕸 Graph</a></div>`
     );
