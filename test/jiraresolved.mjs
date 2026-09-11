@@ -194,6 +194,14 @@ console.log('\nwhat is owed to an epic, from its row alone');
   check('an object with no name is still resolved', resolutionOf({ fields: { resolution: {} } }).resolved === true);
   check("and the name is carried through", resolutionOf({ fields: { resolution: { name: "Won't Do" } } }).resolution === "Won't Do");
   check('a missing issue altogether is not a resolution', resolutionOf(null).resolved === false);
+  // bc-6s383: a site whose Done sets no resolution — climative's does not.
+  const doneNoRes = resolutionOf({ fields: { resolution: null, status: { name: '5: Done', statusCategory: { key: 'done' } } } });
+  check('a Done-category status with no resolution is resolved', doneNoRes.resolved === true, JSON.stringify(doneNoRes));
+  check('and says the status rather than inventing a resolution name', doneNoRes.resolution === null && doneNoRes.status === '5: Done', JSON.stringify(doneNoRes));
+  check(
+    'an in-progress category with no resolution is still open',
+    resolutionOf({ fields: { resolution: null, status: { name: '2B: In progress', statusCategory: { key: 'indeterminate' } } } }).resolved === false
+  );
   check('`resolution` is asked for by name', RESOLUTION_FIELDS.includes('resolution'));
   check('`jira-TECH-1` reads back as `TECH-1`', keyOfRef(refFor('TECH-1')) === 'TECH-1');
   check('and a ref that is not one of ours reads as nothing', keyOfRef('gh-42') === '');

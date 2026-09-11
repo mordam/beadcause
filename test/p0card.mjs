@@ -567,12 +567,12 @@ console.log('\nthe section no longer folds');
 check('the heading says what the section is, and is not a control', () => {
   const html = board([CARD, OTHER]);
   assert.match(html, /<h2 class="p0-kind">/);
-  assert.match(html, /Epics assigned to you/);
+  assert.match(html, /Beadepics assigned to you/);
   // The old name, gone from the screen and from what a screen reader announces for the
   // region — both, because half a rename is a section that reads one way and is called
   // another.
   assert.ok(!html.includes('Your P0s'), 'the board still calls itself Your P0s');
-  assert.match(html, /aria-label="Epics assigned to you"/);
+  assert.match(html, /aria-label="Beadepics assigned to you"/);
 });
 
 check('there is nothing on the board that puts the board away — bc-khoe.28', () => {

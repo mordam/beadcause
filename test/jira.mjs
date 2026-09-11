@@ -20,8 +20,10 @@
  * 3. **Nothing here may write to JIRA.** Not "no caller does" — no code path exists.
  *    That is checked twice: every request the exercised functions issue is a GET with
  *    no body, and the module's source carries no other method.
- * 4. **Off has to cost nothing.** A workspace with no `jira` block must not produce a
- *    single `bd` call, let alone a network one, because most workspaces are that.
+ * 4. **Off has to cost nothing, and auto one spawn.** `enabled: false` must not produce a
+ *    single `bd` call, let alone a network one; no block at all (auto, bc-6s383) costs
+ *    the one `bd config get jira.url` that decides it, and switches on only for an answer
+ *    that is plainly a site — most workspaces are bd-only and must stay silent.
  * 5. **A first configuration goes wrong in four ways** — no site, a site that is not a
  *    URL, no address, no credential — and each has to name the fix. A 401 and a 404
  *    are the same stack trace and completely different mornings.
@@ -127,11 +129,70 @@ console.log('\nthe switch');
   check('a block for another workspace does not switch this one on', jira.jiraEnabled({ jira: { sophab: { enabled: true } } }, 'climative') === false);
 }
 
+console.log('\nthe three positions (bc-6s383)');
 {
+  const at = (block) => jira.jiraSwitch(block === undefined ? {} : { jira: { climative: block } }, 'climative');
+  check('no block is auto', at(undefined) === 'auto');
+  check('an empty block is auto', at({}) === 'auto');
+  check('enabled true is on', at({ enabled: true }) === 'on');
+  check('enabled false is off', at({ enabled: false }) === 'off');
+  check('the STRING "true" is auto, not on — only a boolean is a decision', at({ enabled: 'true' }) === 'auto');
+  check('the STRING "false" is auto too', at({ enabled: 'false' }) === 'auto');
+}
+
+{
+  // The workspace that motivated it: bd points at a site, and nobody wrote a block.
   const bd = fakeBd(BD_FULL);
   const s = await jira.settingsFor(bd, WS, {});
-  check('a workspace with no block resolves to off', s.enabled === false, JSON.stringify(s));
-  check('and costs not one bd call — most workspaces are this one', bd.calls.length === 0, bd.calls.join(' | '));
+  check('no block over a bd that points at a site is on', s.enabled === true, JSON.stringify(s));
+  check('and says it is on by itself', s.auto === true, JSON.stringify(s));
+  check('with the site, the address and the projects from bd', s.url === BD_FULL['jira.url'] && s.email === BD_FULL['jira.username'] && s.projects.join() === 'TECH', JSON.stringify(s));
+  check(
+    'no token is trouble that names the file and the way out',
+    /no JIRA credential/.test(s.problem || '') && /jira\.climative\.enabled to false/.test(s.problem || ''),
+    s.problem
+  );
+}
+
+{
+  // Most workspaces on any machine: bd-only, never pointed at JIRA.
+  const bd = fakeBd({ 'jira.username': 'adam@climative.ai' });
+  const s = await jira.settingsFor(bd, WS, {});
+  check('no block over a bd with no site is off', s.enabled === false && s.problem === null, JSON.stringify(s));
+  check('and costs exactly one bd call — the URL, and nothing after it', bd.calls.length === 1 && bd.calls[0] === 'config get jira.url', bd.calls.join(' | '));
+}
+
+{
+  // test/routerdrain.mjs found this one: a bd (there, a fake) that prints `[]` for every
+  // command. Auto took it for a site and switched JIRA on for every workspace it had.
+  for (const said of ['[]', 'warning: something', 'climative.atlassian.net']) {
+    const s = await jira.settingsFor(fakeBd({ 'jira.url': said }), WS, {});
+    check(`a bd answering ${JSON.stringify(said)} for the URL is not a site — auto stays off`, s.enabled === false && s.problem === null, JSON.stringify(s));
+  }
+  {
+    const s = await jira.settingsFor(fakeBd({ 'jira.url': '[]' }), WS, { jira: { climative: { enabled: true } } });
+    check('but switched on by hand, the same answer is trouble that says so', /not a URL/.test(s.problem || ''), s.problem);
+  }
+  {
+    const s = await jira.settingsFor(fakeBd({}), WS, { jira: { climative: { url: 'climative.atlassian.net', email: 'me@x.com' } } });
+    check('a site a person typed into the block without a scheme is on, and told why it fails', s.enabled === true && /not a URL/.test(s.problem || ''), JSON.stringify(s));
+  }
+  const bd = fakeBd({});
+  const s = await jira.settingsFor(bd, WS, { jira: { climative: { url: 'https://other.atlassian.net', email: 'me@other.com' } } });
+  check('a block naming a site but no switch is auto, and on', s.enabled === true && s.auto === true && s.url === 'https://other.atlassian.net', JSON.stringify(s));
+}
+
+{
+  const bd = fakeBd(BD_FULL);
+  const s = await jira.settingsFor(bd, WS, { jira: { climative: { enabled: false } } });
+  check('enabled false over a bd that points at a site is off', s.enabled === false, JSON.stringify(s));
+  check('and costs not one bd call — off is the free way out', bd.calls.length === 0, bd.calls.join(' | '));
+}
+
+{
+  const s = await jira.settingsFor(fakeBd({}), WS, { jira: { climative: { enabled: true } } });
+  check('switched on by hand with no site is still trouble, not off', s.enabled === true && s.auto === false && /no JIRA site/.test(s.problem || ''), JSON.stringify(s));
+  check('and does not offer enabled:false — somebody chose on', !/enabled to false/.test(s.problem || ''), s.problem);
 }
 
 /* ------------------------------------------------------------------ the credential file */

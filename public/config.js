@@ -561,7 +561,7 @@
       tri(
         'autoShip',
         'Merges ship themselves',
-        'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. An epic labelled auto-ship or no-auto-ship overrides this for its own work.',
+        'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. A beadepic labelled auto-ship or no-auto-ship overrides this for its own work.',
         s.autoShip,
         g.autoShip
       ),

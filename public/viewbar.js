@@ -217,7 +217,7 @@
     // bc-fwp2c: it was the landing pill for as long as the board was drawn on the screen
     // you land on, and the badge is what separated them — a place can only ever count the
     // sum of every kind, which is not a number the word "Epics" can carry.
-    { id: 'epics', kind: 'epics', icon: '🎯', label: 'My Epics', count: true },
+    { id: 'epics', kind: 'epics', icon: '🎯', label: 'My Beadepics', count: true },
     // Questions, PRs, Chats: what is arriving, in the order it tends to need answering.
     { id: 'question', kind: 'question', icon: '❓', label: 'Questions', count: true },
     { id: 'pr', kind: 'pr', icon: '🚢', label: 'PRs', count: true },

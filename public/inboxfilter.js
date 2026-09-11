@@ -267,8 +267,8 @@
       // counted, rather than a branch taken on some renders and not others.
       side: 'any',
       icon: '🎯',
-      label: 'My Epics',
-      note: 'The epics you have started, and the work under each one.',
+      label: 'My Beadepics',
+      note: 'The beadepics you have started, and the work under each one.',
       test: () => false,
       // **Its number is supplied, not counted** — the flag `survey` reads to keep the
       // cards out of Home's row sum. Without it a caller that passed an `epics` count

@@ -54,7 +54,7 @@
     { id: 'knock', name: 'Work is stuck', detail: 'Two knocks at B3, 340ms — the only low sound here, and the only one that arrives with a double buzz. Nothing else on the phone insists.' },
     { id: 'land', name: 'A merge landed', detail: '45ms at G6. Smaller than the pip on purpose: four in a row is the pipeline being audible.' },
     { id: 'drop', name: 'A release went out', detail: 'A water drop — 360ms, pitch rising, with a tail. Calm, and unmistakably not the pip.' },
-    { id: 'chime', name: 'An epic completed', detail: 'Two notes, G5 up to C6, 480ms. The milestone, resolving onto the app’s own note.' },
+    { id: 'chime', name: 'A beadepic completed', detail: 'Two notes, G5 up to C6, 480ms. The milestone, resolving onto the app’s own note.' },
   ];
 
   /** The four that have to be told apart. */

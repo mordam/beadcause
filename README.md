@@ -5272,6 +5272,23 @@ obvious alternative and it is much more expensive than it looks: 938 beads in `b
 alone on 2026-08-14, 97KB of `{id,title}` JSON, times nine workspaces, on every 25-second
 poll, to answer a question that is asked for about four seconds a week.
 
+### Beadepic — the word on the screen for a bead epic
+
+A work workspace with JIRA on puts two different things called *epic* on one phone: the
+bead of type `epic` that beadcause files for each ticket assigned to you (and every other
+bead epic on the board), and JIRA's own **Epic** issue type, which a ticket may *be* or
+may sit under. Two things called epic on the same card is how somebody approves the
+wrong one. So the screen says **beadepic** for the bead kind — `My Beadepics`, *Start a
+beadepic*, *Beadepics assigned to you*, the monitor's cards, the docket index — and
+leaves the bare word to JIRA, where the ticket card's type pill still reads `Epic` for a
+JIRA epic (bc-6s383).
+
+It is a word on the screen and nothing else. `bd`'s issue type is still `epic` (the type
+pickers offer it by that name, because that is what `bd create --type` takes), and so
+are the code, the routes (`/epic`, `?view=epics`), the config keys
+(`maxEpicAdvocates`) and the agent role — an **EpicAdvocate** is still an EpicAdvocate,
+because that name is a label on beads and a word in agents' briefs, not a UI label.
+
 ### Epics assigned to you, and the tree each one carries
 
 The section at the top of the inbox is the **roots you have started** — `owner:<you>`,
@@ -34523,9 +34540,9 @@ to be one.
 | `confluence.space` | the Confluence space a document lands in by default. A beadcause space may name another with `confluenceSpace`, or refuse with `confluenceSpace: false`. Asked by `npm run configure`; the per-space override is not, and is a config-file answer on purpose |
 | `confluence.apiTokenFile` | where the API token is read from, if not `~/.config/beadcause/confluence.key`. A relative name resolves inside that directory. **The token itself is never a config field** — this file is committed after every write |
 | `confluence.readSpaces` | the space keys an unattended agent may [read a page out of](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with), e.g. `["ENG"]`. **Empty by default and does not inherit `space`** — the token that publishes can read the whole site, so an install that publishes still reads nothing until this names a space. Asked by `npm run configure`, where the question opens at `none` even on an install publishing into `ENG` |
-| `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
+| `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, which is every workspace on **auto**: on exactly when its bd already points at a site (`bd config get jira.url`), off otherwise at the cost of that one memoised spawn. `enabled: true` is on whatever bd says; `enabled: false` is off and costs nothing at all. The site URL, the address and the project keys come from that workspace's own `bd config get jira.url` / `jira.username` / `jira.projects`, so a tracker that has ever run `bd jira pull` usually needs no setting at all; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `jira.<workspace>.tokenFile` | where that workspace's API token is read from, if not `~/.config/beadcause/jira-<workspace>.key`. A relative name resolves inside that directory. The same option `confluence.apiTokenFile` is, and it opens the same hole: point it at a name that directory does *not* refuse and the log says so on every check |
-| `jiraSeconds` | how often the daemon asks JIRA what is assigned to you (default 60, floor 15) — one HTTP call per workspace whose `jira` block is switched on, and **nothing at all** for the rest. Beside `pollSeconds` rather than inside `jira`, because that block is keyed by workspace name and a number in it would be a setting for a workspace called "seconds". See [the tickets, on a clock](#the-tickets-on-a-clock--and-a-failure-that-is-never-an-empty-list) |
+| `jiraSeconds` | how often the daemon asks JIRA what is assigned to you (default 60, floor 15) — one HTTP call per workspace with JIRA on, one memoised `bd config get jira.url` per ten minutes for a workspace on auto whose bd points at no site, and **nothing at all** for one switched off. Beside `pollSeconds` rather than inside `jira`, because that block is keyed by workspace name and a number in it would be a setting for a workspace called "seconds". See [the tickets, on a clock](#the-tickets-on-a-clock--and-a-failure-that-is-never-an-empty-list) |
 | `pollSeconds` | how often the daemon *sweeps* — one `bd human list` per workspace, plus a `bd comments` per conversation you are waiting on (default 30). A cost, not a latency: `detectSeconds` is what decides how quickly a change is noticed, and this is the backstop under it |
 | `detectSeconds` | how often it asks *whether anything moved*, which is a ~150-byte read per workspace and spawns nothing (default 5). Setting it equal to `pollSeconds` turns the mechanism off and restores the single-clock cycle — see [noticing in five seconds](#noticing-in-five-seconds--and-not-sweeping-to-find-out) |
 | `agentLogRetentionMonths` | how long an archived agent run's **body** is kept, in months (default 24). Not a free number: 24 is `RETENTION_FLOOR_MONTHS` in `lib/evidence.js`, set from the report — a Type II window is twelve months and the report is relied on for about twelve months after issuance. **Raising it is a setting; lowering it is ignored**, because a shorter period is a disk decision with a retention rule written beside it. The chained record of each run is permanent either way. See [the run that survives its own reset](#the-run-that-survives-its-own-reset--libagentarchivejs-testagentarchivemjs) |
@@ -34559,13 +34576,31 @@ written — fix the IP in the file if the phone can't connect.
 
 ### JIRA, per workspace — read-only, and one setting
 
-Turn JIRA on for **one workspace** and the tickets assigned to you start arriving.
+Turn JIRA on for **one workspace** and the tickets assigned to you start arriving, each
+as a [beadepic](#beadepic--the-word-on-the-screen-for-a-bead-epic) of its own.
 There is nothing global and nothing team-wide about it: a workspace either has a JIRA
 behind it or it does not, and the setting that says so is a boolean and an address.
 
 ```json
 "jira": { "climative": { "enabled": true, "email": "you@company.com" } }
 ```
+
+**Usually not even that (bc-6s383).** A workspace with no block is on **auto**: on
+exactly when its bd already points at a JIRA site, because a tracker somebody has wired
+to JIRA has already answered the question the switch asks. The switch has three
+positions and only a literal boolean is a decision:
+
+| `jira.<workspace>.enabled` | JIRA is | costs, per workspace |
+|---|---|---|
+| `true` | on, whatever bd says | a read a minute |
+| absent (or anything not a boolean) | on if `url` here or `bd config get jira.url` names a site, otherwise off | one `bd` spawn per ten minutes when off |
+| `false` | off | nothing at all |
+
+Auto keys on the site alone, so a workspace whose bd points at JIRA but which has no
+token file yet is *on* and in trouble, and the sentence names both the file to write and
+`enabled: false` — the person reading it never asked for JIRA there. That is the right
+failure: the state it replaced was a JIRA-wired tracker whose assigned tickets never
+arrived and nothing anywhere said why.
 
 Keyed by workspace name, like `sessionDirs` and `advocates.perWorkspace`. It is
 deliberately **not** a field on a `workspaces` entry: that array is discovered under
@@ -34642,13 +34677,23 @@ epic filed per ticket and the ticket view can all read it without a second call.
 **One query, and it is not a parameter.**
 
 ```
-assignee = "you@company.com" AND resolution = EMPTY AND project in ("TECH") ORDER BY updated DESC
+assignee = "you@company.com" AND resolution = EMPTY AND statusCategory = indeterminate AND project in ("TECH") ORDER BY updated DESC
 ```
 
 The project clause appears only for a workspace that has projects. `resolution = EMPTY`
 rather than `status != Done` because every JIRA site renames its statuses and none of
 them renames the resolution field — a status-name query is one that works on your site
-and silently returns nothing at the next company. And the JQL is written in that module
+and silently returns nothing at the next company. **And only what is in progress**
+(bc-6s383): a site need not set a resolution at all — climative's `5: Done` does not,
+and of the 281 tickets the resolution clause alone answered on 2026-09-11, 169 were
+finished — and of the 112 left, 81 were New, backlog, Blocked or Shelved. Each arrival
+is a P1 beadepic, so the query takes the ~31 being worked: `statusCategory =
+indeterminate`, JIRA's fixed key for the *In Progress* bucket. A category is not a
+status name — every status belongs to one of three fixed buckets that no site can rename
+or add to — so the argument above still holds. A ticket that leaves the bucket for Done
+is resolved as far as the resolved sweep is concerned (it reads the category too), and
+its held beadepic closes; one that goes back to To Do or Blocked is left alone, and
+found again by ref if it comes back. And the JQL is written in that module
 rather than accepted from a caller: `search()` will issue whatever string it is given,
 so the defence against beadcause growing a general JIRA query surface is that there is
 nobody who can name one. Something that wants a different slice adds a named query

@@ -3846,7 +3846,7 @@
      * it is the context the card could not fit, which is the whole of why it exists. */
     parts.push(
       `<div class="docs"><a class="graph-link" href="${esc(docketUrl(q))}" target="_blank" rel="noopener noreferrer">
-        <span>The docket<span class="path">where this sits in its epic · what happened, in order</span></span>
+        <span>The docket<span class="path">where this sits in its beadepic · what happened, in order</span></span>
       </a></div>`
     );
 
@@ -4669,12 +4669,12 @@
       }</div>`;
     }
     if (!t.bead) {
-      acts.push('<span class="jira-wait">its bead is still being filed…</span>');
+      acts.push('<span class="jira-wait">its beadepic is still being filed…</span>');
     } else if (t.held === false) {
       // The id only when the line above is not already carrying it: `jiraIngestHtml`
       // draws the epic as a link the moment ingestion has finished, and the same bead id
       // twice on one card reads as two beads.
-      const named = t.ingest?.epic ? '' : ` as <span class="pill id">${esc(t.bead)}</span>`;
+      const named = t.ingest?.epic ? '' : ` as beadepic <span class="pill id">${esc(t.bead)}</span>`;
       acts.push(`<span class="jira-wait">✓ approved${named}</span>`);
     } else {
       acts.push(`<button class="secondary" data-act="jira-approve" ${at} ${busy ? 'disabled' : ''}>Approve</button>`);
@@ -6088,7 +6088,7 @@
    * CSS class names and the view helpers did not, because `.p0-card` is a namespace prefix
    * rather than a claim and restyling four hundred selectors buys nothing a reader can see.
    */
-  const P0_SECTION_LABEL = 'Epics assigned to you';
+  const P0_SECTION_LABEL = 'Beadepics assigned to you';
 
   /**
    * The three things the status filter can be asking for. bc-rfnr.9.6.
@@ -7423,7 +7423,7 @@
                 : 'recorded'
             )
           : '',
-        'nobody is on this epic'
+        'nobody is on this beadepic'
       ),
       p0AdvFactHtml(
         'A window',
@@ -7439,7 +7439,7 @@
         s.live ? '' : s.hold ? esc(`${s.hold}${s.heldAt && relTime(s.heldAt) ? ` · ${relTime(s.heldAt)}` : ''}`) : '',
         s.live ? 'one is up' : 'nothing is holding it — the next tick may open one'
       ),
-      s.paused ? p0AdvFactHtml('Paused', esc('this epic is paused — no window will be opened on it')) : '',
+      s.paused ? p0AdvFactHtml('Paused', esc('this beadepic is paused — no window will be opened on it')) : '',
       s.finished
         ? p0AdvFactHtml('Finished', esc('every child is closed, and the close is waiting on you'))
         : '',
@@ -7564,7 +7564,7 @@
     // nothing at all; ＋ cannot, because it is drawn on My Epics either way and a tap has
     // to say something.
     if (!state.rootboard?.owned) {
-      return `<div class="p0-none">This Mac does not know who you are — set <code>me</code> in the config and the epics you own turn up here.</div>`;
+      return `<div class="p0-none">This Mac does not know who you are — set <code>me</code> in the config and the beadepics you own turn up here.</div>`;
     }
     if (!rows.length) {
       return `<div class="p0-none">Nothing to start — every P0 you own is either on the board already or not open.</div>`;
@@ -7623,7 +7623,7 @@
       // also takes the row this tap is on off the screen, which is why nothing below
       // touches `btn` again on the way out.
       if (on) hideComposePick();
-      toast(on ? `${bead} is on the board` : `${bead} is off the board — ＋ on My Epics puts it back`);
+      toast(on ? `${bead} is on the board` : `${bead} is off the board — ＋ on My Beadepics puts it back`);
       await load();
     } catch (err) {
       btn.disabled = false;
@@ -7651,9 +7651,9 @@
    */
   function epicsEmptyHtml() {
     const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
-    return `<div class="empty"><strong>No epics started</strong>Nothing of yours is on the board${
+    return `<div class="empty"><strong>No beadepics started</strong>Nothing of yours is on the board${
       where ? ` in ${esc(where)}` : ''
-    }. ＋ above picks one of your own epics and starts it.</div>`;
+    }. ＋ above picks one of your own beadepics and starts it.</div>`;
   }
 
   function p0SectionHtml() {
@@ -11273,7 +11273,7 @@
       controls: 'compose-pick',
     },
     epic: {
-      label: 'Start an epic — put one of the beads you own on the board',
+      label: 'Start a beadepic — put one of the beads you own on the board',
       controls: 'compose-epics',
     },
   };

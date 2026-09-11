@@ -324,7 +324,7 @@
     if (codersOf(a).length)
       return { text: `${codersOf(a).length} of ${plural(a.limit, 'session')}`, tone: 'live' };
     if (plannersOf(a).length)
-      return { text: `${plural(plannersOf(a).length, 'epic')} being planned`, tone: 'live' };
+      return { text: `${plural(plannersOf(a).length, 'beadepic')} being planned`, tone: 'live' };
     if (a.queue) return { text: `${plural(a.queue, 'bead')} ready, none picked up`, tone: 'warn' };
     return { text: 'clear — no ready beads', tone: '' };
   }
@@ -625,7 +625,7 @@
       paused.length
         ? `<span class="pill muted" title="${esc(
             paused.map((h) => `${h.id} — ${h.why}`).join('\n')
-          )}">${paused.length} under a paused epic</span>`
+          )}">${paused.length} under a paused beadepic</span>`
         : '',
       // `heldByUndecided` is the twelfth (bc-jvt0.4), and the only one waiting on a
       // *judgement*: an owned epic with no children that nothing has yet said the shape of.
@@ -636,7 +636,7 @@
       undecided.length
         ? `<span class="pill p1" title="${esc(
             undecided.map((h) => `${h.id} — ${h.why}`).join('\n')
-          )}">${undecided.length} childless epic${undecided.length === 1 ? '' : 's'} nobody has decided the shape of</span>`
+          )}">${undecided.length} childless beadepic${undecided.length === 1 ? '' : 's'} nobody has decided the shape of</span>`
         : '',
       // `heldByOwed` is the thirteenth (bc-4r10.20), and the only one whose second party
       // is a ledger entry rather than a window, a branch, a machine or a file: this bead's
@@ -965,11 +965,11 @@
       repo +
       `<p class="subtitle">${esc(
         assigned.length
-          ? `${plural(assigned.length, 'epic')} have an advocate assigned — one card each, directly below this one, for as long as the epic is open.` +
-            (unassigned ? ` ${plural(unassigned, 'more open epic')} could have one and has not been assigned yet.` : '')
+          ? `${plural(assigned.length, 'beadepic')} have an advocate assigned — one card each, directly below this one, for as long as the beadepic is open.` +
+            (unassigned ? ` ${plural(unassigned, 'more open beadepic')} could have one and has not been assigned yet.` : '')
           : roster.length
-            ? `No epic has an advocate assigned yet — ${plural(roster.length, 'open epic')} could have one. One is assigned per epic that is open, owned and not a crash.`
-            : 'No epic has an advocate assigned. One is assigned per epic that is open, owned and not a crash.'
+            ? `No beadepic has an advocate assigned yet — ${plural(roster.length, 'open beadepic')} could have one. One is assigned per beadepic that is open, owned and not a crash.`
+            : 'No beadepic has an advocate assigned. One is assigned per beadepic that is open, owned and not a crash.'
       )}</p>`
     );
   }
@@ -1011,7 +1011,7 @@
     if (e.paused) return { text: 'paused · nothing new below it', tone: 'held' };
     const w = e.window;
     if (w && w.ended) return { text: 'the window has exited', tone: 'warn' };
-    if (w) return { text: "writing this epic's plan", tone: 'live' };
+    if (w) return { text: "writing this beadepic's plan", tone: 'live' };
     if (!e.assigned) return { text: 'not yet assigned — nobody has put an advocate on it', tone: '' };
     return { text: e.why || 'no window', tone: '' };
   }
@@ -1064,10 +1064,10 @@
         key
       )}" data-id="${esc(e.id)}" title="${esc(
         e.paused
-          ? 'Start dispatching under this epic again'
-          : 'Stop dispatching anything new under this epic. Windows already open keep their slots, finish their own work, and are asked to write a debrief first.'
+          ? 'Start dispatching under this beadepic again'
+          : 'Stop dispatching anything new under this beadepic. Windows already open keep their slots, finish their own work, and are asked to write a debrief first.'
       )}">${e.paused ? 'Resume' : 'Pause'}</button>` +
-      `<a class="work-graph" href="${esc(graphUrl(key, e.id))}">Open the epic →</a>`;
+      `<a class="work-graph" href="${esc(graphUrl(key, e.id))}">Open the beadepic →</a>`;
 
     const body = `
       ${
@@ -1075,7 +1075,7 @@
           ? `<a class="work-row adv-worker" href="${esc(live ? sessionUrl(w.pid) : graphUrl(key, e.id))}">
               <span class="work-phase">${live && !w.ended ? '<span class="spark"></span>' : '◍'}</span>
               <span class="work-main">
-                <span class="work-title">Writing this epic's plan</span>
+                <span class="work-title">Writing this beadepic's plan</span>
                 <span class="work-sub">
                   ${w.beads ? `<span class="tag">over ${esc(plural(w.beads, 'bead'))}</span>` : ''}
                   ${w.claimed ? '<span class="tag ok">claimed</span>' : '<span class="tag">not claimed yet</span>'}
@@ -1096,8 +1096,8 @@
             // head, and an open one is where you came to read why.
             `<p class="subtitle">No window right now — ${esc(
               e.assigned
-                ? `${e.why || 'no reason recorded'}. The advocate stays assigned to this epic either way; it goes when the epic closes.`
-                : "nobody has put an advocate on this epic yet. It qualifies for one — open it, above, to assign one."
+                ? `${e.why || 'no reason recorded'}. The advocate stays assigned to this beadepic either way; it goes when the beadepic closes.`
+                : "nobody has put an advocate on this beadepic yet. It qualifies for one — open it, above, to assign one."
             )}</p>`
       }
       ${
@@ -1116,7 +1116,7 @@
         mine.length
           ? `<div class="session-label">Working now <span>${esc(
               plural(mine.length, 'session')
-            )} dispatched from this epic's plan.</span></div>` + mine.map((x) => workerRow(a, x)).join('')
+            )} dispatched from this beadepic's plan.</span></div>` + mine.map((x) => workerRow(a, x)).join('')
           : ''
       }
       ${
@@ -1131,7 +1131,7 @@
           `${fold}:held`,
           key,
           heldRows || [],
-          'Filed under this epic and waiting on you. Nothing will open a session on them until they are endorsed.'
+          'Filed under this beadepic and waiting on you. Nothing will open a session on them until they are endorsed.'
         )
       }`;
 
@@ -1209,13 +1209,13 @@
       // with its bead open has given up, so without this chip the one window doing
       // exactly the right thing is drawn identically to the one that ran out of room.
       w.planning
-        ? '<span class="tag ok" title="A planner writes this epic\'s plan and no code. It ends with its bead still open, which is correct here and a give-up everywhere else.">EpicAdvocate — planning</span>'
+        ? '<span class="tag ok" title="A planner writes this beadepic\'s plan and no code. It ends with its bead still open, which is correct here and a give-up everywhere else.">EpicAdvocate — planning</span>'
         : '',
       // And which group of an epic's plan this window is. Without it, the four windows one
       // judgement dispatched read as four unrelated beads that happened to start together.
       w.group?.name
         ? `<span class="tag" title="${esc(
-            `One group of ${w.group.epic || 'an epic'}'s plan — an EpicAdvocate decided these beads belong in one change`
+            `One group of ${w.group.epic || 'a beadepic'}'s plan — an EpicAdvocate decided these beads belong in one change`
           )}">${esc(w.group.name)}${w.group.epic ? ` · from ${esc(w.group.epic)}'s plan` : ''}</span>`
         : '',
       // A batch head stands for several beads and the row shows one title. Without this
@@ -1751,13 +1751,13 @@
           ? unclaimed.map((x) => workerRow(a, x)).join('')
           : `<p class="subtitle">${
               elsewhereCount
-                ? 'No coding session here that an epic has not claimed.'
+                ? 'No coding session here that a beadepic has not claimed.'
                 : 'No coding sessions open from this advocate.'
             } EpicAdvocates have cards of their own below.</p>`) +
           (elsewhereCount
             ? `<p class="subtitle">${esc(
                 plural(elsewhereCount, 'more session')
-              )} came out of an epic's plan and ${elsewhereCount === 1 ? 'is' : 'are'} on that epic's card below.</p>`
+              )} came out of a beadepic's plan and ${elsewhereCount === 1 ? 'is' : 'are'} on that beadepic's card below.</p>`
             : ''),
         { tone: codersOf(a).length ? 'live' : '' }
       ),
