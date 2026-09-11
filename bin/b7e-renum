@@ -1,0 +1,217 @@
+#!/usr/bin/env node
+/**
+ * `b7e-renum` — what a chapter number meant when it was written, and which chapter it
+ * is today (bc-xl7n.154).
+ *
+ *     b7e-renum -w <workspace> <file>:<line>              the citing line fixes the era
+ *     b7e-renum --dir <root> <file>:<line>                a checkout directly
+ *     b7e-renum -w <workspace> <book> <chapter> --at <ref>       a number, at a point in time
+ *     b7e-renum --dir <root> <book> <chapter> --at "Entry 065"   … or a date, or "Entry NNN"
+ *     b7e-renum … --json
+ *
+ * Three sessions (dv-5i2.130, dv-5i2.129, dv-afr.41) each translated a stale chapter
+ * citation by hand, none the same way. `lib/renum.js` does the git archaeology — rename
+ * detection, then an H1 title match, then proper-noun overlap, with the archive as the
+ * fallback that turns a dead end into "cut" instead of nothing; this file is the argv
+ * parsing and the printing around it, the same split `b7e-chapter` and `bin/b7e-chapter`
+ * already use.
+ *
+ * Exit codes: `0` every cited number resolved to either a living chapter or a
+ * confirmed cut. `1` at least one cited number's era or chapter could not be found at
+ * all, or resolved to no confident match. `2` refused — bad usage.
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { resolveCitation, resolveBookAt } from '../lib/renum.js';
+
+const USAGE = `usage: b7e-renum -w <workspace> | --dir <root> <file>:<line> [--json]
+       b7e-renum -w <workspace> | --dir <root> <book> <chapter> --at <ref|date|"Entry NNN"> [--json]
+
+  -w, --workspace <name>   a beadcause workspace whose checkout has the novel/ tree
+  --dir <root>             a checkout directly, instead of a workspace name
+  <file>:<line>            the citing line — its git blame commit fixes the era
+  <book> <chapter>         a chapter number directly, with an era named by --at
+  --at <ref|date|Entry NNN>   which point in time <book> <chapter> means (chapter mode only)
+  --json                   print the structure instead of the plain report`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+const has = (f) => argv.includes(f);
+
+const wsName = value('-w', value('--workspace', null));
+const dirArg = value('--dir', null);
+const AT = value('--at', null);
+const JSON_MODE = has('--json');
+
+if (!wsName && !dirArg) {
+  console.error('b7e-renum: one of -w/--workspace or --dir is required');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (wsName && dirArg) {
+  console.error('b7e-renum: -w/--workspace and --dir are mutually exclusive');
+  process.exit(2);
+}
+
+const positional = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '-w' || a === '--workspace' || a === '--dir' || a === '--at') {
+    i++;
+    continue;
+  }
+  if (a.startsWith('-')) continue;
+  positional.push(a);
+}
+
+let ROOT;
+if (dirArg) {
+  ROOT = path.resolve(dirArg);
+} else {
+  const cfg = loadConfig();
+  const ws = cfg.workspaces.find((w) => w.name === wsName);
+  if (!ws) {
+    console.error(`b7e-renum: no workspace named "${wsName}"`);
+    console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+    process.exit(2);
+  }
+  try {
+    ROOT = resolveSessionDir(cfg, ws);
+  } catch (err) {
+    console.error(`b7e-renum: ${err.message}`);
+    process.exit(2);
+  }
+}
+
+// <file>:<line> mode: exactly one positional, shaped like a path with a trailing
+// ":<digits>". A Windows-style drive letter ("C:\...") never matches this — the colon
+// has to be followed only by digits to the end of the string.
+const FILE_LINE_RE = /^(.+):(\d+)$/;
+const fileLineMatch = positional.length === 1 ? FILE_LINE_RE.exec(positional[0]) : null;
+
+let citations; // the blocks this run resolved, in the shape both modes share for printing
+let mode;
+
+if (fileLineMatch) {
+  if (AT) {
+    console.error('b7e-renum: --at only applies to <book> <chapter> mode, not <file>:<line>');
+    process.exit(2);
+  }
+  mode = 'citation';
+  const [, filePart, lineStr] = fileLineMatch;
+  const absFile = path.resolve(ROOT, filePart);
+  const line = Number(lineStr);
+  let result;
+  try {
+    result = resolveCitation(ROOT, absFile, line);
+  } catch (err) {
+    console.error(`b7e-renum: ${err.message}`);
+    process.exit(1);
+  }
+  citations = result.blocks.map((b) => ({
+    label: `Ch. ${b.citedNumber} (Book ${b.book}), cited at ${result.file}:${result.line}`,
+    blameRef: b.blame,
+    then: b.then,
+    nowResults: b.nowResults,
+  }));
+} else if (positional.length === 2) {
+  if (!AT) {
+    console.error('b7e-renum: <book> <chapter> mode needs --at <ref|date|Entry NNN>');
+    process.exit(2);
+  }
+  const book = Number(positional[0]);
+  const chapter = Number(positional[1]);
+  if (!Number.isInteger(book) || !Number.isInteger(chapter)) {
+    console.error(`b7e-renum: <book> and <chapter> must be integers, got ${JSON.stringify(positional)}`);
+    process.exit(2);
+  }
+  mode = 'direct';
+  let then, nowResults;
+  try {
+    ({ then, nowResults } = resolveBookAt(ROOT, book, chapter, AT));
+  } catch (err) {
+    console.error(`b7e-renum: ${err.message}`);
+    process.exit(1);
+  }
+  citations = [{ label: `Book ${book} Ch. ${chapter}, at ${AT}`, blameRef: null, then, nowResults }];
+} else {
+  console.error(`b7e-renum: give either <file>:<line> or <book> <chapter> --at <...>, got ${JSON.stringify(positional)}`);
+  console.error(USAGE);
+  process.exit(2);
+}
+
+/* --------------------------------------------------------------------- printing */
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ mode, citations }, null, 2));
+  const anyUnresolved = citations.some((c) => c.then.variants.length === 0 || c.nowResults.some((r) => !r.method));
+  process.exit(anyUnresolved ? 1 : 0);
+}
+
+let anyUnresolved = false;
+
+for (const c of citations) {
+  console.log(bold(c.label));
+  if (c.blameRef) console.log(dim(`  blame: @ ${c.blameRef.shortSha} ${c.blameRef.date ?? ''}`));
+
+  if (c.then.book == null) {
+    console.log(amber(`  then: no Book ${c.then.book ?? '?'} found at this era`));
+    anyUnresolved = true;
+    console.log('');
+    continue;
+  }
+  if (c.then.variants.length === 0) {
+    console.log(amber(`  then: Ch. ${c.then.chapterNumber} not found in ${c.then.bookDir?.name ?? `Book ${c.then.book}`} at @ ${c.then.ref.shortSha} ${c.then.ref.date ?? ''}`));
+    anyUnresolved = true;
+    console.log('');
+    continue;
+  }
+
+  for (const r of c.nowResults) {
+    const v = r.variant;
+    const title = v.title ? ` — ${v.title}` : '';
+    const meta = Object.entries(v.meta || {}).map(([k, val]) => `${k}: ${val}`).join(', ');
+    console.log(`  then: ${c.then.bookDir.name} Ch. ${c.then.chapterNumber} (${v.variant})${title}${meta ? ` (${meta})` : ''}`);
+    console.log(dim(`        ${v.relPath}${v.commit ? ` @ ${v.commit.short} ${v.commit.date}` : ''}`));
+
+    if (r.winner) {
+      const isCut = !!r.winner.archived;
+      if (isCut) {
+        console.log(amber(`  now:  cut — survives only in ${r.winner.relPath}`));
+      } else {
+        console.log(green(`  now:  Ch. ${r.winner.chapterNumber} — ${r.winner.relPath}`));
+      }
+      console.log(dim(`  match: ${r.method}`));
+    } else {
+      anyUnresolved = true;
+      console.log(amber('  now:  unresolved — no confident match'));
+      if (r.candidates.length) {
+        console.log(dim('  candidates:'));
+        r.candidates.forEach((cand, i) => {
+          console.log(dim(`    ${i + 1}. Ch. ${cand.chapterNumber} (score ${cand.score}) — ${cand.relPath}${cand.archived ? ' [archived]' : ''}`));
+        });
+      }
+    }
+    console.log('');
+  }
+}
+
+process.exit(anyUnresolved ? 1 : 0);

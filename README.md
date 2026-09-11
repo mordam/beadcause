@@ -21090,6 +21090,93 @@ Tested against a fixture built with `lib/fixture.js`'s `buildFixture` (`test/b7e
 retired-worktree twin), a Book 5 (SUMMARY + CHAPTER_MAP) and a Book 3 chapter with all
 three variants and a `check_ch1_11_canon.py` — so the suite depends on none of deluvia.
 
+### What a chapter number meant when it was written, and which chapter it is today — `b7e-renum`
+
+`b7e-chapter` just above resolves a number to today's file; it never answers "what was N
+at the time". Deluvia's numbering has moved under the text three times — Book 3 at Entry
+065 and again at Entry 147 (old Ch. 18-35 became 19-36), plus the Book 2 restructure —
+and old numbers survive in the corpus on purpose. `bc-xl7n.154`: three sessions each
+translated one by hand, none the same way. `dv-5i2.130` grepped a name across the book,
+then read a chapter's own writing notes to decide a citation was dead pre-Entry-065
+numbering. `dv-5i2.129` grepped "Entry 147" in `CHANGE_LOG.md` and read a conversion note
+to confirm a block's range had shifted by one. `dv-afr.41` read eleven files by hand and
+grepped proper nouns across an archive to find that a Book 2 interlude's "Chapter 7" is
+today's Ch. 5, and another's "Chapter 12" was cut outright.
+
+```
+b7e-renum -w <workspace> <file>:<line>                     the citing line fixes the era
+b7e-renum --dir <root> <file>:<line>                       a checkout directly
+b7e-renum -w <workspace> <book> <chapter> --at <ref>       a number, at a point in time
+b7e-renum --dir <root> <book> <chapter> --at "Entry 065"   … a date, or "Entry NNN"
+b7e-renum … --json
+```
+
+**Two ways in, one answer shape.** `<file>:<line>` reads that line's text for every
+chapter number it cites (`"(from Ch. 14/23)"` → two blocks, `14` and `23`), infers the
+book from the file's own `novel/<Book N>/` ancestor, and fixes the era with `git blame`
+on that exact line — the citing line's own introducing commit is "when this number meant
+what it says". `<book> <chapter> --at <ref|date|"Entry NNN">` names the era directly; an
+`Entry NNN` is resolved by finding the commit that introduced that heading into
+`CHANGE_LOG.md` (`git log -S`, oldest match). Each block then prints what the chapter
+**was** at that era (`git ls-tree`/`git show` against the historical commit — the file may
+since have been renamed or removed from the working tree entirely) and what it **is now**.
+
+**Chasing forward tries three methods, in order, against every `CHAPTER_*` file the book
+has today — living and archived together:**
+
+1. **git rename-follow.** `git log -M --follow --name-status` on each current candidate,
+   walked back through its own rename history and compared against what that lineage was
+   named *as of the historical commit specifically* — not "did this string ever appear
+   anywhere in the file's history". That distinction is load-bearing: a **chain** renumber
+   (Entry 147 shifted eighteen chapters up by one) reuses filenames, so `CHAPTER_27.summary.md`
+   is both today's Ch. 27 *and* what today's Ch. 28 was called before the shift, and naive
+   string membership calls the former a match against a historical query for the latter.
+   Worse, Entry 147 turned out not to `git mv` anything at all — it rewrote each file's
+   *content* in place, so the correct answer here is "no rename happened", which
+   `nameAtRef`'s `renamed` flag exists to say honestly rather than reporting a same-name
+   coincidence as identity.
+2. **Identical H1 title**, compared with its own leading `CHAPTER N:`/`INTERLUDE N:`
+   stripped (`titleSubject`) — the number is exactly what a renumber changes, so comparing
+   the raw heading would never match a chapter that moved.
+3. **Proper-noun overlap** — every candidate scored by shared capitalized, non-stopword
+   tokens against the historical content; the top three are always shown, and a winner is
+   declared only when its lead over the runner-up clears a margin, never on the strength of
+   being merely the best of several weak guesses.
+
+Whichever method wins, the winning candidate's own archived flag (from `lib/chapter.js`'s
+`isArchived`) is what turns "now" into **"cut"**: a chapter renamed into
+`_archive_pre-restructure/` is the same rename-follow evidence, landing on a path that
+means it did not survive the restructure under any live number. `.claude/worktrees-retired/`
+is deliberately excluded from the candidate pool entirely — a retired-worktree twin is
+`lib/chapter.js`'s own warning-only inclusion, never a legitimate resolution target, and on
+the real corpus it is also the expensive half: 14,000+ `CHAPTER_*` files across sixty
+retired worktrees against a couple hundred in the book itself.
+
+Exit codes: `0` every cited number resolved to a living chapter or a confirmed cut. `1` an
+era or chapter could not be found at all, or resolved to no confident match (printed as
+`unresolved`, with its top candidates, never a guess dressed up as an answer). `2` refused
+— bad usage.
+
+Tested against four fixtures built with `lib/fixture.js`'s `buildFixture` (`test/b7erenum.mjs`,
+40 checks) — one per method above, plus the archive-cut case, an unresolved case, and
+`resolveAtRef`'s three forms — so the suite depends on none of deluvia's real history.
+`buildFixture` gained a `{ type: 'delete', path }` step for this (`bc-xl7n.154`): a `file`
+step at the new path plus a `delete` at the old one, staged into the same `commit` step, is
+a rename — git's own detection, not anything the fixture builder does.
+
+**Verified against deluvia's own trunk while building this, not only against fixtures.**
+Book 3 Ch. 27 at the commit before Entry 147 correctly resolves to today's Ch. 28 (via
+title match, once `titleSubject` was added — the raw title comparison alone missed it,
+for exactly the reason above), and Book 2's old Ch. 12 correctly reports cut into
+`_archive_pre-restructure/`. One caveat worth knowing before trusting a `<file>:<line>`
+answer at face value: `git blame` finds the commit that most recently touched the citing
+line's *text*, which is not always the commit that first gave the citation its meaning —
+a later, unrelated edit that merely reformats the paragraph moves the blamed era forward
+with it. `dv-5i2.130`'s own hand method hit the identical problem and worked around it
+with extra greps against character names and writing notes; this command's era is exactly
+what `git blame` says, no more, and a caller reasoning about a citation blame lands on an
+edit commit rather than an authoring commit should keep looking, the way `dv-5i2.130` did.
+
 ### Turn a gate's own "expected X — got Y" into the edit — `b7e-rebaseline`
 
 `b7e-checks` just above runs a workspace repo's gate scripts and tells you which are red.
