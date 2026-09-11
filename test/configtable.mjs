@@ -45,7 +45,8 @@
  *    are named in `NO_DEFAULT` below, each with the reason it is real and undefaulted
  *    rather than dead: `agentToolsAcknowledged` is written only once you accept the
  *    extended-tools warning, `claudeSessionsDir`/`claudeProjectsDir` are overrides read
- *    only if set, and `agents[].tools` / `jira.<workspace>.tokenFile` document a shape
+ *    only if set, and `agents[].tools` / `jira.<workspace>.ingest` /
+ *    `jira.<workspace>.tokenFile` document a shape
  *    inside an array or a per-workspace object rather than a top-level default. A row
  *    naming anything else this list and the served set do not cover fails the suite.
  */
@@ -197,6 +198,7 @@ const NO_DEFAULT = {
   // Shape rows: a field inside an array element or a per-workspace object, not a
   // top-level default `agents: []` or `jira: {}` can ever carry on its own.
   'agents[].tools': 'lib/agents.js',
+  'jira.<workspace>.ingest': 'lib/jira.js',
   'jira.<workspace>.tokenFile': 'lib/jira.js',
 };
 

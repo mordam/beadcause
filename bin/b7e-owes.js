@@ -136,6 +136,7 @@ export const NO_DEFAULT_CONFIG_KEYS = new Set([
   'claudeSessionsDir',
   'claudeProjectsDir',
   'agents[].tools',
+  'jira.<workspace>.ingest',
   'jira.<workspace>.tokenFile',
 ]);
 
