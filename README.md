@@ -4624,21 +4624,35 @@ navigation nobody uses. Four rows went into two:
 
 | Pill | What it carries | What it absorbed |
 |---|---|---|
-| **My Epics** | Home with nothing narrowed — the P0 board, and nothing under it | — |
+| **Home** | Everything at once — nothing narrowed | — |
+| **My Epics** | The epics you have started — the board, and nothing under it | — |
 | **Questions** | Everything waiting on a word from you | `proposal`, `jira`, `endorsement` |
 | **PRs** | Pull requests, and the finished branches waiting on a merge | `delivery` (Merges) |
 | **Chats** | The conversations you have open | — |
 | **Ledger** | Every bead the space has ever had — a page of its own | — |
 | **All Beads** | Every live bead nobody is asking you about | `claimed`, `blocked`, `unclaimed`, as a sub-filter |
 
-**Two of the six are places rather than slices.** A kind with a `test` is a predicate over
-the rows the list holds, and the four of those partition it — every row answers exactly
-one. `My Epics` and `Ledger` have no predicate: the first is Home with nothing selected,
-the second is a different page. They are in the table anyway, because the row is six pills
-and a reader asking "what are the six" must not have to find two of them somewhere else,
-and `set()` refuses to select one — a place has no predicate, so selecting it would match
-no row at all and leave Home empty with a lit pill above it and nothing to read as the
-reason.
+**Two of the seven are places rather than slices.** A kind with a `test` is a predicate
+over the rows the list holds. `Home` and `Ledger` have no predicate: the first is Home with
+nothing selected, the second is a different page. They are in the table anyway, because the
+row is seven pills and a reader asking "what are the seven" must not have to find two of
+them somewhere else, and `set()` refuses to select one — a place has no predicate, so
+selecting it would match no row at all and leave Home empty with a lit pill above it and
+nothing to read as the reason.
+
+**`My Epics` is the odd slice, and its predicate is `false` — bc-fwp2c.** It was a place
+too, and the same place as Home: one pill that both landed you on the list and drew the
+epic board. That could not survive the badges. A place's number can only ever be the sum of
+every slice — that is what a tap on it leaves you with — so the pill read `My Epics 46` on
+a tracker holding three epics, and the word and the number were about different screens.
+
+Splitting them made My Epics a screen of its own, and the predicate is what earns it a
+place among the slices: no inbox row is *ever* an epic — a started one is a card on
+`rootboard`, an unstarted one an offer in `startable` — so `false` states the measured truth
+about this list, and `pick()` selects the pill instead of clearing the selection the way it
+does for a place. Its badge cannot come from the row loop and does not: `survey` takes it
+from the caller, off the cards just drawn, and the `board: true` flag keeps that number out
+of Home's sum so Home never counts a screen it does not draw.
 
 **A view shows its own kind, and that is one line in `render` rather than six.** Home draws
 every view on top of the same page, and until bc-khoe.28 it drew *both* halves on all of
@@ -4648,26 +4662,31 @@ epic board over it, and `My Epics`, being the empty selection, drew every row th
 produced underneath a board whose trees already held the same work. `render` asks
 `current()` which pill is lit and draws one of the two:
 
-- **`My Epics` is the board, and there is no list beneath it.** Each card already expands to
-  its own tree, so the rows below were a second, flatter copy of what the cards hold — the
-  argument bc-rfnr.9.7 made about your epics' descendants, finished. What that took out of
-  the list was the beads; what this takes out is the rest, and a question under nobody's
-  root is now on `Questions`, where it is the plainest example of a row a tree cannot hold.
-- **The board is not on the other four pills in any form** — not collapsed to a heading, not
-  a count. A board over a list of chats is the thing this bead is about.
+- **`My Epics` is the board, and there is never a list beneath it.** Each card already
+  expands to its own tree, so the rows below were a second, flatter copy of what the cards
+  hold — the argument bc-rfnr.9.7 made about your epics' descendants, finished. What that
+  took out of the list was the beads; what this takes out is the rest, and a question under
+  nobody's root is now on `Questions`, where it is the plainest example of a row a tree
+  cannot hold.
+- **The board is not on any other pill in any form** — not collapsed to a heading, not a
+  count. A board over a list of chats is the thing bc-khoe.28 was about.
 
-Three things put a list back under the board, and none is a hedge on the rule. **A board
-with no cards on it**, which is bc-6s96 unchanged: with nothing started the section
-switches off and Home is the flat list it has always been, the bare "start one" offer
-included — that offer is a control on an empty screen rather than a board, and a `My Epics`
-drawing neither a card nor a list would be a blank page on the one install most likely to
-see it. **A bead picked in the search box**, which is the same sentence `inBoard` already
-makes one line above — an explicit filter outranks an implicit one, and the box is in the
-panel on every pill, so a search run from `My Epics` with no list to answer into would be a
-control that does nothing. And **an open card**, which is not a list at all: `.card.open` is
-a full-screen sheet built out of a list row, so the clause is what makes `p0-answer` on a
+Two things put a list back under the board, and neither is a hedge on the rule. **A bead
+picked in the search box**, which is the same sentence `inBoard` already makes one line
+above — an explicit filter outranks an implicit one, and the box is in the panel on every
+pill, so a search run from `My Epics` with no list to answer into would be a control that
+does nothing. And **an open card**, which is not a list at all: `.card.open` is a
+full-screen sheet built out of a list row, so the clause is what makes `p0-answer` on a
 bead in a tree — the ordinary way to answer a question from the board — open anything.
 It is the same exception `underOwnedRoots` already makes for the card that is up.
+
+**The third clause is gone, and that is bc-fwp2c.** A board with no cards on it used to
+fall back to the flat list (bc-6s96), because `My Epics` *was* Home and a pill drawing
+neither a card nor a list would have been a blank page on the one install most likely to
+see it. It is also exactly what made the badge wrong: an empty board became a list, and the
+number followed the list. Home is its own pill now, so an empty board is an empty
+`My Epics` and says so in as many words — `epicsEmptyHtml`, which names the space or
+workspace chip when either is what emptied it, and points at the ＋ that ends the state.
 
 The control never loading draws both, which is the shape this page had before there was a
 pill row: a page served without `public/inboxfilter.js` must not be a page with half its
@@ -4892,7 +4911,7 @@ the filter pills that view pill can use, and nothing else in the file decides it
 
 | Pill | What it can be narrowed by | Why not the rest |
 |---|---|---|
-| **My Epics** | the bead search | Home holds every kind, so both sub-filters *could* narrow it — and offering two second axes over a list that is mostly neither is two more controls for a view you have not picked. What they still do here is confessed as a note instead. |
+| **Home** | the bead search | Home holds every kind, so both sub-filters *could* narrow it — and offering two second axes over a list that is mostly neither is two more controls for a view you have not picked. What they still do here is confessed as a note instead. |
 | **Questions** | the bead search | A question is not a pull request and it is not one of the live beads nobody is asking you about. |
 | **PRs** | the bead search, PR status | The one pill with both: a pull request follows its beads, so the search narrows it too. |
 | **Chats** | *nothing* | A chat is in no tracker. It is under no bead, and it has no rung. |
@@ -5024,6 +5043,7 @@ across all of them was a control whose meaning depended on a pill it did not loo
 
 | Pill | ＋ | Because |
 |---|---|---|
+| **Home** | yes | File a bead — the same form All Beads opens (bc-fwp2c) |
 | **My Epics** | yes | Take a bead and make it an epic of yours (bc-khoe.27.2) |
 | **Questions** | **no** | A queue of things waiting on a word from you |
 | **PRs** | **no** | The same, arriving off `gh` |
@@ -7143,13 +7163,13 @@ So there is one row now, under the top bar on every page the bottom bar was on:
   │ ● Beadcause                              🗳  ⌨️  ⟳ │
   │ Personal ▾                                    3 ▸    │
   ├──────────────────────────────────────────────────────┤
-  │ [🎯 My Epics 7] ❓ Questions 3 🚢 PRs 2 💬 Chats …  │  ← scrolls sideways
+  │ [🏠 Home 7] 🎯 My Epics 2 ❓ Questions 3 🚢 PRs 2 …  │  ← scrolls sideways
   └──────────────────────────────────────────────────────┘
 ```
 
-Nine pills today, on ten pages: the [six kinds](#one-list-six-kinds--and-the-two-sub-filters)
-bc-khoe.2 promoted out of the inbox's filter panel — My Epics, Questions, PRs, Chats,
-Ledger, All Beads — plus Advocates, plus
+Ten pills today, on ten pages: the [seven kinds](#one-list-six-kinds--and-the-two-sub-filters)
+bc-khoe.2 promoted out of the inbox's filter panel — Home, My Epics, Questions, Chats,
+Ledger, All Beads, PRs — plus Advocates, plus
 [Releases](#releases--the-view-those-queues-are-drawn-on), plus
 [Config](#space-details--every-setting-a-space-has-on-a-page-of-its-own), the selected
 space's own settings, which bc-khoe.10 took off the advocate console. Releases sits next to
@@ -7197,10 +7217,10 @@ into view on load — done by arithmetic on the two rectangles rather than with
 `scrollIntoView`, which is allowed to scroll every ancestor and would quietly move the list
 under it.
 
-**Four counts, and only on Home.** My Epics, Questions, PRs and Chats each carry a number:
-how many rows tapping that pill would leave you with. All Beads, Ledger, Advocates, Releases
-and Config carry none — the first is unbounded and says nothing you would act on, and the
-other four are pages of their own with their own polls.
+**Five counts, and only on Home.** Home, My Epics, Questions, PRs and Chats each carry a
+number: how many rows tapping that pill would leave you with. All Beads, Ledger, Advocates,
+Releases and Config carry none — the first is unbounded and says nothing you would act on,
+and the other four are pages of their own with their own polls.
 
 This reverses a decision this section used to record, and the objection it was written
 against still stands as written. Advocates carried a badge once — how many proposals were
@@ -7215,27 +7235,30 @@ did. The badge is a second reading of that one count, refreshed by the same 25-s
 that redraws the list beneath it, and there is no page it can be stale on because there is
 no other page it is drawn on. Off Home the pills are plain links with nothing on them.
 
-`My Epics` is the one number nothing counts directly, and it is derived in
-`public/inboxfilter.js` rather than by the caller. My Epics is a *place* and not a slice —
-it has no predicate, so no row is ever *of* that kind — and what tapping it does is clear
-the selection, which leaves every row that survives its own sub-filter. That is the sum of
-the four slices, so summing them is the same arithmetic done once, and the badge and the
-list cannot come to disagree about it.
+`Home` is the number nothing counts directly, and it is derived in
+`public/inboxfilter.js` rather than by the caller. Home is a *place* and not a slice — it
+has no predicate, so no row is ever *of* that kind — and what tapping it does is clear the
+selection, which leaves every row that survives its own sub-filter. That is the sum of the
+slices, so summing them is the same arithmetic done once, and the badge and the list cannot
+come to disagree about it.
 
-**Unless there is no list there, which is the board (bc-khoe.49).** With an epic of yours
-started, My Epics is the board and bc-khoe.28 took the list out from under it — so the sum
-above went on describing rows that the one pill it is drawn on would not draw. The badge
-is **the number of cards on the board** in that state, and the sum of the slices in every
-other, which keeps it the same promise it makes everywhere else: what a tap leaves you
-looking at. Which of the two screens the tap opens is a question about the render rather
-than about the filter, so `public/app.js` answers it — `epicsIsBoard`, which is the rule
-that decides whether a list is drawn under the board (`listHere`) asked with the view
-forced to My Epics, because a picked bead and an open card put a list back there from
-wherever you happen to be standing. The other three badges never had the problem:
-`surveyKinds` runs ahead of that gate, so `Questions`, `PRs` and `Chats` still count
-exactly the rows tapping them draws. The two answers this is not: dropping the badge on a
-board would take the number away on the one install with something to count, and adding
-the cards to the rows would print a total nothing on the screen adds up to.
+**`My Epics` is the other one, and it is handed in rather than derived.** Its screen is the
+board, which is not a list of rows at all, so `public/app.js` counts the cards it just drew
+and passes them to `survey` — unconditionally, on every render. The `board: true` flag on
+that row keeps the number out of Home's sum, because a board is not something Home draws.
+
+**This is the shape bc-fwp2c left, and it is worth saying what it replaced.** The two pills
+were one pill. Landing on Home *was* landing on My Epics, so one badge had to describe two
+screens, and bc-khoe.49 made it a choice: the cards when the board was what a tap left you
+with, the row sum when a list was. The condition turned on the board having cards — an
+empty board fell back to the flat list (bc-6s96), and the number honestly followed it. What
+that produced, on an account whose epics are somebody else's, was `My Epics 46` printed over
+`Questions 21` and `PRs 25`: the sum, correct about the screen, sitting under a word about
+epics. Two pills need no such choice. Home draws the list and counts the rows; My Epics
+draws the board and counts the cards; neither number is ever a promise about the other's
+screen. The other three badges never had the problem at all — `surveyKinds` runs ahead of
+any gate, so `Questions`, `PRs` and `Chats` have always counted exactly what tapping them
+draws.
 
 **Pushed at the row, never pulled by it, and written as text.** `public/viewbar.js` is
 loaded on twelve pages and `public/inboxfilter.js` on one, so the row cannot read the
@@ -8024,6 +8047,114 @@ and that landing on `/#history?status=closed` builds the ledger *first* and make
 narrowed request rather than a wide one corrected afterwards. It ends by loading `/history`
 as a document and asserting the same list with its filters in the query string, which is the
 compatibility half this bead is standing on until bc-khoe.30.7.
+
+### The docket — an epic's whole arc
+
+Adam, on the cards that arrive on the phone: *"the cards coming to me are sometimes hard to
+understand quickly because a lot of context is missing."* A card carries the bead and
+nothing around it — its title, its description, its decision block, its thread. What it
+cannot say is where the bead sits in the arc it belongs to: what was decided before it,
+what has landed, what is in flight beside it, why it sat for four days. The only way out
+of a card was `/graph?ws=…&id=…&open=1`, which draws what the bead is *wired* to and has no
+dates in it at all.
+
+`/docket?ws=…&id=…` is the rest of it. One page per epic, four blocks, and the order of
+them is the argument:
+
+1. **Where it is** — the epic's own title and description, and one line of counts. First,
+   because it is the question you arrive with: is this nearly done or barely started.
+2. **The phases**, when the epic has [a plan](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window). A planner
+   already broke the work into named groups, and a page that made you re-derive that from
+   a list of thirty beads would be throwing away the best writing on the bead. Each group
+   is `done`, `running` or `waiting`, computed from the family rather than stored — a plan
+   is written once and the beads under it move for weeks afterwards.
+3. **The map** — every bead in the family, indented by depth, **in the order they were
+   filed**. A board sorts done-last because a board is a list of what to do next; a docket
+   is the opposite question, so a bead that closed in June keeps the place it had. The
+   bead you came from is lit.
+4. **The chronology** — everything dated, grouped by day.
+
+**It roots at the top of the family, not at the nearest thing typed `epic`.** `issue_type`
+is what the filer chose and nothing enforces it: there are roots here typed `feature`,
+`task` and `bug` with a dozen children under them, and beads typed `epic` with none. What
+a person means by "the epic this card belongs to" is the top of the tree it hangs from. So
+a card links to `/docket` with **its own** id and the page walks up itself, which is what
+makes it one link rather than a lookup — the inbox does not carry ancestry for every card,
+and a link that needed it would fail exactly when the graph cache was cold.
+
+That also means the second card out of the same epic lands you on a page you have already
+read once, rather than on a fresh wall of text.
+
+#### What is folded, and how each rule knows
+
+Everything dated is in the payload. What the fold does is decide which lines a day draws
+before you ask — and it is not a guess at what is interesting. Each visible kind is tied
+to the one place in this tree that writes the thing:
+
+- **a ruling** — the comment `Bd.respond` writes immediately before closing with
+  `Answered via Beadcause`, found by the clock: the last comment at or before `closed_at`
+  on a bead closed for that reason. Not the "noted, thanks" an agent leaves on the thread
+  the next morning.
+- **a reply** — a comment on a bead carrying `human-replied`, which `POST /api/comment` is
+  the only thing that sets, and it sets it when you typed into the box on a card.
+- **a filing and a close**, the close carrying its reason, which is the best writing in
+  the tracker.
+- **a plan**, because an epic's phases are a decision about the epic.
+- **a pull request opened or merged** — the deliveries.
+
+Everything else folds: every other comment, the claim, and each archived session run. A
+day says how many lines are behind its control, because a control that did not would be
+asking you to tap to find out whether tapping was worth it. **Folded is not dropped** —
+the events are all in the payload, flagged `machine`, and *why was this week quiet* is
+answered by exactly the lines a stream that dropped them could not show. The fold is per
+day rather than one switch for the same reason: the question is always local, and a single
+switch answers it by expanding a fortnight at once.
+
+**Author is not the test, and could not be.** [The byline
+rules](#whose-beadcause-wrote-it--the-byline-on-every-daemon-write) are explicit about
+it: a `beadcause` byline covers both your relayed tap and the daemon's own bookkeeping,
+and a bare address is either you at a terminal or an agent whose shell exported your
+`BEADS_ACTOR`. So who spoke rides on the line as a **voice** for you to weigh — `an agent`,
+`beadcause`, or a name — and never as the thing that decides what the page shows.
+
+#### What it costs, and the two joins it refuses to pay for
+
+One `bd export` per workspace, cached thirty seconds under its own key, and everything on
+the page filtered out of it in process — the ledger's bargain, for the ledger's reason. It
+is deliberately **not** the export `Bd.graph` already keeps: that index drops the
+timestamps, the close reasons and every comment on purpose, because seven hundred bodies
+of prose in a cache every inbox repaint reads would be a cost with no reader. The docket is
+made of exactly what it throws away, and it is opened a few times a day.
+
+The two joins are both borrowed rather than bought:
+
+- **Pull requests come off a board somebody else already swept.** A `gh` sweep is the most
+  expensive thing in the app; a page opened from a card cannot start one. So `prsKnown:
+  false` travels out to the page and it says *pull requests not swept yet* rather than
+  *no deliveries* — those are different sentences, and only one of them is about this epic.
+- **Sessions are one `for-each-ref` for the whole workspace**, intersected with the family
+  before anything is read, and then a `git log` only for the beads that listing says have
+  an archive. A family of twenty on a tracker of eight hundred would otherwise be twenty
+  `git log`s to discover that two of them ran.
+
+There is no poll. A docket describes a fortnight, and the one thing it must not do is
+compete for the daemon with the inbox that is waiting on an answer.
+
+#### Getting to one
+
+Every card links to it — the agent card's actions row, the question card's brief, and every
+bead row on the [epic board](#epics-assigned-to-you-and-the-tree-each-one-carries), where it sits *before* the graph link because
+the tree you are already looking at is this bead's family and the docket is that same
+family with its dates on. `/docket` with no `id` is the index: every root that has
+children, newest activity first, with its counts, for when you want to catch up rather
+than answer something. `/epic` and `/dockets` are the same page — both are names a person
+types.
+
+`node test/docket.mjs` holds the rules: that only `parent-child` edges make a family (a
+`discovered-from`, which `lib/filing.js` puts on everything an agent files, must never pull
+the backlog in), that a ruling is found by the clock and not by the author, that nothing is
+dropped by the fold, that a cycle is answered rather than hung, and that `public/docket.js`
+writes nothing at all.
 
 ### `/closed` and `/done` — what got finished, as a place
 
@@ -19017,6 +19148,79 @@ construction in the same sense `b7e-def`/`b7e-owes`/`b7e-affected` are — it on
 calls `fs.readdirSync`/`readFileSync`/`statSync` over the files above and prints what
 it found — which is what put `Bash(b7e-enroll:*)` on `DEFAULT_TOOL_LIST` beside them.
 
+### Apply those registrations instead of typing them — `b7e-register`
+
+`bc-dgx7.75` is the other half of the bead above, found by the session audit the same
+way. Five sessions (`bc-dgx7.57`, `bc-dgx7.58`, `bc-dgx7.59`, `bc-dgx7.60`,
+`bc-dgx7.61`) each shipped a new `b7e-*` command, and all five ran `b7e-enroll <name>`
+afterwards to check the registrations — after typing those registrations by hand first,
+four different ways. On `package.json`'s `bin` map, each grepped two alphabetical
+neighbours to find the insertion point ("Alphabetically, `b7e-def` comes right before
+`b7e-deliverbase`" — `bc-dgx7.58`). On `package-lock.json`'s `packages[""].bin`,
+`bc-dgx7.59` hand-edited it and was told the file was already claimed by `bc-dgx7.57` in
+another worktree, while `bc-dgx7.60` and `bc-dgx7.61` ran `npm install
+--package-lock-only` and diffed to confirm the one-line result — the same registry, two
+incompatible methods, in the same hour.
+
+`b7e-enroll` is the linter for exactly these checks and it is good. What did not exist
+was the applier, so the registry knowledge lived twice: once in `b7e-enroll`'s checks and
+once in each session's fingers, and the second copy was the one that went wrong. Both
+halves now read `lib/enroll.js` — what the checks match is what the edits produce.
+
+**Half of what this bead asked for was delivered by deleting the work, not automating
+it.** It named four registries; `bc-wbrhi` landed the day after it was filed and removed
+two of them. A tool now declares `@grant read`, `@grant write` or `@grant excluded` in
+its own header, `lib/tooldecl.js` assembles `DEFAULT_TOOL_LIST` and the `lib/grants.js`
+classification from those declarations, and `test/tooldecl.mjs` *fails* a hand-written
+`b7e-*` line in `lib/grants.js` — so writing the two registries this command was
+specified to write would now break the repo. That is the better fix, and it leaves this
+command smaller than its bead describes.
+
+```
+b7e-register b7e-x --kind read --why "…"      register it, granted
+b7e-register b7e-x --kind excluded --why "…"  register the decision not to
+b7e-register b7e-x --kind read --why "…" -n   print the patch and write nothing
+b7e-register b7e-x --kind read --why "…" --after b7e-w   place it below a named sibling
+```
+
+What it writes today is four files, three of `b7e-enroll`'s seven checks between them:
+
+1. **`package.json`'s `bin` map** — the alphabetical insertion.
+2. **`package-lock.json`'s `packages[""].bin`** — the same line, where `npm install
+   --package-lock-only` would have put it.
+3. **`bin/<name>`'s own header** — the `@grant` line, which is check 6 and the one edit
+   that decides both derived registries at once, with `--why` as the sentence beside it.
+4. **`lib/tooldecl.js`** — the paragraph arguing for that grant, appended where the other
+   sixty-three live, with the `→ Bash(<name>:*)` line under it when the tool is granted.
+   Nothing checks for that paragraph; every other tool has one, and for an excluded tool
+   it is the only place the argument exists at all.
+
+The one rule worth knowing is where a new key lands in a `bin` map: **alphabetically
+within its own family**, a family being everything before the first dash. Not
+alphabetically in the file, because neither file is — `package.json` lists the
+`beadcause-*` worker tools in the order they were written and only the `b7e-*` block
+after them is sorted, while the lock is sorted throughout. Reading the family is what
+makes one rule right for both, and for a `b7e-*` name the lock line it produces is
+exactly the one `npm install --package-lock-only` would have written.
+
+It deliberately does not write `bin/<name>` itself (that is `b7e-scaffold`'s job), the
+test, or this README's `###` section: a generated proof or explanation would be a
+registration pretending to be work. So a run ends by printing what `b7e-enroll` still
+says is owed, which after a successful register is exactly those two — that is the
+acceptance criterion, and `test/b7eregister.mjs` runs it on a fabricated checkout.
+
+Two things it refuses rather than decides. **`--kind` has no default**: whether
+`dispatch` may run the command is a decision about a real capability — a command that
+writes to the checkout, runs a suite, builds a worktree or runs whatever its caller names
+is `excluded`, one that only reads is `read` — and `lib/tooldecl.js` carries sixty-three
+worked precedents. This command is itself write-shaped and registered itself
+`--kind excluded`. And **`--why` is required**, because it is what both halves of the
+registration actually say.
+
+Exit code: `0` when nothing is owed, `1` when something the applier cannot write still
+is, `2` on a bad invocation. `@grant excluded`: it edits four tracked files in whatever
+checkout it runs in.
+
 ### What a repo command takes — without running it to find out — `b7e-usage`
 
 `bc-dgx7.31`, filed by the session audit against `bc-zjab.9`, `bc-zjab.7`, `bc-zjab.8`,
@@ -20918,6 +21122,93 @@ Tested against a fixture built with `lib/fixture.js`'s `buildFixture` (`test/b7e
 retired-worktree twin), a Book 5 (SUMMARY + CHAPTER_MAP) and a Book 3 chapter with all
 three variants and a `check_ch1_11_canon.py` — so the suite depends on none of deluvia.
 
+### What a chapter number meant when it was written, and which chapter it is today — `b7e-renum`
+
+`b7e-chapter` just above resolves a number to today's file; it never answers "what was N
+at the time". Deluvia's numbering has moved under the text three times — Book 3 at Entry
+065 and again at Entry 147 (old Ch. 18-35 became 19-36), plus the Book 2 restructure —
+and old numbers survive in the corpus on purpose. `bc-xl7n.154`: three sessions each
+translated one by hand, none the same way. `dv-5i2.130` grepped a name across the book,
+then read a chapter's own writing notes to decide a citation was dead pre-Entry-065
+numbering. `dv-5i2.129` grepped "Entry 147" in `CHANGE_LOG.md` and read a conversion note
+to confirm a block's range had shifted by one. `dv-afr.41` read eleven files by hand and
+grepped proper nouns across an archive to find that a Book 2 interlude's "Chapter 7" is
+today's Ch. 5, and another's "Chapter 12" was cut outright.
+
+```
+b7e-renum -w <workspace> <file>:<line>                     the citing line fixes the era
+b7e-renum --dir <root> <file>:<line>                       a checkout directly
+b7e-renum -w <workspace> <book> <chapter> --at <ref>       a number, at a point in time
+b7e-renum --dir <root> <book> <chapter> --at "Entry 065"   … a date, or "Entry NNN"
+b7e-renum … --json
+```
+
+**Two ways in, one answer shape.** `<file>:<line>` reads that line's text for every
+chapter number it cites (`"(from Ch. 14/23)"` → two blocks, `14` and `23`), infers the
+book from the file's own `novel/<Book N>/` ancestor, and fixes the era with `git blame`
+on that exact line — the citing line's own introducing commit is "when this number meant
+what it says". `<book> <chapter> --at <ref|date|"Entry NNN">` names the era directly; an
+`Entry NNN` is resolved by finding the commit that introduced that heading into
+`CHANGE_LOG.md` (`git log -S`, oldest match). Each block then prints what the chapter
+**was** at that era (`git ls-tree`/`git show` against the historical commit — the file may
+since have been renamed or removed from the working tree entirely) and what it **is now**.
+
+**Chasing forward tries three methods, in order, against every `CHAPTER_*` file the book
+has today — living and archived together:**
+
+1. **git rename-follow.** `git log -M --follow --name-status` on each current candidate,
+   walked back through its own rename history and compared against what that lineage was
+   named *as of the historical commit specifically* — not "did this string ever appear
+   anywhere in the file's history". That distinction is load-bearing: a **chain** renumber
+   (Entry 147 shifted eighteen chapters up by one) reuses filenames, so `CHAPTER_27.summary.md`
+   is both today's Ch. 27 *and* what today's Ch. 28 was called before the shift, and naive
+   string membership calls the former a match against a historical query for the latter.
+   Worse, Entry 147 turned out not to `git mv` anything at all — it rewrote each file's
+   *content* in place, so the correct answer here is "no rename happened", which
+   `nameAtRef`'s `renamed` flag exists to say honestly rather than reporting a same-name
+   coincidence as identity.
+2. **Identical H1 title**, compared with its own leading `CHAPTER N:`/`INTERLUDE N:`
+   stripped (`titleSubject`) — the number is exactly what a renumber changes, so comparing
+   the raw heading would never match a chapter that moved.
+3. **Proper-noun overlap** — every candidate scored by shared capitalized, non-stopword
+   tokens against the historical content; the top three are always shown, and a winner is
+   declared only when its lead over the runner-up clears a margin, never on the strength of
+   being merely the best of several weak guesses.
+
+Whichever method wins, the winning candidate's own archived flag (from `lib/chapter.js`'s
+`isArchived`) is what turns "now" into **"cut"**: a chapter renamed into
+`_archive_pre-restructure/` is the same rename-follow evidence, landing on a path that
+means it did not survive the restructure under any live number. `.claude/worktrees-retired/`
+is deliberately excluded from the candidate pool entirely — a retired-worktree twin is
+`lib/chapter.js`'s own warning-only inclusion, never a legitimate resolution target, and on
+the real corpus it is also the expensive half: 14,000+ `CHAPTER_*` files across sixty
+retired worktrees against a couple hundred in the book itself.
+
+Exit codes: `0` every cited number resolved to a living chapter or a confirmed cut. `1` an
+era or chapter could not be found at all, or resolved to no confident match (printed as
+`unresolved`, with its top candidates, never a guess dressed up as an answer). `2` refused
+— bad usage.
+
+Tested against four fixtures built with `lib/fixture.js`'s `buildFixture` (`test/b7erenum.mjs`,
+40 checks) — one per method above, plus the archive-cut case, an unresolved case, and
+`resolveAtRef`'s three forms — so the suite depends on none of deluvia's real history.
+`buildFixture` gained a `{ type: 'delete', path }` step for this (`bc-xl7n.154`): a `file`
+step at the new path plus a `delete` at the old one, staged into the same `commit` step, is
+a rename — git's own detection, not anything the fixture builder does.
+
+**Verified against deluvia's own trunk while building this, not only against fixtures.**
+Book 3 Ch. 27 at the commit before Entry 147 correctly resolves to today's Ch. 28 (via
+title match, once `titleSubject` was added — the raw title comparison alone missed it,
+for exactly the reason above), and Book 2's old Ch. 12 correctly reports cut into
+`_archive_pre-restructure/`. One caveat worth knowing before trusting a `<file>:<line>`
+answer at face value: `git blame` finds the commit that most recently touched the citing
+line's *text*, which is not always the commit that first gave the citation its meaning —
+a later, unrelated edit that merely reformats the paragraph moves the blamed era forward
+with it. `dv-5i2.130`'s own hand method hit the identical problem and worked around it
+with extra greps against character names and writing notes; this command's era is exactly
+what `git blame` says, no more, and a caller reasoning about a citation blame lands on an
+edit commit rather than an authoring commit should keep looking, the way `dv-5i2.130` did.
+
 ### Turn a gate's own "expected X — got Y" into the edit — `b7e-rebaseline`
 
 `b7e-checks` just above runs a workspace repo's gate scripts and tells you which are red.
@@ -22447,6 +22738,97 @@ Read-only in the same construction sense as `b7e-def`/`b7e-owes`/`b7e-affected`/
 `b7e-census` above: the only subprocess it ever spawns is `git grep` at a fixed ref, and
 the only thing it does with `bd`'s own config is read a checkout path out of it — never a
 call to `bd` itself. See `bin/b7e-count` and `lib/count.js`.
+
+
+### Every file, sha, branch and count a bead quotes, against the tree it names — `b7e-quoted`
+
+`bc-dgx7.74`, filed by the session audit (`lib/sessionaudit.js`) against five sessions
+that each found, by hand, that their own bead's literal examples had gone stale between
+the session that wrote them down and the session asked to act on them. `bc-dgx7.60`'s
+acceptance criteria quoted four claims about `reference/deluvia.archaeo-anthro-overview.md`;
+the file had been renamed to `reference/REAL_WORLD_EVIDENCE.md` while resolving the very
+finding that produced the quote. `bc-dgx7.59` asked for counts `243/50`, `86/33`, `98/23`
+at `-w deluvia --ref origin/main` — that ref had moved, and recovering the quoted figures
+took a fetch, a hunt for the measuring commit and a recount at `4b0b54cd^`. `bc-dgx7.58`
+was told deluvia's checkout sat on `atlas/public-launch`; it sits on `main`, and
+`atlas/public-launch` has diverged from it in both directions. `bc-dgx7.57` was told "12
+checks" where discovery found 19. And `bc-khoe.67` was told PR 584 / `e60d0b87` was to
+blame, and lost twenty minutes in the wrong module before `git show e60d0b87 --
+public/config.js` settled it.
+
+```
+b7e-quoted bc-dgx7.60                    this bead, against its own workspace's checkout
+b7e-quoted bc-dgx7.60 -w deluvia         …against another workspace's checkout instead
+b7e-quoted bc-khoe.67 --ref origin/main  …at a named ref rather than the delivery base
+b7e-quoted bc-dgx7.58 --json             one JSON object per row
+b7e-quoted bc-dgx7.57 --strict           exit 1 if anything it quotes has rotted
+```
+
+**The direction is the whole point.** `b7e-cites` goes tree → beads: every bead id this
+repo's own source quotes, joined to what the tracker now says about it. `b7e-claims` goes
+file → prose: every external assertion made about a file you are about to change. Nothing
+went bead → tree, and that is the direction all five of those sessions had to walk on
+foot.
+
+**Two workspaces, and they are usually the same one.** The bead is read from whichever
+tracker holds it — `-w` names the *checkout* its quotes are checked against. They differ
+exactly when a bead in one tracker is about another repo, which is the `bc-dgx7.60` case:
+a `bc-` bead whose four claims are all about files in deluvia. The tracker is asked in
+order (the `-w` workspace, then this checkout's own, then the rest, first hit wins), so
+the ordinary case is one `bd` spawn and the cross-repo case is two.
+
+**Three of the four kinds are checked; counts are surfaced and said to be unchecked.**
+Paths, commit shas and branch names are all answerable by git against a named ref. A
+count is not: matching `243/50` to the census that produced it needs the pattern, the
+pathspec and the ref that were in the measuring session's head, and none of that survives
+into the prose. So a count is printed with its sentence, marked `unchecked`, and — where
+the sentence names exactly one literal that is not itself a command line — with the
+`b7e-count` call that would settle it. A row saying "I could not check this, here is how
+you would" is worth having; a row that guessed would be worse than nothing, because the
+whole failure this exists for is a plausible figure nobody re-measured.
+
+**A rename git will not call a rename is still reported as one, with its score.**
+`bc-dgx7.74`'s own acceptance criteria require the `bc-dgx7.60` path to come back
+*renamed*; at git's default 50% similarity it does not, because the commit that moved it
+(deluvia `7ae86887`, "retire the forked pre-canon overview, keep its evidence as
+REAL_WORLD_EVIDENCE.md") rewrote most of the file, and `--name-status` reports a plain
+`A` and a plain `D`. A second, permissive pass over that one commit finds `R032`, and the
+row says `32% similar, below git's default rename threshold` next to it, so the
+difference between "git is certain" and "git thinks so" stays visible. Renames chain, up
+to five hops, which is what survives a file renamed twice.
+
+**Finding *where* a path went is not `git log --follow`.** That walks backwards from a
+name that still exists; what is needed here is forwards from one that does not. The
+newest commit in the ref's history that touched the path is the commit that removed it,
+and that commit's own rename-detected `--name-status` says whether it was a delete or a
+rename and to what. A name with no history at that ref at all is reported as `absent`
+rather than `deleted`, because those are different findings — the first is usually a bead
+quoting a path that belongs to another repo.
+
+**A commit row answers the `bc-khoe.67` question, not the cheap half of it.** "Does this
+sha exist" is easy and was never the problem: `e60d0b87` exists and the twenty minutes
+went on it anyway. So every commit is intersected with the paths the bead itself names,
+against where those paths *are* rather than the name the bead used, and a commit that
+touches none of them says so in as many words. (`e60d0b87` in fact touches three of
+`bc-khoe.67`'s — that bead's real finding was narrower, about assertion strings inside
+`scripts/space-check.mjs`, which is a claim about file contents no path intersection can
+make. The command reports what the tree says.)
+
+**Extraction refuses rather than guesses, and only in one direction.** A missed artifact
+costs a session the hand-check it was already doing; a *wrong* artifact costs it trust in
+every other row. So: a slashed token that resolves in the tree is a path and one that
+resolves as a ref is a branch, asked of git rather than inferred; a hex run that does not
+resolve is reported only if it contains a digit, because seven letters drawn from `a-f`
+is a rare but real English word; `ahead/behind` and `read/write` are dropped entirely;
+and `~/…`, `https://…`, `refs/…`, `scripts/check_*.py` and the `.bin`/`.mjs` fragments
+left behind by `packages[""].bin` and `test/<name>.mjs` are none of the four kinds.
+
+Exit code `0` whether or not anything has rotted — an answer is not a failure — `1` under
+`--strict` when something has, and `2` for a refusal (bad usage, an unknown workspace, a
+ref that does not resolve, a bead no configured tracker has). Read-only in the same
+construction sense as `b7e-count` and `b7e-cites` above: the subprocesses it spawns are
+`git` reads at a fixed ref and one `bd show`. See `bin/b7e-quoted`, `lib/quoted.js` and
+`test/quoted.mjs`.
 
 
 ### A disposable git tree with a history and a suite, to point `--dir` at — `b7e-fixture`
@@ -32945,6 +33327,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/confluence` | `?p=<abs path>&workspace=` | what [publishing](#publishing-a-document-to-confluence) this document would do, before it happens: `{configured, publishable, site, spaceKey, title, action, existing, lastPublished}`. `{configured: false}` for an install with no `confluence` block, and it reads no credential to say so — the reader tab draws no button at that answer. Costs two GETs to Atlassian when it is on, because `action` is the thing the screen has to be able to say |
 | POST | `/api/confluence` | `{p, workspace, spaceKey, title, bead?}` | publish it. `spaceKey` and `title` are the confirmation — the target as the screen drew it — and a `409` is what you get if either has moved since, rather than a second page under the new name. Updates the page it made last time and overwrites its body; Confluence keeps the version history. Records the URL in `state.json` and, with `bead`, as a comment on that bead. Refused on an observer |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
+| GET | `/api/docket` | `?workspace=` (or `ws=`) `&id=&refresh=1` | `{workspace, root, focus, family[], plan, events[], progress, prsKnown}` — [the docket](#the-docket--an-epics-whole-arc): one epic's whole arc, in the order it happened. Roots at the **top of the family** the bead hangs from, not at the nearest thing typed `epic`, and `focus` echoes the bead you asked about so the page can light it up. `events[]` is everything dated in the family — filings, claims, comments, rulings, closes, plans, sessions and pull requests — each flagged `machine` for the fold rather than filtered out, because a stream that dropped the machine's lines cannot answer why a week was quiet. `prsKnown: false` means nobody has swept the pull requests, which is not the same sentence as "this epic has none": the route reads a warm board and never pays for one. One `bd export` per workspace, cached thirty seconds; `refresh=1` forces it. A bead the workspace has never had is a 404 naming it |
+| GET | `/api/dockets` | `?workspace=` **or** `?space=`, and `&refresh=1` | `{workspace, space, rows[], errors[]}` — every root that has children, newest activity first, each with its counts. The index you browse when you want to catch up rather than answer something. Same scoping as `/api/history` and the same bargain over a workspace whose `bd` fell over: a row in `errors[]`, not a failed request |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
 | GET | `/api/beads` | `?q=` | `{beads[], warming, q}` — what [the inbox's bead search box](#finding-one-bead) drops down: up to 12 `{key, workspace, id, title, status}`, ranked exact id → id prefix → id substring → title, open before closed. **Every workspace at once**, because you type an id knowing the bead rather than knowing its tracker. The one route that can be asked once per keystroke, so it reads the graph `Bd.graph` already caches and **never waits on a `bd export`** — `warming` counts the workspaces it has not read yet, which is what lets the box say *still reading the trackers* instead of claiming a bead does not exist |
@@ -34181,6 +34565,8 @@ to be one.
 | `slowRequestMs` | a request past this is named in the log with where its time went (default `1000` — the page-load budget itself, so a line means "this missed the budget" rather than "this was slower than its neighbours"). `0` turns **the log** off and nothing else: the per-route figures behind `/api/timings` are always collected. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | `sync.enabled` | keep a shared tracker shared — `bd dolt pull` then `bd dolt push`, per workspace, on a timer (default `true`). It is on for everybody and it does nothing at all on a workspace with no Dolt remote, which is every workspace until you add one. See [A tracker two Macs share](#a-tracker-two-macs-share) |
 | `sync.seconds` | how often (default 120, floor 30). **Not a performance knob** — it is the width of the window in which two machines can act on stale information, which is why it is a setting and not a constant. There is deliberately no list of *which* workspaces sync: a Dolt remote is that list |
+| `dossier.sources` | the ordered glob list `b7e-dossier` reads when a workspace has no set of its own (default: `reference/`, `docs/`, `compendium/`, then every remaining `.md`). Ordered, because the order is what makes the first block canon and a later one a draft — see [every canon assertion about one named thing](#every-canon-assertion-about-one-named-thing-with-its-source-line--b7e-dossier) |
+| `dossier.sourcesPerWorkspace` | the workspaces with their own shelves, keyed by name like `pr.basePerWorkspace` — either an ordered glob list, or an object keyed by `--kind` (`character`, `place`, `species`, ...) with a `default` beside them. deluvia ships one; a name that is absent falls through to `dossier.sources`, so nothing has to be configured for the command to work |
 | `publication.seconds` | how often the daemon publishes what this install can say about itself (default 3600, floor 60). It does nothing at all on an install with the management system off, which is every install by default. There is deliberately **no `publication.enabled`** beside it: a cadence is a setting, and whether an install with the layer on publishes at all is not — see [Publishing on a clock nobody has to remember](#publishing-on-a-clock-nobody-has-to-remember--libpublishsweepjs-testpublishsweepmjs) |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
 | `sharedServer` | leave `false` — see the note below |
@@ -39578,6 +39964,145 @@ the `b7e-gate`/`b7e-watch`/`b7e-blame`/`b7e-triage` one.
 Exit codes: `0` nothing asked about failed; `1` at least one did, or a named suite never
 ran; `2` refused — bad usage, no run found, or a suite name that is not a suite in this
 repo at all.
+
+### The workspace's beads and comments as one local snapshot you can actually query — `b7e-graph`
+
+`bc-dgx7.98`, moved here from deluvia (filed there as `dv-b5d.49`) because every
+deliverable it names lives in this repo. Six deluvia sessions each hand-rolled `bd list
+--status=all --json | python3 -c ...` for the same kind of question — `dv-3rn.2` needed
+titles, states and comments for 57 beads, its `bd show`/`bd comments` loop was still
+running after five minutes (`ps` showed 48 concurrent `bd` processes), and it gave up on
+`bd` entirely: `cd ~/beads/deluvia/.beads/embeddeddolt/dv && dolt sql -q "describe
+comments"`, then a hand-written `fmt.py`. That escape hatch, invented under duress, is
+this command.
+
+```
+b7e-graph -w deluvia --title-match "Entry 107" --with-comments
+b7e-graph -w deluvia --assignee neadamthal@gmail.com --status open,in_progress
+b7e-graph -w deluvia --label burrow --json
+b7e-graph --parent dv-b5d.49                     # ambient workspace, from $BEADS_DIR
+```
+
+**What this is not: a claim that `bd list` lacks filters.** By the time this landed, `bd
+list` had grown `--title-contains`, `--assignee`, `--label`, `--status` and `--parent`
+natively, and `bd show <id1,id2,...> --include-comments` streams full comment bodies for
+a whole list of ids in one call. **The problem was never the missing flags — it is that
+every one of those still goes through `bd`'s own Dolt access layer**, and that is exactly
+what fell over in `dv-3rn.2`: a raw `dolt sql -q` against the same database, from the
+same shell, at the same moment, answered in under a second while `bd` itself hung for
+minutes. A `dolt sql` CLI read never takes whatever lock `bd`'s own query path contends
+on. `lib/beadsnapshot.js` reads `issues`, `labels`, `comments` and the one `parent-child`
+edge per bead straight off each workspace's `embeddeddolt/<prefix>` directory — an
+unconditional `select` over each whole table, never a `WHERE` built from a caller's
+filter value, so there is nothing to escape because nothing a caller types ever reaches
+SQL. All filtering (`--title-match`, `--assignee`, `--label`, `--status`, `--parent`,
+`--closed-reason`) happens afterward, over the plain JS array.
+
+**"Identical to `bd list --status=all --json`" is scoped, on purpose.** `bd list --json`
+also computes `dependency_count`/`dependent_count`, a full `dependencies[]` array, and
+lease bookkeeping (`started_at`, `lease_expires_at`, `heartbeat_at`, joined from a
+separate `leases` table) — none of that is reproduced here. What this returns, verified
+field-for-field against a real `bd`+`dolt` fixture in `test/beadsnapshot.mjs`: every
+column `issues` itself carries, `priority` as a number rather than a string, `labels`
+(sorted), `parent` (the one `parent-child` edge naming this bead as the child, or
+`null`), `comment_count`, and `comments[]` — printed only when `--with-comments` is
+given, though they are always read, since fetching them is the same one pass over the
+`comments` table either way.
+
+**The cache is a disposable read cache, not durable state, so it lives under
+`os.tmpdir()` and nowhere near `~/.config/beadcause`.** Landing it under `CONFIG_DIR`
+would mean an evidence-register entry, a retention decision, and a commonrepo gitignore
+line for a file whose entire purpose is to vanish and be rebuilt from a `dolt sql` read
+that takes well under a second. It is keyed by the resolved absolute path of the
+workspace's `.beads` directory, so two workspaces never collide and losing it (a reboot,
+a cleared `/tmp`) costs nothing but one rebuild. Two independent checks decide whether a
+cached read is served: `--max-age <mins>` (default 5) and Dolt's own manifest+journal
+change signal (`trackerMark`, reused from `lib/detect.js` rather than reinvented) — a
+workspace nobody has written to in an hour answers from cache regardless of `--max-age`,
+and one `bd` write elsewhere invalidates it immediately regardless of `--max-age`.
+`--refresh` ignores the cache outright.
+
+`-w` resolves a name against beadcause's own registered workspaces, the same convention
+`b7e-census` uses; with no `-w`, it falls back to `$BEADS_DIR`, the workspace the calling
+shell is already scoped to (`_bd_set_workspace` in `~/.zshenv` sets this per-cwd, so a
+plain `b7e-graph <predicate>` from inside a project just works).
+
+**Never a write.** Every `dolt` invocation this makes is `dolt sql -r json -q <select>`;
+`test/beadsnapshot.mjs` asserts this directly, over every call the cache path makes, not
+just by description.
+
+### Every canon assertion about one named thing, with its source line — `b7e-dossier`
+
+`bc-dgx7.101`, filed by the session audit against six sessions (`dv-gr6.5`, `dv-5eu.1.3`,
+`dv-nsy.2`, `dv-2uu.5`, `dv-b5d.28`, `dv-b5d.32`) that each opened by reconstructing what
+canon already says about one entity — a character, a place, a species — before deciding
+anything, and no two did it the same way. `dv-gr6.5` typed eight greps and four `sed`
+ranges at Korgath and found a real contradiction (Book 3 Ch. 5 made him 43 where
+`reference/CHARACTER_CONCURRENCY.md:54` says 173) only because one grep in that hand-typed
+list happened to be the right one. `dv-b5d.32` ran the same sweep as an audit, found three
+stale height statements, and had nothing to tell it there were only three. `dv-5eu.1.3`
+lost two of its calls outright to `grep` refusing a name with parentheses in it. This is
+the lookup all six were doing before the judgement, done the same way every time.
+
+```
+b7e-dossier -w deluvia Korgath
+b7e-dossier -w deluvia Othen --kind species
+b7e-dossier -w deluvia Korgath --at 3f2a91c     read a git ref, not the working tree
+b7e-dossier -w deluvia Korgath Kazran           two spellings of one subject, not two queries
+b7e-dossier --dir /path/to/checkout Korgath     read a tree no workspace names
+```
+
+**Not `b7e-claims`, and the difference is the axis.** `b7e-claims` takes a *file* and asks
+what other files assert about it. This takes a *name*. The contradictions it surfaces are
+between two sources neither of which is the file under edit — Ch. 5 against
+`CHARACTER_CONCURRENCY.md`, with the session sitting in a third file entirely — which is
+exactly the shape a per-file tool cannot see.
+
+**The source set is config, in order, never hardcoded.** `dossier.sourcesPerWorkspace` is
+an ordered list of globs per workspace, optionally keyed by `--kind` (`character`,
+`place`, `species`, or whatever that corpus's shelves are called) with a `default` beside
+them; a workspace with no entry falls through to `dossier.sources`. The *order* is the
+answer, not a formatting choice: it is what makes the first block canon and a later one a
+draft, and a disagreement is only a finding because one of the two sources outranks the
+other. A file is listed once, under the first glob that claims it, so a catch-all can sit
+at the end without re-printing what came before it.
+
+**A hit is a line, not a section.** Every line that names the subject, with its enclosing
+heading and line number — plus every line carrying a field value inside a section whose
+*heading* names the subject, which is the half a grep cannot do: `### §8 — Othens`
+followed by a bare `- Height: 12'0"–15'0"` states the species' height and never repeats
+the species' name. A line inside such a section earns its place only by asserting
+something.
+
+Then two summaries. **FIELDS** is every value found for each field that recurs: the four
+shapes prose states without a label — an age, a lifespan, a height, a death — plus any
+`Label: value` at the head of a line that two or more sources write. **DISAGREES** is the
+subset whose sources contradict one another. Two numbers disagree unless one *contains*
+the other, so `15 ft` inside `12–15 ft` is one source being more specific rather than a
+contradiction, while `15–25 ft` against `12–15 ft` is two incompatible claims. It is a
+shortlist to look at, never a verdict — which is why a disagreement does not change the
+exit code.
+
+**Numbers are read in both spellings.** Reference files write `173 years old`; a drafted
+chapter writes `a hundred and seventy-three years old`. The disagreement this command is
+named for is a digit against a word-run, so a reader that only understood digits would
+miss the one finding the bead exists to reproduce.
+
+**`--at <ref>` reads a git ref instead of the working tree**, which is what makes the
+audit case work at all: by the time anyone asks "how many stale statements were there",
+some of them have been fixed, and the answer only exists at the commit before the fix.
+
+`lib/dossier.js` is the read — the glob ordering, the tree walk (reusing `lib/corpus.js`'s
+`collectAll` for the working-tree half), the field readers, and the two summaries.
+`bin/b7e-dossier` is the argv shell and the printing. `--dir` reads a directory directly
+rather than through the workspace's checkout — this is how it is tested, the same escape
+hatch `bin/b7e-claims` and `bin/b7e-ruled` already use.
+
+Exit codes: `0` at least one source says something about the name — a disagreement is a
+finding, not a failure, so it does not change this. `1` nothing in the source set names it,
+said in one line on stderr, because that is usually a misspelling or a source set that does
+not reach the file. `2` bad usage. `4` `-w` named a workspace this checkout has no config
+for. `5` the tree could not be read — a `--at` ref that does not resolve.
 
 ## Notes on bd
 

@@ -303,10 +303,14 @@ try {
 
   console.log(`\n${BASELINE ? 'BASELINE (HEAD)' : 'working copy'} · ${VP.width}x${VP.height} · ${BASE}\n`);
 
-  await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
+  /* `kind=epics` since bc-fwp2c: the board is My Epics' screen and Home is where you land,
+     so a plain `/` now arrives on the list. The query is the app's own way in — it is what
+     a kind pill tapped on another page uses (`asked()` in public/inboxfilter.js) — rather
+     than a click this file would have to synthesise before every measurement. */
+  await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}&kind=epics` });
   await waitFor(`document.querySelector('.p0-card') !== null`, 15000);
   await evalJs(`localStorage.removeItem('beadcause.p0status')`);
-  await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
+  await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}&kind=epics` });
   await waitFor(`document.querySelector('.p0-card') !== null`, 15000);
 
   /* ---- collapsed, where the summary is the whole of what a card says ---- */
@@ -396,7 +400,7 @@ try {
   /* ---- and neither must a reload: this one is a standing preference ---- */
 
   check('which is stored rather than remembered', (await evalJs(`localStorage.getItem('beadcause.p0status')`)) === 'closed');
-  await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
+  await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}&kind=epics` });
   await waitFor(`document.querySelector('.p0-card') !== null`, 15000);
   // Which epic was open is deliberately *not* persisted — a phone that came back to a tab
   // over the inbox would be a screen you had to dismiss before you could see it — so the

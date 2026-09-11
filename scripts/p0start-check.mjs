@@ -292,7 +292,11 @@ try {
 
   console.log(`\n${BASELINE ? 'BASELINE (HEAD)' : 'working copy'} · ${VP.width}x${VP.height} · ${BASE}\n`);
 
-  await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
+  /* `kind=epics` since bc-fwp2c: the board is My Epics' screen and Home is where you land,
+     so a plain `/` now arrives on the list. The query is the app's own way in — it is what
+     a kind pill tapped on another page uses (`asked()` in public/inboxfilter.js) — rather
+     than a click this file would have to synthesise before every measurement. */
+  await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}&kind=epics` });
   await waitFor(`document.querySelector('.p0-card') !== null`, 15000);
   await waitFor(`document.querySelector('#compose') !== null`, 4000);
 

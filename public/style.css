@@ -8219,3 +8219,191 @@ body.editing::after {
 .pill .beadlink {
   color: inherit;
 }
+
+/* ------------------------------------------------------------------ the docket
+
+   An epic's whole arc on one page, in the order it happened (bc-it26z). Four blocks —
+   where it is, its phases, its map, its chronology — and public/docket.js argues the
+   order. What the styling has to do is keep the *record* readable at length: this is a
+   page you scroll for a fortnight of work on a phone, so the two things it must never do
+   are shout and wrap badly.
+
+   Built on `.doc` for the surface, like /graph and /bead-session, and on its own rows
+   rather than on `.hist-row`: the ledger's row is one bead, and every row here is either
+   indented by depth or is a line of a stream with a clock in its gutter. */
+
+.dk-head { padding: 12px 14px 4px; }
+.dk-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.dk-title {
+  margin: 8px 0 0;
+  font-size: 19px; line-height: 1.3; font-weight: 650;
+  overflow-wrap: anywhere;
+}
+/* Where you came from, when it is not the root. A sentence rather than a pill, because
+   it is the one line on the page that is about *your* arrival rather than about the work,
+   and a pill would file it with the metadata. */
+.dk-came-from { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.dk-came-from a { color: var(--accent); text-decoration: none; }
+.dk-progress { margin: 8px 0 0; font-size: 13.5px; color: var(--prose); }
+.dk-progress strong { color: var(--text); font-weight: 650; }
+/* The two states waiting on *you*. Amber rather than the accent: the accent in this app
+   means "live", and a bead held for endorsement is the opposite of live — it is stopped,
+   and stopped on you. */
+.dk-waiting { color: var(--warn); }
+/* The epic's own words, clamped rather than sliced so nothing is cut mid-word. Six lines
+   is about a paragraph and a half at 393px, which is enough to know what the epic is and
+   not enough to be the page. `white-space: pre-line` because the text arrives with its
+   paragraph breaks and no markdown renderer — see `plainly` in public/docket.js. */
+.dk-blurb {
+  margin: 10px 0 0;
+  font-size: 14px; line-height: 1.5; color: var(--prose);
+  white-space: pre-line;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+
+.dk-block { padding: 14px 14px 0; }
+.dk-block .section-label { margin-bottom: 6px; }
+
+/* --- the phases ---------------------------------------------------------------- */
+
+.dk-phases { list-style: none; margin: 0; padding: 0; }
+.dk-phase {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.dk-phases .dk-phase:first-child { border-top: 0; }
+.dk-phase-mark { color: var(--muted); line-height: 1.5; }
+.dk-phase-done .dk-phase-mark { color: var(--accent); }
+.dk-phase-running .dk-phase-mark { color: var(--warn); }
+.dk-phase-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.dk-phase-name { line-height: 1.35; overflow-wrap: anywhere; }
+.dk-phase-beads { display: flex; flex-wrap: wrap; gap: 4px; }
+/* A bead the plan named that is no longer in the family — `bd update --parent` moves
+   beads and does not renumber. Struck rather than hidden: a group pointing somewhere the
+   work has left is a real thing to see. */
+.dk-phase-beads .pill.gone { text-decoration: line-through; opacity: 0.6; }
+.dk-phase-beads .pill.done { opacity: 0.65; }
+.dk-phase-word { font-size: 12px; color: var(--muted); white-space: nowrap; padding-top: 2px; }
+
+/* --- the map ------------------------------------------------------------------- */
+
+/* The indent is a custom property rather than a class per level, because depth is data
+   and five classes would cap it at five by accident rather than on purpose. The cap is
+   in public/docket.js, where it can carry a reason. */
+.dk-map { display: flex; flex-direction: column; }
+.dk-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  min-height: var(--tap);
+  padding: 9px 0 9px calc(10px + var(--depth, 0) * 14px);
+  border-top: 1px solid var(--line);
+  color: var(--text); text-decoration: none;
+}
+.dk-map .dk-row:first-child { border-top: 0; }
+.dk-row-title { flex: 1 1 100%; font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+/* Closed work stays in place and stops competing. Not hidden and not struck: the whole
+   argument for ordering this list by filing date is that what finished is part of the
+   story. */
+.dk-row.done { opacity: 0.58; }
+/* The bead you came from. An inset rule in the gutter every row already has, for
+   `.hist-row`'s reason — a border here would shunt the row and leave the list ragged. */
+.dk-row.focus {
+  box-shadow: inset 3px 0 0 var(--accent);
+  background: var(--surface-2);
+  opacity: 1;
+}
+.pill.dk-asks { background: var(--warn); color: var(--warn-ink); }
+
+/* --- the chronology ------------------------------------------------------------ */
+
+.dk-order { display: flex; justify-content: flex-end; margin: 0 0 4px; }
+/* `.secondary` is `flex: 1` because it lives in a row of two buttons that share a width.
+   This one is alone at the end of its row and would otherwise stretch the whole page,
+   which reads as the page's main action — and the main action here is reading. */
+.dk-order .secondary { flex: 0 0 auto; min-height: 34px; padding: 4px 10px; font-size: 12.5px; }
+.dk-day { border-top: 1px solid var(--line); padding: 8px 0 4px; }
+.dk-days .dk-day:first-child { border-top: 0; }
+.dk-day-head { display: flex; align-items: center; gap: 10px; padding: 2px 0 6px; }
+.dk-day-name { font-size: 12.5px; font-weight: 650; color: var(--muted); letter-spacing: 0.02em; }
+/* The fold. It says how many lines are behind it, because a control that did not would be
+   asking you to tap to find out whether tapping was worth it. Quiet by default — the
+   folded lines are the machine's own bookkeeping, and a bright control over them would
+   be the page recommending them. */
+.dk-fold {
+  min-height: 28px; padding: 2px 8px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 12px;
+  cursor: pointer;
+}
+.dk-fold:hover, .dk-fold:focus-visible { color: var(--text); border-color: var(--muted); }
+
+.dk-evs { list-style: none; margin: 0; padding: 0; }
+.dk-ev {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 0;
+  font-size: 13.5px;
+}
+/* The clock in its own gutter, tabular so the column does not shimmer as the digits
+   change. `13:07` and not "3h ago": a relative time cannot say whether it was Tuesday,
+   and the day heading above has already said which day it was. */
+.dk-ev-when {
+  width: 40px; flex: none;
+  font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+.dk-ev-glyph { width: 16px; flex: none; text-align: center; color: var(--muted); padding-top: 1px; }
+.dk-ev-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dk-ev-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dk-ev-what { color: var(--prose); overflow-wrap: anywhere; }
+.dk-ev-what strong { color: var(--text); font-weight: 650; }
+/* What was actually said, clamped to four lines. Clamped rather than ellipsised on one
+   for `.hist-why`'s reason: a close reason carries its PR number and sha at the *end*,
+   which is the half a single line throws away. The payload stops at
+   `EVENT_TEXT_MAX`, so this stays the only clamp a reader ever meets. */
+.dk-ev-text {
+  color: var(--prose); line-height: 1.45;
+  white-space: pre-line; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+.dk-ev-out { font-size: 12px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+/* A folded line, once it is shown. Dimmer than the record it sits among, so opening a
+   day does not make the machine's bookkeeping read as loud as your own ruling. */
+.dk-ev.machine { opacity: 0.62; }
+.dk-ev-ruled .dk-ev-glyph, .dk-ev-replied .dk-ev-glyph { color: var(--accent); }
+.dk-ev-closed .dk-ev-glyph { color: var(--accent); }
+.dk-ev-pr-merged .dk-ev-glyph { color: var(--bead-made); }
+
+/* --- the index ----------------------------------------------------------------- */
+
+.dk-index { display: flex; flex-direction: column; }
+.dk-index-row {
+  display: flex; flex-direction: column; gap: 4px;
+  min-height: var(--tap);
+  padding: 11px 0 11px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--text); text-decoration: none;
+}
+.dk-index .dk-index-row:first-child { border-top: 0; }
+.dk-index-row.done { opacity: 0.6; }
+.dk-index-top { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.dk-index-title { font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.dk-index-counts { font-size: 12.5px; color: var(--muted); }
+
+/* The docket's own section headings carry a clause of ordinary prose after the label —
+   *4 beads, in the order they were filed* — and `.section-label` is all-caps, tracked and
+   700 weight, which swallows the clause into the shout. So the clause is taken back out
+   of it: sentence case, normal weight, the muted ink it already had, and on its own line
+   at the widths where it would otherwise wrap into the label mid-phrase. Scoped to
+   `.dk-block` rather than added to `.section-label`, because every other user of that
+   class puts one word in it and none of them has a clause to rescue. */
+.dk-block .section-label span {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px; font-weight: 400; letter-spacing: 0; text-transform: none;
+  opacity: 0.85;
+}

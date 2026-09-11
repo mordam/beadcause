@@ -194,7 +194,27 @@ const norm = (p) => p.replace(/\/+$/, '') || '/';
  * in the mark's menu and on no row). A pill lit there would be a lie about where you are,
  * so "nothing is current" is asserted just as firmly as "this one is".
  */
-const litFor = (urlPath) => VIEWS.find((v) => v.paths.includes(norm(urlPath)))?.id ?? null;
+/**
+ * Which pill `aria-current` must be on, for a page reached by its address.
+ *
+ * The view table answers for every page but one. On Home several pills share the single
+ * address `/` *and* the empty hash, so neither can tell them apart and the filter is what
+ * decides — which is what `lit()` in public/viewbar.js has always said, and what this
+ * line got away with not saying until bc-fwp2c, because the landing pill and the view id
+ * were the same string. They are not any more: the view is still `epics` (the document
+ * that draws the epic board) and the pill you land on is `home`. Asking the view table
+ * for this one would be asserting that an unnarrowed Home lights My Epics, which is the
+ * bug rather than the contract.
+ */
+const HOME_PILL = 'home';
+/* Read off the table rather than named: Home is the view with no hash, which is what
+   makes it Home — every other view has one. Naming the id here would be a second place
+   that has to be right about which page `/` is. */
+const HOME_VIEW = VIEWS.find((v) => !v.hash)?.id ?? null;
+const litFor = (urlPath) => {
+  const view = VIEWS.find((v) => v.paths.includes(norm(urlPath)))?.id ?? null;
+  return view && view === HOME_VIEW ? HOME_PILL : view;
+};
 
 /* ---------------------------------------------------------------- the fixture */
 
@@ -251,8 +271,16 @@ const PRS = [
   { key: `${WS}#3`, number: 3, workspace: WS, repoKey: WS, title: 'Already landed', stage: 'merged', beads: [] },
 ];
 
-/** What the badges must say, derived from the fixture above rather than from the app. */
-const WANT = { epics: 7, question: 3, pr: 2, session: 2 };
+/**
+ * What the badges must say, derived from the fixture above rather than from the app.
+ *
+ * `home` is the seven, and it is the sum of the three slices below it — that is what a
+ * place's number is. `epics` is 0 because this fixture serves `owned: false` and no
+ * roots, so the board has no cards: since bc-fwp2c that pill counts the board and only
+ * the board, and 0 cards is 0. The two used to be one pill and one number, which is how
+ * a badge saying seven over a tracker holding no epics read as correct for months.
+ */
+const WANT = { home: 7, epics: 0, question: 3, pr: 2, session: 2 };
 
 /*
   And the second state the same fixture can be in: **an epic of yours started** (bc-khoe.49).
@@ -306,8 +334,14 @@ const ROOTS = EPICS.map((p) => {
     tree,
   };
 });
-/** What the row must say once the board is on: the cards, and the other three unmoved. */
-const WANT_BOARDED = { epics: ROOTS.length, question: 3, pr: 2, session: 2 };
+/**
+ * What the row must say once the board is on: the cards, and the others unmoved.
+ *
+ * `home` does not move either, and that is the point of the split — the rows a tap on
+ * Home would draw are the same seven whether or not an epic of yours is started, because
+ * starting one moves a card onto a board that is not Home's screen.
+ */
+const WANT_BOARDED = { home: 7, epics: ROOTS.length, question: 3, pr: 2, session: 2 };
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -998,10 +1032,11 @@ try {
         return 'ok';
       })()`
     );
-    /* `epics` is current on an unnarrowed Home, so it is a <span> and there is nothing to
+    /* `home` is current on an unnarrowed Home, so it is a <span> and there is nothing to
        tap — which is the correct shape and not a failure. Its number is asserted where it
-       stands, against the list that is already on screen. */
-    if (tapped !== 'ok' && !(id === 'epics' && tapped === 'SPAN')) {
+       stands, against the list that is already on screen. (This was `epics` until
+       bc-fwp2c, when the landing pill and the board's pill stopped being one thing.) */
+    if (tapped !== 'ok' && !(id === 'home' && tapped === 'SPAN')) {
       bad(`/ @${SIZES[1].width}: "${id}" can be tapped`, `it is a <${String(tapped).toLowerCase()}> on an unnarrowed Home`);
       continue;
     }
@@ -1017,7 +1052,7 @@ try {
           (id === 'pr' ? ' — the merged pull request is in neither, by the status sub-filter' : '')
       );
     /* Back to an unnarrowed Home, so the next pill is tapped from the same state. */
-    await evalJs(s, `document.querySelector('.viewpill[data-pill="epics"]')?.click?.(), 1`);
+    await evalJs(s, `document.querySelector('.viewpill[data-pill="home"]')?.click?.(), 1`);
     await sleep(400);
   }
 
@@ -1041,7 +1076,7 @@ try {
         const focusable = document.querySelector('button.viewpill[data-pill="pr"]');
         focusable && focusable.focus();
         const before = badge.textContent;
-        window.beadcause.views.counts({ epics: 421, question: 128, pr: 999, session: 7 });
+        window.beadcause.views.counts({ home: 555, epics: 421, question: 128, pr: 999, session: 7 });
         const after = document.querySelector('.viewpill[data-pill="question"] .viewpill-count');
         return {
           ok: true,
@@ -1072,7 +1107,7 @@ try {
   for (const size of SIZES) {
     await s.send('Emulation.setDeviceMetricsOverride', { ...size, deviceScaleFactor: 2, mobile: true });
     await sleep(150);
-    await evalJs(s, `window.beadcause.views.counts({ epics: 999, question: 999, pr: 999, session: 999 }), 1`);
+    await evalJs(s, `window.beadcause.views.counts({ home: 999, epics: 999, question: 999, pr: 999, session: 999 }), 1`);
     await sleep(150);
     const m = await evalJs(s, PROBE);
     const three = m.pills.filter((p) => p.count !== null).every((p) => p.count === '999');
@@ -1133,8 +1168,8 @@ try {
     const before = await evalJs(s, STATE);
     if (before.scope === 'human') ok('Home comes up on Human, which is the scope the beads are not fetched on');
     else bad('Home comes up on Human', `the armed scope chip says ${before.scope ?? 'nothing'} — the rest of this section is measuring something else`);
-    if (before.lit === 'epics') ok('and My Epics is lit, which is Home with nothing narrowed');
-    else bad('My Epics is lit before the tap', `the row says ${before.lit ?? 'nothing'}`);
+    if (before.lit === 'home') ok('and Home is lit, which is Home with nothing narrowed');
+    else bad('Home is lit before the tap', `the row says ${before.lit ?? 'nothing'}`);
     if (before.beadTag === 'button') ok('All Beads is drawn as a tappable button on this scope, not hidden and not inert');
     else bad('All Beads is a tappable button on Human', `it is a <${before.beadTag ?? 'nothing'}> — a pill you cannot tap is the other way to make this bug`);
 
@@ -1147,8 +1182,8 @@ try {
     else
       bad(
         'tapping All Beads leaves All Beads lit',
-        after.lit === 'epics'
-          ? 'the row bounced back to My Epics — the selection was dropped rather than reached, which is bc-khoe.25 exactly'
+        after.lit === 'home'
+          ? 'the row bounced back to Home — the selection was dropped rather than reached, which is bc-khoe.25 exactly'
           : `the row lights ${after.lit ?? 'nothing'}`
       );
     if (after.scope === 'both') ok('and the scope switch beside it has moved to Both, where the beads are fetched');
@@ -1273,12 +1308,32 @@ try {
     await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/?t=viewbar-check-board-2` });
     await sleep(1600);
 
+    /*
+      The board is one tap away rather than already on screen — bc-fwp2c. Landing lights
+      Home, and My Epics is the pill to its right; tapping it is also the assertion that it
+      *can* be tapped, which is the whole of what `test: () => false` bought. A place is
+      cleared by `pick()` rather than selected, so if that predicate ever goes away this
+      click silently lands back on Home and every number below is measured on the wrong
+      screen — which is why the lit id is checked on both sides of it.
+    */
+    const landed = await evalJs(s, PROBE);
+    const landedLit = landed.pills.find((p) => p.current === 'page')?.id ?? null;
+    if (landedLit === 'home') ok('Home comes up on Home, with the board one pill to its right');
+    else bad('Home comes up on Home', `the row lights ${landedLit ?? 'nothing'} — the rest of this section is measuring another screen`);
+
+    await evalJs(s, `document.querySelector('.viewbar button.viewpill[data-pill="epics"]')?.click?.(), 1`);
+    await sleep(700);
+
     const m = await evalJs(s, PROBE);
     const lit = m.pills.find((p) => p.current === 'page')?.id ?? null;
     const said = Object.fromEntries(m.pills.filter((p) => p.count !== null).map((p) => [p.id, p.count]));
 
-    if (lit === 'epics') ok('Home comes up on My Epics, which is where the board is drawn');
-    else bad('Home comes up on My Epics', `the row lights ${lit ?? 'nothing'} — the rest of this section is measuring another screen`);
+    if (lit === 'epics') ok('and tapping My Epics lights it, which is where the board is drawn');
+    else
+      bad(
+        'tapping My Epics lights My Epics',
+        `the row lights ${lit ?? 'nothing'} — a pill that clears the selection is a place, and this one must not be one`
+      );
 
     if (m.cards === ROOTS.length) ok(`and the board drew its ${m.cards} card(s)`);
     else

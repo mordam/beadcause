@@ -262,6 +262,7 @@ function board({
       lift(APP, 'const STATUS_LABEL = '),
       lift(APP, 'function relTime(iso)'),
       lift(APP, 'function graphUrl(q)'),
+      lift(APP, 'function docketUrl(q)'),
       lift(APP, 'const FROM_BD = '),
       // The thread, whole, because the expansion draws the real one: a bead's comments
       // are half of what you open it for, and a stub would leave the claim untested.
@@ -396,6 +397,30 @@ check('the graph is still one tap away — on the bead you opened, not the card 
   const html = opened();
   const block = html.slice(html.indexOf('class="p0-bead"'));
   assert.match(block, /class="p0-graph" href="\/graph\?ws=beadcause&amp;id=bc-rfnr\.9\.2&amp;open=1"/);
+});
+
+// And the docket beside it (bc-it26z), which is the same claim about a second way out and
+// is asserted separately rather than by loosening the one above: what makes either link
+// worth anything is that it carries **the bead you opened** rather than the card's own
+// root, and a regex that accepted "some `.p0-graph` anchor is present" would go on passing
+// with both of them pointed at the epic.
+//
+// **The docket is drawn first**, and that is checked here rather than left to the eye: the
+// tree on the screen is already this bead's family, so what the docket offers is that same
+// family with its dates on — the thing this board cannot draw — where the graph answers a
+// different question, what is wired to what.
+check('and so is the docket, ahead of it, on that same bead', () => {
+  const html = opened();
+  const block = html.slice(html.indexOf('class="p0-bead"'));
+  assert.match(block, /class="p0-graph" href="\/docket\?ws=beadcause&amp;id=bc-rfnr\.9\.2"/);
+  // Scoped to the acts row, not the whole expansion: `p0RelGroupHtml` draws `/graph`
+  // links for the see-also edges *above* this, so a comparison over the whole block would
+  // be measuring the position of a relation rather than the order of the two buttons.
+  const acts = block.slice(block.indexOf('class="p0-bead-acts"'));
+  assert.ok(
+    acts.indexOf('/docket?ws=') < acts.indexOf('/graph?ws='),
+    'the docket comes first — the map with dates on beats the map without them, from a row that is already a map'
+  );
 });
 
 console.log('\nand a question is answerable from the bead it is on — bc-rfnr.9.7');
