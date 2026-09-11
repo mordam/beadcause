@@ -203,6 +203,45 @@ const run = (args, opts = {}) => spawnSync(process.execPath, [BIN, ...args], { e
   check(() => assert.equal(fs.readFileSync(path.join(fixtureRoot(), 'suite-filevalues-stdin', 'repo', 'from-stdin.txt'), 'utf8'), 'piped in\n'), 'and the stdin content landed in the file');
 }
 
+/* ------------------------------------------------------- delete step, and a rename */
+
+{
+  // A `delete` at the old path plus a `file` at the new one, staged into the same
+  // commit, is a rename — git's own detection (`-M`), never anything buildFixture does.
+  const result = buildFixture({
+    name: 'suite-delete-rename',
+    steps: [
+      { type: 'file', path: 'CHAPTER_18.md', content: 'same content, before the renumber\n'.repeat(20) },
+      { type: 'commit', message: 'seed CHAPTER_18' },
+      { type: 'delete', path: 'CHAPTER_18.md' },
+      { type: 'file', path: 'CHAPTER_19.md', content: 'same content, before the renumber\n'.repeat(20) },
+      { type: 'commit', message: 'renumber 18 -> 19' },
+    ],
+  });
+
+  check(() => assert.ok(!fs.existsSync(path.join(result.dir, 'CHAPTER_18.md'))), 'the deleted path is gone from the working tree');
+  check(() => assert.ok(fs.existsSync(path.join(result.dir, 'CHAPTER_19.md'))), 'the new path is there');
+  const status = git(result.dir, 'status', '--porcelain');
+  check(() => assert.equal(status.trim(), ''), 'the delete was committed, not left dangling — a clean tree');
+
+  const nameStatus = git(result.dir, 'log', '-M', '--name-status', '--format=', '-1');
+  check(() => /^R\d+\s+CHAPTER_18\.md\s+CHAPTER_19\.md$/m.test(nameStatus.trim()), 'git itself records this as a rename, not an unrelated add+delete');
+}
+
+/* -------------------------------------------- delete of a path never written is a no-op */
+
+{
+  const result = buildFixture({
+    name: 'suite-delete-noop',
+    steps: [
+      { type: 'file', path: 'kept.txt', content: '1' },
+      { type: 'delete', path: 'never-existed.txt' },
+      { type: 'commit', message: 'one' },
+    ],
+  });
+  check(() => assert.ok(fs.existsSync(path.join(result.dir, 'kept.txt'))), 'a delete of a path that was never written does not disturb the rest of the fixture');
+}
+
 /* ------------------------------------------------------------------------ bad input */
 
 check(() => assert.throws(() => buildFixture({ name: '', steps: [] })), 'buildFixture refuses an empty --name');
