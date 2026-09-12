@@ -597,23 +597,38 @@ try {
 
   /*
     bc-ka5y.32, reported from the phone: change the space and the label immediately left
-    of the ▾ keeps the old one, until the page is reloaded.
+    of the ▾ keeps the old one, until the page is reloaded. And bc-ka5y.34, which deleted
+    the label rather than fixing it a second time.
 
-    The control is four readings of one selection, and only three of them are written by
-    code. `.spacepick-shown` is the span the script fills; `select.title` is the whole
-    name for a thumb that hovers; the card under the bar is what the page decided to
-    draw — and `select.value` is *moved by the browser*, on the pick itself, with no line
-    of ours involved. `paint()` used to set it only as a side effect of rebuilding the
-    rows, behind a guard that skips the rebuild when the rows come out identical to the
-    ones last written. So a value that moved without a `change` reaching the file was
-    never put back by anything: not by the next payload, and not even by one that
-    rebuilt every row, because identical rows are exactly the case the guard skips.
+    The control was four readings of one selection and only three of them were written by
+    code. `.spacepick-shown` was a span the script filled and drew *over* the select;
+    `select.title` is the whole name for a thumb that hovers; the card under the bar is
+    what the page decided to draw — and `select.value` is *moved by the browser*, on the
+    pick itself, with no line of ours involved. `paint()` used to set it only as a side
+    effect of rebuilding the rows, behind a guard that skips the rebuild when the rows
+    come out identical to the ones last written. So a value that moved without a `change`
+    reaching the file was never put back by anything: not by the next payload, and not
+    even by one that rebuilt every row, because identical rows are exactly the case the
+    guard skips.
 
-    Nothing in `node:vm` can see that half. test/spacebar.mjs's `<select>` is an object
-    whose `value` is whatever the check last assigned to it, so it agrees by
-    construction — the disagreement only exists in a control a browser is driving. Which
-    is why the whole of it is asserted here, on a real pick, in one turn and then again
-    after the page has handed the picker its next payload.
+    There are three readings now. The span is gone and what you read is the select's own
+    selected row, which is the value — one string, moved by the browser, with no repaint
+    in the path at all. That is asserted below on its own, before the ones that need a
+    paint to have happened: it is the difference between "the bug is fixed" and "the bug
+    is impossible", and only the second survives the next person editing `paint()`.
+
+    Nothing in `node:vm` can see any of this. test/spacebar.mjs's `<select>` is an object
+    whose `value` is whatever the check last assigned to it and whose selected row is
+    nothing at all, so it agrees by construction — the disagreement only exists in a
+    control a browser is driving. Which is why the whole of it is asserted here, on a real
+    pick, in one turn and then again after the page has handed the picker its next
+    payload.
+
+    The one thing deliberately *not* asserted here is that no second label has been put
+    back beside the control. That is a claim about the markup, and test/spacebar.mjs makes
+    it against the markup — cheaper, and a check that presses `#space-shown` in order to
+    find nothing is a check test/checks.mjs correctly reports as pressing a selector
+    public/ does not have.
   */
   const facing = () =>
     evalJs(
@@ -622,13 +637,13 @@ try {
         const sel = document.querySelector('#space-pick');
         const sp = window.beadcause?.space;
         return {
-          shown: document.querySelector('#space-shown')?.textContent,
           value: sel?.value,
           title: sel?.title,
-          // What the row the dropdown is actually holding says. The one reading that
-          // tells "nothing is selected" apart from "its first row is" — a <select> whose
-          // value matches no option shows the first, and "All spaces" over a narrowed
-          // list is the failure that looks most like success.
+          // What the row the dropdown is actually holding says — which is what the bar
+          // *draws* since bc-ka5y.34, and the one reading that tells "nothing is
+          // selected" apart from "its first row is". A <select> whose value matches no
+          // option shows the first, and "All spaces" over a narrowed list is the failure
+          // that looks most like success.
           row: sel?.selectedOptions?.[0]?.textContent,
           label: sp?.label(),
           card: document.querySelector('.space-card h2')?.textContent,
@@ -636,12 +651,13 @@ try {
       })()`
     );
 
-  /** All four naming the same space, said as one check so a failure names which one drifted. */
+  /** All of them naming the same space, said as one check so a failure names which one drifted. */
   const agreeing = async (what, space) => {
     const f = await facing();
     const wrong = [
-      f.shown === space ? '' : `the bar says ${JSON.stringify(f.shown)}`,
-      f.value === `space:${space}` ? '' : `the select holds ${JSON.stringify(f.value)} (${JSON.stringify(f.row)})`,
+      f.value === `space:${space}` ? '' : `the select holds ${JSON.stringify(f.value)}`,
+      // `${space} — all` is how a space's own row reads; a repo row is just its name.
+      (f.row || '').startsWith(space) ? '' : `the bar draws ${JSON.stringify(f.row)}`,
       f.title === space ? '' : `its title says ${JSON.stringify(f.title)}`,
       f.card === space ? '' : `the card says ${JSON.stringify(f.card)}`,
     ].filter(Boolean);
@@ -662,6 +678,30 @@ try {
     );
     await sleep(900);
   };
+
+  /*
+    The acceptance of bc-ka5y.34, and it has to come *before* any of the checks that let a
+    paint run: what is drawn moves with the value, with nothing of ours in the path.
+
+    Staged as the browser stages it — the value moves first and the `change` event comes
+    after — and read in the same turn, so no line of `spacebar.js` has run between the two.
+    The old span could not pass this at all: it was written by `paint()`, and `paint()` had
+    not been called yet. Note `label()` is deliberately still behind here; that is the
+    point of the check, not a fault in it.
+  */
+  const instant = await evalJs(
+    s,
+    `(() => {
+      const sel = document.querySelector('#space-pick');
+      sel.value = 'space:Side';
+      return { row: sel.selectedOptions[0].textContent, label: window.beadcause.space.label() };
+    })()`
+  );
+  check(
+    'what the bar draws moves with the value, before any paint has run — bc-ka5y.32 cannot come back',
+    /^Side/.test(instant.row || '') && instant.label === 'Work',
+    `${JSON.stringify(instant.row)} drawn while label() still says ${JSON.stringify(instant.label)}`
+  );
 
   await pickInBar('space:Side');
   await agreeing('a pick names the new space in the bar, the select, its title and the card', 'Side');
@@ -685,8 +725,8 @@ try {
   const behind = await facing();
   check(
     'the select`s value can move behind the picker`s back — the premise of the bug',
-    behind.value === 'space:Side' && behind.shown === 'Work',
-    `${behind.shown} / ${behind.value}`
+    behind.value === 'space:Side' && behind.label === 'Work',
+    `the control holds ${behind.value} while the filter is still ${behind.label}`
   );
   await press('[data-space-set="autoMerge"][data-value="false"]');
   await agreeing('and the next paint puts it back rather than waiting for a reload', 'Work');
@@ -708,8 +748,8 @@ try {
   const gone = await facing();
   check(
     'a repo the config no longer offers keeps its row rather than reading as All spaces',
-    gone.value === 'ws:alpha' && gone.shown === 'alpha' && /alpha/.test(gone.row || ''),
-    `${gone.shown} / ${gone.value} / ${JSON.stringify(gone.row)}`
+    gone.value === 'ws:alpha' && gone.label === 'alpha' && /alpha/.test(gone.row || ''),
+    `${gone.label} / ${gone.value} / ${JSON.stringify(gone.row)}`
   );
   await evalJs(s, `window.beadcause.space.adopt({ workspaces: ['alpha', 'beta'] })`);
   await sleep(300);

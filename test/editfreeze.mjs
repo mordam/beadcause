@@ -193,21 +193,25 @@ check('the picker asks for itself, in public/spacebar.js — it is on six pages,
   const bar = fs.readFileSync(path.join(ROOT, 'public', 'spacebar.js'), 'utf8');
   const body = codeLines(bodyAfter(bar, 'function paint() {'));
   // bc-ka5y.33: only the *rows* wait for the thaw — rebuilding them is the one write that
-  // moves an option out from under a thumb. The label, the title and the control's own
-  // value name nothing that is not already true, so they write on every paint whether or
-  // not the mode is frozen; a pick made mid-freeze used to leave them stale until the
-  // thaw, under a banner promising the screen was held still.
+  // moves an option out from under a thumb. The title and the control's own value name
+  // nothing that is not already true, so they write on every paint whether or not the
+  // mode is frozen; a pick made mid-freeze used to leave them stale until the thaw, under
+  // a banner promising the screen was held still.
+  //
+  // There was a third, `shownEl.textContent`, and bc-ka5y.34 deleted the span it wrote to
+  // — the picker is the `<select>` itself now, so what the bar reads *is* the control's
+  // own value and there is no second string to keep in step. The pair below is what the
+  // split still has to protect, and test/spacebar.mjs asserts the same two behaviourally.
   assert.equal(body[0], 'const frozen = window.beadcause?.editMode?.frozen?.();', `paint() opens with: ${body[0]}`);
   const ifFrozen = body.indexOf('if (frozen) {');
   const thawCall = body.indexOf('thawFirst();');
   const rowsWrite = body.indexOf('sel.innerHTML = html;');
   const valueWrite = body.indexOf('if (sel.value !== now) sel.value = now;');
-  const shownWrite = body.indexOf('if (shownEl.textContent !== shown) shownEl.textContent = shown;');
   const titleWrite = body.indexOf('if (sel.title !== label()) sel.title = label();');
   assert.ok(ifFrozen !== -1, 'paint() no longer branches on frozen at all');
   assert.ok(thawCall > ifFrozen, 'the frozen branch no longer registers the thaw catch-up');
   assert.ok(rowsWrite > ifFrozen, 'the rows rebuild is not gated behind the frozen branch');
-  for (const [name, at] of [['sel.value', valueWrite], ['shownEl.textContent', shownWrite], ['sel.title', titleWrite]]) {
+  for (const [name, at] of [['sel.value', valueWrite], ['sel.title', titleWrite]]) {
     assert.ok(at !== -1, `paint() no longer writes ${name} at all`);
     assert.ok(at > rowsWrite, `${name} is written before the rows guard, not unconditionally after it`);
   }

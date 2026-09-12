@@ -803,11 +803,11 @@ body {
   trying to squeeze past it: the loose icon buttons are rows in the mark's menu
   (public/accountbar.js), the account chip's address is a line inside that menu, and what
   is left up there is a 26px mark in a gear. The picker takes the rest — and pays for the
-  fit with its *label* rather than with the bar, drawing at most twelve characters while
-  the dropdown keeps every full name (see `shorten` in public/spacebar.js). That is the
-  one thing bc-hne3 refused to spend, and the reason it is affordable now is that the value
-  is still on screen: `beadcause` reads whole, `climative-…` reads as narrowed-to-something,
-  and the accent border below says something is being kept off the screen either way.
+  fit with its *label* rather than with the bar, capped at 130px and ellipsised past it
+  while the dropdown keeps every full name (see `.spacepick` below). That is the one thing
+  bc-hne3 refused to spend, and the reason it is affordable now is that the value is still
+  on screen: `beadcause` reads whole, `climative-pl…` reads as narrowed-to-something, and
+  the accent border below says something is being kept off the screen either way.
 
   `scripts/topbar-check.mjs` is now the check that the bar is **one** row, and it fails the
   repo for two. The old budget it was written to defend — 170px of chrome — is unchanged
@@ -830,27 +830,44 @@ body {
 .spacebar[hidden] { display: none; }
 
 /*
-  Three boxes in one control: the label you read, the caret, and the `<select>` laid over
-  both of them invisibly.
+  Two boxes in one control: the `<select>` you read and tap, and a caret drawn over its
+  right-hand padding.
 
-  The select is what you actually tap — it keeps the accessible name, the keyboard, and
-  the platform's own wheel or menu — and it is `opacity: 0` rather than absent because what
-  it *shows* is the wrong string. A native select draws its selected option, and the option
-  is the whole repo name; on a row shared with the mark that is a bar with nothing left on
-  it. So the visible half is a span the script fills with a cut-down label, and the
-  dropdown you open still lists every name in full (`shorten` in public/spacebar.js).
+  It was three until bc-ka5y.34 — a span holding a cut-down label, the caret, and the
+  select laid over both of them at `opacity: 0`, because what a native select *shows* is
+  its selected option whole and on a row shared with the mark that is a bar with nothing
+  left on it. The span went with the bug it made possible: the label was written by a
+  repaint in public/spacebar.js and the value under it is moved by the browser, so the two
+  could part and stay parted until a reload (bc-ka5y.32). What is drawn now is the one
+  string the browser keeps in step by itself, and there is no repaint in that path at all.
 
-  `width: max-content` on the shown span is the other half of "narrow": the control is as
-  wide as its label and no wider, so a one-repo day does not leave a full-width box with
-  nine characters in it.
+  The width constraint did not go anywhere — it moved into this file. `max-width` is the
+  cap and `text-overflow: ellipsis` is the cut, so a long name is ellipsised at whatever
+  the font actually measures rather than at a character count in a script, and the option
+  list is untouched: every row in the dropdown you open is still a whole name, which is the
+  one place the whole name is the point.
+
+  **The cap is a number rather than a percentage, and that is the part worth reading.** A
+  select is sized by its *widest option* and not by its selected one, so left to grow it is
+  a 170px box on the day you are looking at `ehatt`, purely because `climative-platform` is
+  somewhere in the list. 130px is what the twelve characters this replaces measured at, so
+  the row's arithmetic is the one bc-khoe.5 spent and `scripts/topbar-check.mjs` still
+  fails the repo for a second row.
+
+  `appearance: none` stays, so the control looks like the rest of the bar rather than like
+  a platform widget. Handing the native appearance back and dropping the caret with it is a
+  smaller file and a different-looking bar; it is a separate decision from this one.
 */
 .spacepick { position: relative; display: flex; align-items: center; min-width: 0; max-width: 100%; }
-.spacepick-shown {
+.spacepick select {
   display: block;
-  width: max-content;
-  max-width: 100%;
+  /* Shrinkable past its own min-content, so a page that runs out of row cuts the name
+     rather than pushing the picker off the end of the bar. */
+  min-width: 0;
+  max-width: 130px;
   /* Room on the right for the caret that is drawn over it. */
   padding: 7px 30px 7px 12px;
+  margin: 0;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
@@ -858,35 +875,24 @@ body {
   /* Longhands rather than the `font:` shorthand every other control here uses. The
      shorthand resets `line-height` from whatever the page's own is, and this box's height
      *is* the bar's height now that they share a row — 40px against 33px is 7px of chrome
-     on every screen, arrived at by a property nobody wrote down. */
+     on every screen, arrived at by a property nobody wrote down. `font-family` is spelled
+     out because a `<select>` does not inherit one: left alone it draws in the platform's
+     own form font, which is a different width for the same string. */
+  font-family: inherit;
   font-weight: 600;
   font-size: 14px;
   line-height: 1.2;
   white-space: nowrap;
-  /* A belt to `shorten`'s braces: the character rule is what keeps the bar one row, and
-     this is what keeps a font substitution from making a liar of it. */
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.spacepick select {
-  /* Over the whole control, invisible, and still the thing under the thumb. `inset: 0`
-     rather than a width, so it grows with the label rather than being told about it. */
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  opacity: 0;
   appearance: none;
   -webkit-appearance: none;
-  font: inherit;
   cursor: pointer;
 }
-/* The focus ring the invisible select cannot draw. `:focus-visible` and not `:focus`, so
-   a tap does not leave a ring behind on a phone. */
-.spacepick:has(select:focus-visible) .spacepick-shown {
+/* `:focus-visible` and not `:focus`, so a tap does not leave a ring behind on a phone. It
+   is the select's own ring now — it used to be drawn on the span, because the control that
+   had the focus was invisible. */
+.spacepick select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -904,7 +910,7 @@ body {
   identical whether it is showing you everything or one sixth of it is an app you will
   eventually mistrust.
 */
-.spacebar.narrowed .spacepick-shown {
+.spacebar.narrowed .spacepick select {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
@@ -1060,7 +1066,8 @@ body {
      above and below this one are written as and it is **invalid** — `inherit` is not a
      legal family inside the shorthand, so the whole declaration is dropped and the box
      silently keeps the page's own font. It cost 7px of bar height here before it was
-     caught (`.spacepick-shown`, same mistake, measured at 40px against the 33px it says).
+     caught (the space picker's own box, same mistake, measured at 40px against the 33px
+     it says).
      bc-khoe.15 is filed for the ones this bead did not own. */
   font-weight: 550;
   font-size: 12px;
