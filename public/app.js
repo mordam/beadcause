@@ -7556,7 +7556,9 @@
    */
   function p0CandsHtml(rows) {
     // Nothing to offer is a sentence rather than an empty box, and it says which of the
-    // *three* reasons it is. A tracker where every P0 of yours is already started reads
+    // *four* reasons it is — the fourth is bc-njfui's, a workspace nobody has labelled,
+    // added because it is the one that used to be indistinguishable from the others.
+    // A tracker where every P0 of yours is already started reads
     // exactly like a picker that failed to load its list — and an install that has never
     // been told who it is reads like both, because with `me` unset the server answers
     // `owned: false` and every list here is empty by construction rather than by fact.
@@ -7567,6 +7569,20 @@
       return `<div class="p0-none">This Mac does not know who you are — set <code>me</code> in the config and the beadepics you own turn up here.</div>`;
     }
     if (!rows.length) {
+      // The fourth reason, and the only one of the four that is a fault rather than a
+      // state (bc-njfui). `unowned` is the workspaces that have roots and where not one
+      // carries an `owner:` label, so `ownedByMe` is false for all of them and they are
+      // invisible here *and* on the board — which reads exactly like owning nothing. The
+      // sentence names the workspaces, because "somewhere" is not actionable and the
+      // remedy is one label typed at one bead.
+      const blind = state.rootboard?.unowned || [];
+      if (blind.length) {
+        return `<div class="p0-none">Nothing to start here — and no beadepic in ${blind
+          .map((w) => `<strong>${esc(w)}</strong>`)
+          .join(', ')} says who owns it, so none of them can appear. Ownership is the <code>owner:&lt;handle&gt;</code> label, not bd's owner field — <code>bd update &lt;id&gt; --add-label owner:${esc(
+          (state.me || [])[0] || 'you@example.com'
+        )}</code> on a root puts it in this list.</div>`;
+      }
       return `<div class="p0-none">Nothing to start — every P0 you own is either on the board already or not open.</div>`;
     }
     return `${rows
