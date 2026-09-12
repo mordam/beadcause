@@ -12,9 +12,11 @@
  * 1. **The JQL.** It is the only question this epic asks JIRA and it is not a parameter.
  *    `resolution = EMPTY` rather than a status name, the projects scoped only when there
  *    are any, and an address escaped rather than pasted into a quoted string.
- * 2. **Off costs nothing.** A workspace with no `jira` block must not produce a network
- *    call *or* a `bd` spawn. Most workspaces on any machine are that workspace, so a
- *    poller that costs "almost nothing" for one costs the size of somebody's `~/beads`.
+ * 2. **Off costs nothing, and auto costs one spawn.** A workspace switched off must not
+ *    produce a network call *or* a `bd` spawn; one with no block (auto, bc-6s383) costs a
+ *    single memoised `bd config get jira.url` and no network call when its bd points at no
+ *    site. Most workspaces on any machine are that workspace, so a poller that costs
+ *    "almost nothing" for one costs the size of somebody's `~/beads`.
  * 3. **The cache is over the spawns, not over the answer.** `settingsFor` is three `bd`
  *    processes; on a one-minute timer, uncached, that is three a minute forever for a URL
  *    that changes never. But the *token* has to be re-read every sweep, because writing
@@ -45,7 +47,7 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 // The daemon runs under launchd and never has this; a test that wants it sets it itself.
 delete process.env.JIRA_API_TOKEN;
 
-const { assignedJql, createJiraPoller, escapeJql, jiraEveryMs, JIRA_FLOOR_SECONDS, ticketFrom, TICKET_FIELDS, TICKET_LIMIT } =
+const { assignedJql, createJiraPoller, escapeJql, IN_PROGRESS, jiraEveryMs, JIRA_FLOOR_SECONDS, ticketFrom, TICKET_FIELDS, TICKET_LIMIT } =
   await import(LIB('jirapoll.js'));
 const { writeToken } = await import(LIB('jira.js'));
 
@@ -69,8 +71,14 @@ const WS = { name: 'climative', dir: path.join(tmp, 'beads', 'climative', '.bead
 const OTHER = { name: 'sophab', dir: path.join(tmp, 'beads', 'sophab', '.beads') };
 const ON = { jira: { climative: { enabled: true, email: 'adam@climative.ai' } } };
 
-/** `bd`, answering `config get` from a table and counting every call. */
-function fakeBd(values = {}) {
+/**
+ * `bd`, answering `config get` from a table and counting every call.
+ *
+ * `only` names the workspaces the table is true of; every other one answers the way a
+ * bd-only tracker does, with nothing set. Without it one table answers for all of them,
+ * which since bc-6s383 would switch every workspace in a sweep on by itself.
+ */
+function fakeBd(values = {}, { only = null } = {}) {
   const calls = [];
   return {
     calls,
@@ -78,7 +86,8 @@ function fakeBd(values = {}) {
       calls.push(`${workspace?.name || '?'} ${args.join(' ')}`);
       if (args[0] !== 'config') throw new Error(`unexpected bd ${args.join(' ')}`);
       const key = args[2];
-      if (Object.prototype.hasOwnProperty.call(values, key)) return `${values[key]}\n`;
+      const mine = !only || only.includes(workspace?.name);
+      if (mine && Object.prototype.hasOwnProperty.call(values, key)) return `${values[key]}\n`;
       // What the real binary prints for a key nobody has set — on stdout, exit 0.
       return `${key} (not set)\n`;
     },
@@ -133,9 +142,14 @@ console.log('\nthe one query');
   check('it asks for what is assigned to that address', jql.includes('assignee = "adam@climative.ai"'), jql);
   check(
     'unresolved by resolution, never by a status name a site can rename',
-    jql.includes('resolution = EMPTY') && !/status/i.test(jql),
+    jql.includes('resolution = EMPTY') && !/\bstatus\s*(!?=|in|not)/i.test(jql),
     jql
   );
+  // bc-6s383: climative's `5: Done` sets no resolution, so the clause above alone
+  // answered 169 finished tickets out of 281 — and of the rest, Adam wants only the
+  // ones being worked. The category is a fixed key; no site renames it.
+  check('and only the In Progress category, by its key rather than its label', jql.includes('AND statusCategory = indeterminate AND') || jql.includes('AND statusCategory = indeterminate ORDER'), jql);
+  check('which is the key IN_PROGRESS names', IN_PROGRESS === 'indeterminate');
   check('newest first, because the list is truncated', jql.endsWith('ORDER BY updated DESC'), jql);
   check('no project clause when the workspace has no projects', !jql.includes('project'), jql);
 
@@ -190,23 +204,78 @@ console.log('\nthe clock');
 
 /* ------------------------------------------------------------------- what off has to cost */
 
-console.log('\noff costs nothing');
+console.log('\nwhat off costs, and what auto costs');
 {
+  // Switched off, over a bd that points at a site: nothing at all.
   const bd = fakeBd(BD_FULL);
   const fetchImpl = fakeFetch(searchReply('TECH-1'));
   const poller = createJiraPoller({ bd, fetchImpl });
-  const out = await poller.sweep({ jira: {} }, [WS, OTHER]);
-  check('no network call for a workspace nobody switched on', fetchImpl.seen.length === 0, `${fetchImpl.seen.length} requests`);
+  const out = await poller.sweep({ jira: { climative: { enabled: false }, sophab: { enabled: false } } }, [WS, OTHER]);
+  check('no network call for a workspace switched off', fetchImpl.seen.length === 0, `${fetchImpl.seen.length} requests`);
   check('and no bd spawn either — settingsFor is three of them', bd.calls.length === 0, bd.calls.join(' / '));
   check('nothing swept, nothing held', out.results.length === 0 && poller.tickets().length === 0);
   check('and nothing in trouble, because off is not a failure', poller.trouble().length === 0);
+}
 
-  // The other half of the same rule: one workspace on, one off, in the same sweep.
+{
+  // No block over bd-only trackers — most workspaces on any machine. Auto, and off.
+  const bd = fakeBd({});
+  const fetchImpl = fakeFetch(searchReply('TECH-1'));
+  const poller = createJiraPoller({ bd, fetchImpl });
+  const out = await poller.sweep({ jira: {} }, [WS, OTHER]);
+  check('no network call for a workspace whose bd points at no site', fetchImpl.seen.length === 0, `${fetchImpl.seen.length} requests`);
+  check(
+    'one bd spawn each — the URL, and nothing after it',
+    bd.calls.length === 2 && bd.calls.every((c) => c.endsWith('config get jira.url')),
+    bd.calls.join(' / ')
+  );
+  check('nothing swept, nothing held', out.results.length === 0 && poller.tickets().length === 0, JSON.stringify(out.results));
+  check('and nothing in trouble — auto with no site is off, not unconfigured', poller.trouble().length === 0);
+  await poller.sweep({ jira: {} }, [WS, OTHER]);
+  check('and not even that on the next tick — the answer is memoised with the rest', bd.calls.length === 2, bd.calls.join(' / '));
+}
+
+{
+  // bc-6s383 itself: no block, one tracker already pointed at JIRA, a token on disk.
+  token();
+  const bd = fakeBd(BD_FULL, { only: ['climative'] });
+  const fetchImpl = fakeFetch(searchReply('TECH-1'));
+  const poller = createJiraPoller({ bd, fetchImpl });
+  const out = await poller.sweep({ jira: {} }, [WS, OTHER]);
+  check(
+    'a tracker whose bd points at a site is swept with no block at all',
+    out.results.length === 1 && out.results[0].workspace === 'climative' && out.results[0].state === 'ok',
+    JSON.stringify(out.results)
+  );
+  check('its tickets arrive', poller.tickets('climative').length === 1 && poller.tickets('sophab').length === 0);
+  check('and only it is asked', fetchImpl.seen.length === 1, `${fetchImpl.seen.length} requests`);
+  check('as the address its bd names', jqlOf(fetchImpl.seen[0]).includes('assignee = "adam@climative.ai"'), jqlOf(fetchImpl.seen[0]));
+  check('the bd-only tracker beside it is not in trouble', poller.trouble().length === 0, JSON.stringify(poller.trouble()));
+
+  // And the free way out, which has to take the held rows with it.
+  await poller.sweep({ jira: { climative: { enabled: false } } }, [WS, OTHER]);
+  check('enabled false drops what auto was holding', poller.tickets().length === 0, JSON.stringify(poller.tickets()));
+}
+
+{
+  // On by itself and not configured: trouble, and switching it off has to clear it.
+  const bd = fakeBd(BD_FULL, { only: ['sophab'] });
+  const poller = createJiraPoller({ bd, fetchImpl: fakeFetch(searchReply('TECH-1')) });
+  await poller.sweep({ jira: {} }, [OTHER]);
+  const said = poller.trouble()[0]?.error || '';
+  check('auto with a site and no token is trouble, not silence', poller.trouble().length === 1 && /no JIRA credential/.test(said), said);
+  check('and the sentence names the way out', /jira\.sophab\.enabled to false/.test(said), said);
+  await poller.sweep({ jira: { sophab: { enabled: false } } }, [OTHER]);
+  check('which clears it — a warning about a JIRA switched off would never go away', poller.trouble().length === 0, JSON.stringify(poller.trouble()));
+}
+
+{
+  // One workspace on, one off, in the same sweep.
   const bd2 = fakeBd(BD_FULL);
   const fetch2 = fakeFetch(searchReply('TECH-1'));
   token();
   const mixed = createJiraPoller({ bd: bd2, fetchImpl: fetch2 });
-  await mixed.sweep(ON, [WS, OTHER]);
+  await mixed.sweep({ jira: { ...ON.jira, sophab: { enabled: false } } }, [WS, OTHER]);
   check('only the configured workspace is asked', fetch2.seen.length === 1, `${fetch2.seen.length} requests`);
   check('and only its bd is spawned', new Set(bd2.calls.map((c) => c.split(' ')[0])).size === 1, bd2.calls.join(' / '));
 }

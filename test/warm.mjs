@@ -830,8 +830,11 @@ await check('every pill the row draws is warmed — and three views are delibera
    *
    * **This stopped being an identity in bc-khoe.2** and the map is the whole of what
    * changed here. The row used to be one pill per page, so a pill id and a view id were
-   * the same word; six of the nine pills are now the inbox's *kinds*, and four of those
-   * six are Home under a different narrowing — one page, one payload, one warm entry.
+   * the same word; seven of the ten pills are now the inbox's *kinds*, and five of those
+   * seven are Home under a different narrowing — one page, one payload, one warm entry.
+   * `My Epics` joined them in bc-fwp2c, when it stopped being Home itself and became a
+   * narrowing like the rest: its screen is the board, which `/api/questions` already
+   * carries on `rootboard`, so it warms off the inbox payload with no entry of its own.
    * `PRs` is the exception among them and it is not an exception to the rule: tapping it
    * is the first thing on Home that wants a board at all (`loadBoard` in public/app.js),
    * so its first frame comes off `/api/prs` exactly as the board page's does. Releases
@@ -845,6 +848,7 @@ await check('every pill the row draws is warmed — and three views are delibera
    * slower than the others.
    */
   const VIEW_OF = {
+    home: 'inbox',
     epics: 'inbox',
     question: 'inbox',
     session: 'inbox',

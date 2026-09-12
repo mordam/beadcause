@@ -324,7 +324,11 @@ const at = async (vp) => {
     width: vp.width, height: vp.height, deviceScaleFactor: vp.dpr,
     mobile: vp.width < 700, screenWidth: vp.width, screenHeight: vp.height,
   });
-  await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
+  /* `kind=epics` since bc-fwp2c: the board is My Epics' screen and Home is where you land,
+     so a plain `/` now arrives on the list. The query is the app's own way in — it is what
+     a kind pill tapped on another page uses (`asked()` in public/inboxfilter.js) — rather
+     than a click this file would have to synthesise before every measurement. */
+  await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}&kind=epics` });
   await waitFor(`document.querySelector('.p0-card') !== null`, 15000);
   if (!(await waitFor(`window.innerWidth === ${vp.width}`, 5000))) {
     throw new Error(`the viewport never became ${vp.width}px — ${await evalJs('window.innerWidth')}px`);

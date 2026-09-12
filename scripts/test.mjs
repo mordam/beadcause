@@ -154,6 +154,47 @@ const disarmSpool = onExit(() => {
 });
 
 /**
+ * How far below everything else the gate runs. 10 of a 0-19 range — firmly yielding,
+ * without the "only when the machine is otherwise completely idle" behaviour of 19,
+ * which would make a gate on a busy Mac take all afternoon.
+ */
+const GATE_NICE = Number(process.env.BEADCAUSE_GATE_NICE ?? 10);
+
+/**
+ * The gate gets out of the daemon's way — bc-1kwl.39.
+ *
+ * **This is one call and it moves the whole tree.** Niceness is inherited, `spawnSync`
+ * below hands it to every suite, and a suite hands it to the daemons two of them start
+ * and to every grandchild after that — the same reach `NO_LAUNCH` needs and gets the
+ * same way. So there is nothing per-suite to remember and nothing a new suite can forget.
+ *
+ * **Why lower the gate rather than raise the daemon.** A negative nice needs root and the
+ * daemon runs as the user, so raising it is not available at all; lowering this is, and
+ * needs no privilege. That asymmetry is the whole reason the fix lives here rather than
+ * in the launchd plist.
+ *
+ * **It does not make the gate slower on an idle Mac.** Niceness decides only who yields
+ * when two processes want the same core — with one free the runner takes it and finishes
+ * in the same time it always did. The cost is paid exclusively in the case this exists
+ * to fix, which is why it is unconditional rather than a flag somebody has to remember.
+ *
+ * Measured, 2026-09-12, and the reason this exists: with a gate running, `/api/questions`
+ * took 56.26s and a single card's `/api/question` took 6.18s; sixty seconds later with
+ * the gate killed and nothing else changed, 1.67s and 0.21s. A 30x swing from contention
+ * alone, felt as a question card that pulsed for fifteen seconds before opening.
+ *
+ * Wrapped because `setPriority` throws `EACCES` on a platform or account that will not
+ * allow it, and a gate must never fail to run because it could not be polite.
+ */
+if (GATE_NICE > 0) {
+  try {
+    os.setPriority(0, GATE_NICE);
+  } catch {
+    /* politeness is best-effort; a gate that cannot renice still has to test the code */
+  }
+}
+
+/**
  * One child per suite, output inherited, and a stop at the first non-zero — the same
  * semantics `&&` gave, kept deliberately: a suite that fails usually invalidates the
  * ones after it, and thirty screens of consequential failures bury the one that matters.

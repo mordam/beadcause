@@ -791,13 +791,17 @@ await check('and no pill anywhere on the shell is an <a> to a view it can show',
 });
 
 await check('the lit pill follows the pane, not the address', () => {
+  // `home` on the Home pane and not `epics`, since bc-fwp2c. The *pane* is still called
+  // `epics` — it is the document `/` resolves to and the epic board is what it has always
+  // been named for — but which of Home's pills is lit is the filter's answer rather than
+  // the pane's (`lit()` in public/viewbar.js), and an unnarrowed Home lights Home.
   const { nav, panes } = row(whenBuilt());
-  assert.equal(pills(nav).find((p) => p.current).id, 'epics');
+  assert.equal(pills(nav).find((p) => p.current).id, 'home');
   panes().go('advocates');
   assert.equal(pills(nav).find((p) => p.current).id, 'advocates');
   assert.equal(pill(nav, 'advocates').tag, 'span', 'the pill you are on is still a control');
   panes().go('epics');
-  assert.equal(pills(nav).find((p) => p.current).id, 'epics');
+  assert.equal(pills(nav).find((p) => p.current).id, 'home');
 });
 
 await check('a kind pill tapped from another pane switches to Home and narrows, in one tap', () => {
@@ -874,7 +878,7 @@ await check('on Home as a whole document, the kind pills still act and History s
   assert.equal(pill(nav, 'pr').kind, 'pr');
   assert.equal(pill(nav, 'pr').pane, null);
   assert.equal(pill(nav, 'history').tag, 'a');
-  assert.equal(pills(nav).find((p) => p.current).id, 'epics');
+  assert.equal(pills(nav).find((p) => p.current).id, 'home');
 });
 
 console.log(failures ? `\n${failures} of ${ran} failed` : `\nall ${ran} good`);

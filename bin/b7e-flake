@@ -1,0 +1,149 @@
+#!/usr/bin/env node
+/**
+ * `b7e-flake` — how often does a suite actually fail, over N runs, with every run's
+ * output kept.
+ *
+ *     b7e-flake test/advswitch.mjs --runs 20
+ *     b7e-flake <suite|script>...     one or more targets, each run `--runs` times
+ *     b7e-flake --runs 20             how many times each target runs (default 10)
+ *     b7e-flake --jobs 4              how many runs at once, per target (default 4)
+ *     b7e-flake --env PRESS_MS=150    env var forwarded to every run — repeatable
+ *     b7e-flake --dir <root>          "this tree" is <root>, not the tree this file is in
+ *     b7e-flake --timeout <s>         per-run seconds, overriding lib/gate.js's own default
+ *     b7e-flake --json                one object per target instead of the printed report
+ *
+ * bc-dgx7.73: three sessions each needed a failure RATE rather than a flake/real verdict,
+ * and each built the loop by hand — a `for i in 1 2 3` refused by the worktree-isolation
+ * guard as too complex to prove it stays in the worktree, a background `seq` loop refused
+ * again, a heredoc script that outran the 180s Bash timeout and had to move to the
+ * background, a `| grep` that threw away a failing run's own output ("Run 3 failed but I
+ * lost its output" — bc-khoe.67's own debrief). `lib/flake.js` carries the loop and the
+ * per-run logging; this file is the argv parsing and the printing around it, the same
+ * split every other `b7e-*` command uses.
+ *
+ * Not `b7e-triage` (`bin/b7e-triage`): that re-runs each failure exactly once and
+ * classifies flake/vendor/real. This runs `--runs` times up front, keeps every run's log
+ * whether it passed or not, and reports a rate plus the failures grouped by signature —
+ * the question those three sessions actually had was "how often", not "is this real".
+ *
+ * Exit codes: `0` every target passed every run; `1` at least one target had at least one
+ * failing run; `2` refused — bad usage.
+ *
+ * @grant excluded
+ */
+import path from 'node:path';
+import { REPO_ROOT, runFlake, targetSummaryLine, failureLines } from '../lib/flake.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const multi = (f) => {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === f && argv[i + 1] !== undefined) out.push(argv[++i]);
+    else if (argv[i].startsWith(`${f}=`)) out.push(argv[i].slice(f.length + 1));
+  }
+  return out;
+};
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+const USAGE = [
+  'b7e-flake <suite|script>...     one or more targets, each run --runs times',
+  'b7e-flake --runs N              how many times each target runs (default 10)',
+  'b7e-flake --jobs N              how many runs at once, per target (default 4)',
+  'b7e-flake --env K=V             env var forwarded to every run — repeatable',
+  'b7e-flake --dir <root>          "this tree" is <root>, not the tree this file is in',
+  'b7e-flake --timeout <s>         per-run seconds, overriding lib/gate.js\'s own default',
+  'b7e-flake --json                one object per target instead of the printed report',
+].join('\n');
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const ROOT = path.resolve(value('--dir', REPO_ROOT));
+const RUNS = Math.max(1, Number(value('--runs', 10)) || 10);
+const JOBS = Math.max(1, Number(value('--jobs', 4)) || 4);
+const TIMEOUT_ARG = value('--timeout', null);
+const TIMEOUT_MS = TIMEOUT_ARG == null ? null : Math.max(0, Number(TIMEOUT_ARG) || 0) * 1000;
+const JSON_MODE = has('--json');
+
+const ENV = {};
+for (const kv of multi('--env')) {
+  const eq = kv.indexOf('=');
+  if (eq === -1) {
+    console.error(`b7e-flake: --env wants K=V, got ${kv}`);
+    process.exit(2);
+  }
+  ENV[kv.slice(0, eq)] = kv.slice(eq + 1);
+}
+
+const TARGETS = argv.filter((a, i) => {
+  if (a.startsWith('-')) return false;
+  const prev = argv[i - 1];
+  return !['--runs', '--jobs', '--env', '--dir', '--timeout'].includes(prev);
+});
+
+if (!TARGETS.length) {
+  console.error('b7e-flake: no target given — pass a suite or script path');
+  console.error(USAGE);
+  process.exit(2);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+
+const onResult = JSON_MODE
+  ? (target, r) => console.log(JSON.stringify({ target, ...r }))
+  : (target, r) => {
+      const mark = r.status === 'ok' ? green('ok') : red(r.status === 'TIMEOUT' ? 'TIMEOUT' : 'FAIL');
+      const secs = (r.ms / 1000).toFixed(1);
+      console.log(`${dim(`[${target} ${r.index}]`)} ${mark} ${secs}s ${dim(r.logPath)}`);
+    };
+
+if (!JSON_MODE) {
+  console.log(dim(`${TARGETS.length} target${TARGETS.length === 1 ? '' : 's'}, ${RUNS} run${RUNS === 1 ? '' : 's'} each, ${JOBS} at once`));
+}
+
+const result = await runFlake(ROOT, TARGETS, {
+  runs: RUNS,
+  jobs: JOBS,
+  timeoutOverrideMs: TIMEOUT_MS,
+  env: ENV,
+  onResult,
+});
+
+if (JSON_MODE) {
+  console.log(
+    JSON.stringify({
+      summary: true,
+      dir: result.dir,
+      loadStart: result.loadStart,
+      loadEnd: result.loadEnd,
+      targets: result.targets.map((t) => ({
+        target: t.target,
+        runs: t.runs,
+        passed: t.passed,
+        failed: t.failed,
+        signatures: t.signatures.map((s) => ({ signature: s.signature, count: s.count })),
+      })),
+    }),
+  );
+} else {
+  console.log('');
+  console.log(dim(`logs: ${result.dir}`));
+  console.log(dim(`load: ${result.loadStart.toFixed(2)} at start, ${result.loadEnd.toFixed(2)} at end`));
+  console.log('');
+  for (const t of result.targets) {
+    console.log(t.failed ? red(targetSummaryLine(t)) : green(targetSummaryLine(t)));
+    for (const line of failureLines(t)) console.log(dim(line));
+  }
+}
+
+process.exit(result.ok ? 0 : 1);

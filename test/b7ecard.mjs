@@ -10,7 +10,8 @@
 // onto an existing bead and then a scratch script to find out whether it had parsed —
 // this drives `bin/b7e-card` end to end against a fake `bd` on PATH, covering the exact
 // failure each of them hit: bc-xl7n.101's unquoted `superseded-by:` reading as a nested
-// YAML mapping (exit non-zero, the offending line named), the rewritten block parsing
+// YAML mapping — repaired rather than refused since bc-dmpt3, with a ragged-indent block
+// keeping the "exit non-zero, the offending line named" half — the rewritten block parsing
 // clean (exit 0, three options), and bc-1kwl's `beadcause:waiting` / `beadcause:inmain`
 // markers being listed rather than silently carried past a `--notes` clobber.
 import assert from 'node:assert/strict';
@@ -211,10 +212,38 @@ fs.writeFileSync(
   ].join('\n')
 );
 
-check('the unquoted first draft exits non-zero and names the superseded-by line', () => {
+// bc-dmpt3 turned this fixture from a refusal into a repair: `forgiveProseColons` in
+// lib/decision.js now quotes a colon inside a prose value on the retry, so the draft
+// bc-xl7n.101 actually wrote parses, hint and all. The annotation it used to exercise
+// still matters — a block broken some other way has to name its own offending line —
+// so `raggedFile` below takes over that half of the case.
+check('the unquoted first draft now parses — the colon in the hint is forgiven', () => {
   const r = run(['bc-plain.1', '--file', brokenFile]);
-  assert.equal(r.status, 1, r.stderr);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Close bc-xl7n\.101\?/);
+  assert.match(r.stdout, /options \(2\):/);
   assert.match(r.stdout, /superseded-by: already keeps it out/);
+});
+
+const raggedFile = path.join(tmp, 'ragged.md');
+fs.writeFileSync(
+  raggedFile,
+  [
+    '```decision',
+    'question: Close bc-xl7n.101?',
+    'options:',
+    '  - id: close',
+    '   label: Close it',
+    '     hint: the indent under this option is ragged',
+    '```',
+    '',
+  ].join('\n')
+);
+
+check('a block the repair cannot save exits non-zero and names the offending line', () => {
+  const r = run(['bc-plain.1', '--file', raggedFile]);
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stdout, /→ line \d+: /);
 });
 
 check('the quoted rewrite exits 0 and prints the question and three options', () => {

@@ -566,8 +566,87 @@ await check('an epic whose only open child is not in the queue', async () => {
   });
 
   assert.deepEqual(opened, ['x-2'], 'an epic is its children until they are done');
-  assert.match(card.heldByChildren[0].why, /1 open child issue/, `got: ${card.heldByChildren[0].why}`);
-  assert.deepEqual(calls.children, ['x-1'], 'one call for the one epic — x-2 is not an epic and was not asked about');
+  assert.match(card.heldByChildren[0].why, /an epic with 1 open child issue/, `got: ${card.heldByChildren[0].why}`);
+  assert.deepEqual(
+    calls.children,
+    ['x-1'],
+    'one call for the one epic — x-2 is not an epic, and with no export nothing says it has children'
+  );
+});
+
+/* ------------------------------------------------ a parent that is not an epic (bc-xl7n.137)
+
+   The same half `bd ready` cannot see, on the bead that is not typed as an epic: the review
+   follow-up parent lib/reviewfollowup.js files, whose acceptance is "every child is closed"
+   and which has no diff of its own for a worker to push. Check 1 held it only while a child
+   was in the queue, and delivery takes a child out of `bd ready` while leaving it open — so
+   the hold evaporated three minutes after the last child was delivered, twice, and a window
+   opened on a bead with nothing in it to do.
+
+   The cost is the reason this is not simply "drop the type test": the `bd children` call is
+   a subprocess, and every ready row paying for one on every tick is not a trade worth making
+   for a handful of beads. The tick's own export answers "could this have children" for free,
+   and only a yes costs the call — which is what the three `calls.children` assertions below
+   are about. */
+
+await check('a parent that is not an epic, whose one open child has left the queue', async () => {
+  const shape = {
+    ready: [bead('x-1'), bead('x-2')],
+    // Open, and nowhere in `ready`: parked behind its merge bead, which is what delivery
+    // does to a child and is exactly the state check 1 cannot see.
+    children: { 'x-1': [bead('x-1.1', { status: 'in_progress' }), bead('x-1.2', { status: 'closed' })] },
+  };
+
+  const blind = await tick(shape);
+  assert.deepEqual(blind.opened.sort(), ['x-1', 'x-2'], 'the control: with no export, the parent is dispatched — the bug');
+  assert.deepEqual(blind.calls.children, [], 'and it costs nothing to be wrong, which is why it went unnoticed');
+
+  const { opened, card, calls } = await tick({ ...shape, parents: { 'x-1.1': 'x-1', 'x-1.2': 'x-1' } });
+  assert.deepEqual(opened, ['x-2'], 'a parent is its children until they are done, whatever it is typed as');
+  assert.deepEqual(heldIds(card), ['x-1']);
+  assert.match(
+    card.heldByChildren[0].why,
+    /a parent with 1 open child issue/,
+    `a task must not be told it is being held as an epic — got: ${card.heldByChildren[0].why}`
+  );
+  assert.deepEqual(calls.children, ['x-1'], 'one call, for the one bead the export says has children');
+});
+
+await check('and a leaf the export knows about costs no call at all', async () => {
+  const { opened, calls } = await tick({
+    ready: [bead('x-1'), bead('x-2')],
+    children: { 'x-1': [bead('x-1.1', { status: 'in_progress' })] },
+    // x-1 is somebody's child here, not somebody's parent. The gate is "does anything hang
+    // off this bead", and a `Set` of the map's *values* is what answers it.
+    parents: { 'x-1': 'x-0', 'x-2': 'x-0' },
+  });
+
+  assert.deepEqual(opened.sort(), ['x-1', 'x-2'], 'both are ordinary work');
+  assert.deepEqual(calls.children, [], 'and neither was asked about — this is the whole of the cost claim');
+});
+
+await check('a non-epic parent whose children have all closed is still work', async () => {
+  const { opened, card, calls } = await tick({
+    ready: [bead('x-1')],
+    children: { 'x-1': [bead('x-1.1', { status: 'closed' })] },
+    parents: { 'x-1.1': 'x-1' },
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'the hold is a wait, not a life — lib/finishedepic.js is what ends this bead');
+  assert.deepEqual(heldIds(card), []);
+  assert.deepEqual(undecidedIds(card), [], 'and check 4 is an epic\'s alone — a childless task is an ordinary bead');
+  assert.deepEqual(calls.children, ['x-1']);
+});
+
+await check('silence from bd keeps a non-epic parent too', async () => {
+  const { opened, card } = await tick({
+    ready: [bead('x-1')],
+    children: { 'x-1': new Error('dolt: database is locked') },
+    parents: { 'x-1.1': 'x-1' },
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'cannot-tell holds nothing back, exactly as for an epic');
+  assert.deepEqual(heldIds(card), []);
 });
 
 /**

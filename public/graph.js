@@ -130,10 +130,12 @@
   /**
    * The write half of `api`, for the one thing this page can change about a bead.
    *
-   * A graph is a reading surface and this is deliberately the only `POST` on it: not a
-   * second endorsement queue, not an editor — one fact, `owner:<handle>`, which is the
-   * fact the board is built out of and the one you most want to fix at the moment you
-   * are looking at the bead rather than three screens later.
+   * A graph is a reading surface, and every `POST` it makes is one you asked for while
+   * looking at the bead it is about: `owner:<handle>`, the root an orphan is adopted
+   * under, and — behind the sheet's ⋮ — the bead's own six editable fields. What it is
+   * still deliberately not is a *queue*: nothing on this page endorses, revokes or
+   * decides anything, which is why the edit card posts to `/api/bead/edit` rather than
+   * to the verdict route beside it (lib/beadedit.js is the whole argument).
    */
   async function post(path, body) {
     const res = await fetch(path, {
@@ -851,15 +853,45 @@
   const HIDE_CLOSED_KEY = 'beadcause.childrenHideClosed';
   let hideClosed = localStorage.getItem(HIDE_CLOSED_KEY) === '1';
 
+  /**
+   * The bead the sheet is currently showing, exactly as `/api/bead` last described it.
+   *
+   * Held because two things need the bead after the paint and neither should re-ask for
+   * it: the ⋮ (whose one item is disabled on a closed bead) and the edit card, which
+   * prefills from here and which Cancel repaints from here. Cleared by `closeSheet` so a
+   * menu can never be opened over the bead you were looking at a moment ago.
+   */
+  let sheetBead = null;
+
   async function openSheet(d) {
     sheet.hidden = false;
     sheet.classList.add('open');
     const seq = ++sheetSeq;
     $('sheet-id').textContent = d.id;
     $('sheet-body').innerHTML = '<div class="empty">Loading…</div>';
+    await paintSheet(d.id, seq);
+  }
+
+  /**
+   * Ask for one bead and draw it, with everything that arrives late.
+   *
+   * Lifted out of `openSheet` because a save has to do exactly this and nothing else:
+   * the acceptance criterion is that the sheet repaints *from the server's answer rather
+   * than from what was typed*, and the strongest reading of that is the one the route
+   * cannot give on its own — `/api/bead/edit` answers `{changed, fields, title, …}`,
+   * which is what moved, not what the bead now says. So the save re-reads the bead. It
+   * costs one extra round trip and it is the only version of this that cannot drift:
+   * `normalizeEdits` clamps what it was sent, the thread gains a line saying what
+   * changed, and both of those are on the sheet a moment later because they came back
+   * from `bd` rather than from the form.
+   *
+   * The sequence guard is `openSheet`'s, unchanged and for the same reason — an answer
+   * for a bead you have since navigated away from is dropped rather than painted.
+   */
+  async function paintSheet(id, seq) {
     let full;
     try {
-      full = await api(`/api/bead?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(d.id)}`);
+      full = await api(`/api/bead?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(id)}`);
     } catch (err) {
       if (seq === sheetSeq) {
         $('sheet-body').innerHTML = `<div class="empty"><strong>Can't load this bead</strong>${esc(err.message)}</div>`;
@@ -867,6 +899,7 @@
       return;
     }
     if (seq !== sheetSeq) return;
+    sheetBead = full;
     $('sheet-body').innerHTML = sheetHtml(full);
     // Deliberately not awaited. The sheet is on screen and readable at this line, and
     // what points at the bead is an addition to it — see loadLinks for what that buys.
@@ -1636,6 +1669,135 @@
     });
   }
 
+  /* ------------------------------------------------------------------ the ⋮ menu */
+
+  /**
+   * What is behind the sheet's ⋮.
+   *
+   * The same shape as the inbox card's menu (`menuHtml` in public/app.js, and the
+   * `.kebab`/`.menu` rules they share) rather than a second popover invented here: the
+   * two are the same gesture on the two surfaces that show a bead, and a phone that
+   * learned one should not have to learn the other. It is a *menu* rather than a row of
+   * buttons for the reason the card's is — the sheet head already holds the two controls
+   * that are about the sheet itself, ⤢ and ✕, and an action that is about the *bead*
+   * sitting beside them would read as a third way to close it.
+   *
+   * **Edit is disabled on a closed bead rather than absent, and it says why.** The route
+   * refuses one with a 409 (lib/beadedit.js: a closed bead's description is the record of
+   * what was done rather than an instruction), and that refusal is the one a client can
+   * predict, because the sheet already knows the status. Predicting it as a *missing*
+   * item would leave the reader to work out whether the app has an editor at all; greyed
+   * out with the reason under it is the same fact, said.
+   */
+  function sheetMenuHtml(b) {
+    const shut = String(b?.status || '').trim() === 'closed';
+    return `<div class="menu" role="menu">
+      <button class="menu-item" role="menuitem" data-sheet-act="edit"${shut ? ' disabled' : ''}>
+        <span class="glyph">✎</span> Edit this bead
+      </button>
+      ${
+        shut
+          ? // `role="none"` because a `role="menu"` may only hold menu items, and this is
+            // the disabled one's explanation rather than a second thing to choose.
+            '<p class="menu-why" role="none">A closed bead is the record of what was done — say it in a comment instead.</p>'
+          : ''
+      }
+    </div>`;
+  }
+
+  /* --------------------------------------------------------------- the edit card */
+
+  /** The types `bd` knows, in the order the filing forms offer them. */
+  const EDIT_TYPES = ['task', 'bug', 'feature', 'epic', 'chore', 'decision'];
+
+  /**
+   * The labels the card must not show, because a save could not honour taking one off.
+   *
+   * `isProtectedLabel` in lib/verdict.js is the authority and this is a copy of it —
+   * nothing under public/ imports from lib/, the same reason `bylineBase` is restated for
+   * the thread below. The shape of the failure is what makes the copy worth keeping in
+   * step: the card posts *the label set it is showing*, so "remove what I no longer see"
+   * is how a removal is expressed, and a protected label drawn in the box is one the
+   * reader can delete and watch come back. Showing fewer than the server protects is
+   * merely quiet; showing more is the app lying about what it just did.
+   *
+   * `human` is here for a different reason and is not protected server-side: it is
+   * filtered out of the incoming set by `normalizeEdits`, so it is a label this card can
+   * never send — which makes drawing it exactly as misleading. What that costs is
+   * bc-ka5y.46.
+   */
+  const EDIT_HIDDEN = ['unendorsed', 'agent-filed', 'human'];
+  const EDIT_HIDDEN_PREFIX = ['owner:', 'for:', 'ran:', 'ctx:', 'filed-while:'];
+  const editableLabel = (l) => {
+    const s = String(l || '').trim();
+    return Boolean(s) && !EDIT_HIDDEN.includes(s) && !EDIT_HIDDEN_PREFIX.some((p) => s.startsWith(p));
+  };
+
+  /** The six fields as they stand on the bead — what the card opens with. */
+  const editFrom = (b) => ({
+    title: b?.title || '',
+    type: b?.issue_type || 'task',
+    priority: b?.priority == null ? 2 : Number(b.priority),
+    description: b?.description || '',
+    acceptance: b?.acceptance_criteria || '',
+    labels: (b?.labels || []).filter(editableLabel).join(', '),
+  });
+
+  /**
+   * The bead edit card, in the sheet body where the bead was.
+   *
+   * The same six fields and the same markup as the adjust form on /endorse
+   * (`editHtml` in public/endorse.js, and the `.eq-edit`/`.eq-lab` rules they share),
+   * because they are the same six fields: what differs between the two is what the save
+   * *means* — a verdict on a proposal there, an edit of a live bead here — and that
+   * difference is entirely on the server (`/api/bead/adjust` versus `/api/bead/edit`).
+   * Two visually different forms over one set of fields would be the app claiming a
+   * difference that is not in the fields.
+   *
+   * **In place of the sheet rather than under it.** A form below the bead it edits means
+   * scrolling past the description to find the box you are about to rewrite it in, and
+   * then not being able to see the original while you type. Swapping the body puts the
+   * card at the top of a sheet already scrolled to the top, and Cancel puts the bead
+   * back exactly as it was — from what the server last said, never from what was typed.
+   *
+   * There is no "Save & endorse" pair here, and its absence is the point of the separate
+   * route: endorsing is a decision about a bead and this card is about its fields.
+   */
+  function sheetEditHtml(b) {
+    const e = editFrom(b);
+    const opt = (v, on, label) => `<option value="${esc(v)}"${on ? ' selected' : ''}>${esc(label ?? v)}</option>`;
+    return `<div class="eq-edit" id="sheet-edit" data-id="${esc(b?.id || '')}">
+      <label class="eq-lab">Title
+        <input type="text" data-edit="title" value="${esc(e.title)}">
+      </label>
+      <div class="eq-two">
+        <label class="eq-lab">Type
+          <select data-edit="type">${EDIT_TYPES.map((t) => opt(t, t === e.type)).join('')}</select>
+        </label>
+        <label class="eq-lab">Priority
+          <select data-edit="priority">${[0, 1, 2, 3, 4].map((n) => opt(n, Number(e.priority) === n, `P${n}`)).join('')}</select>
+        </label>
+      </div>
+      <label class="eq-lab">What the work is
+        <textarea data-edit="description" rows="6">${esc(e.description)}</textarea>
+      </label>
+      <label class="eq-lab">What done looks like
+        <textarea data-edit="acceptance" rows="4">${esc(e.acceptance)}</textarea>
+      </label>
+      <label class="eq-lab">Labels
+        <input type="text" data-edit="labels" value="${esc(e.labels)}" placeholder="comma separated">
+      </label>
+      <div class="board-actions">
+        <button class="board-btn merge" data-sheet-act="save">Save</button>
+        <button class="board-btn link" data-sheet-act="cancel">Cancel</button>
+      </div>
+      <p class="edit-err" id="sheet-edit-err" hidden></p>
+      <p class="board-hint">Saving rewrites the bead itself — this is not the endorsement
+        queue, so nothing here endorses, revokes or moves any marker. The labels the daemon
+        owns are not in the box because a save could not take them off.</p>
+    </div>`;
+  }
+
   function sheetHtml(b) {
     const parts = [`<h2 class="sheet-title">${esc(b.title || '')}</h2>`];
     const rel = relations(b);
@@ -1770,6 +1932,154 @@
     sheet.classList.remove('open', 'full');
     sheet.hidden = true;
     $('sheet-expand').textContent = '⤢';
+    closeSheetMenu();
+    // So the next ⋮ cannot be answered out of the bead you were reading a moment ago.
+    sheetBead = null;
+  }
+
+  /* -------------------------------------------------------- the ⋮ and what it opens */
+
+  /**
+   * Open and shut the popover by hand, never through a repaint.
+   *
+   * The same surgery `closeMenu` does in public/app.js and for a sharper version of the
+   * same reason: the sheet body can be a half-typed edit card by the time the menu is
+   * dismissed, and rebuilding the sheet to take a popover off it would throw away what
+   * was typed. Nothing here touches `sheet-body` at all.
+   */
+  function closeSheetMenu() {
+    const btn = $('sheet-menu');
+    for (const m of sheet.querySelectorAll('.sheet-head .menu')) m.remove();
+    if (!btn) return;
+    btn.classList.remove('on');
+    btn.setAttribute('aria-expanded', 'false');
+  }
+
+  function openSheetMenu() {
+    const btn = $('sheet-menu');
+    if (!btn || !sheetBead) return;
+    btn.classList.add('on');
+    btn.setAttribute('aria-expanded', 'true');
+    btn.parentElement.insertAdjacentHTML('beforeend', sheetMenuHtml(sheetBead));
+  }
+
+  const sheetMenuOpen = () => Boolean(sheet.querySelector('.sheet-head .menu'));
+
+  $('sheet-menu').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (sheetMenuOpen()) closeSheetMenu();
+    else openSheetMenu();
+  });
+
+  // A tap anywhere that is not the wrap dismisses it — app.js's rule, restated because
+  // the two pages share no script. `stopPropagation` above is what stops the tap that
+  // opened the menu from arriving here and closing it again in the same gesture.
+  document.addEventListener('click', (ev) => {
+    if (sheetMenuOpen() && !ev.target.closest('.menu-wrap')) closeSheetMenu();
+  });
+
+  // And Escape, for a keyboard — the popover and nothing else. Deliberately not the
+  // sheet: /graph runs inside the drawer's frame, whose own Escape (public/drawer.js,
+  // capture and swallowed) means *the drawer*, and a page that also closed a layer of
+  // its own on the same key would dismiss two things a reader asked to dismiss one of.
+  // What this adds is only the dismissal a popover owes, which nothing here had before.
+  // `stopPropagation` so the press that shuts the menu is not also the press that leaves
+  // the page.
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape' || !sheetMenuOpen()) return;
+    ev.stopPropagation();
+    closeSheetMenu();
+  });
+
+  /**
+   * Everything the sheet body's own controls do — Edit, Save, Cancel.
+   *
+   * Delegated from the body rather than bound per paint, because the body is replaced
+   * whole three times in the life of one edit (bead → card → bead) and a listener bound
+   * to a node inside it dies with the node.
+   */
+  $('sheet-body').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-sheet-act]');
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    if (btn.dataset.sheetAct === 'save') return saveEdit();
+    // Cancel: the bead as the server last described it, which is the copy `paintSheet`
+    // kept. Nothing typed is written anywhere, so there is nothing to undo.
+    if (btn.dataset.sheetAct === 'cancel' && sheetBead) {
+      const b = sheetBead;
+      const seq = sheetSeq;
+      $('sheet-body').innerHTML = sheetHtml(b);
+      loadLinks(b, seq);
+      loadSession(b, seq);
+      loadOwnerActions(b, seq);
+      loadAdoptActions(b, seq);
+    }
+  });
+
+  // Edit lives in the popover, which hangs off the head rather than the body — so it is
+  // caught here, one listener up, rather than by the delegate above.
+  sheet.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.sheet-head [data-sheet-act="edit"]');
+    if (!btn || btn.disabled || !sheetBead) return;
+    ev.preventDefault();
+    closeSheetMenu();
+    $('sheet-body').innerHTML = sheetEditHtml(sheetBead);
+    $('sheet-body').scrollTop = 0;
+    $('sheet-body').querySelector('[data-edit="title"]')?.focus();
+  });
+
+  /** The card as the route wants it: the six fields, labels split on commas. */
+  function editsNow(card) {
+    const val = (name) => card.querySelector(`[data-edit="${name}"]`)?.value ?? '';
+    return {
+      title: val('title'),
+      type: val('type'),
+      priority: Number(val('priority')),
+      description: val('description'),
+      acceptance: val('acceptance'),
+      labels: String(val('labels'))
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    };
+  }
+
+  /**
+   * Write the card, then draw the bead the server now holds.
+   *
+   * The button is disabled for the duration rather than left live, because the one
+   * failure this shape has is a double tap: `updateFor` makes the second write a no-op,
+   * but the second *repaint* would land under a sheet the first had already replaced.
+   *
+   * A refusal leaves the card exactly as it is, with everything typed still in it —
+   * a 409 on a bead somebody closed while you were typing is the case that matters, and
+   * throwing the text away would be the app punishing you for its own stale copy.
+   */
+  async function saveEdit() {
+    const card = $('sheet-edit');
+    if (!card) return;
+    const id = card.dataset.id;
+    const err = $('sheet-edit-err');
+    const save = card.querySelector('[data-sheet-act="save"]');
+    if (err) err.hidden = true;
+    if (save) {
+      save.disabled = true;
+      save.textContent = 'Saving…';
+    }
+    try {
+      await post('/api/bead/edit', { workspace, id, edits: editsNow(card) });
+    } catch (e) {
+      if (err) {
+        err.textContent = e.message;
+        err.hidden = false;
+      }
+      if (save) {
+        save.disabled = false;
+        save.textContent = 'Save';
+      }
+      return;
+    }
+    await paintSheet(id, sheetSeq);
   }
 
   $('sheet-close').addEventListener('click', closeSheet);

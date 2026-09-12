@@ -290,14 +290,14 @@ check('and each one is a top-level card, not a fold inside the repo advocate', (
   // card you can see — a card that has to be opened to be paused is a fold with a border.
   const head = fn.slice(fn.indexOf('const controls ='), fn.indexOf('const plan ='));
   assert.match(head, /data-epic="\$\{e\.paused \? 'epicResume' : 'epicPause'\}/, 'the pause is not in the head');
-  assert.match(head, /Open the epic/, 'nor the way into the epic');
+  assert.match(head, /Open the beadepic/, 'nor the way into the epic');
 });
 
 check('a window is on exactly one card, and the repo card says where the rest went', () => {
   const card = page.slice(page.indexOf('function advocateCard'), page.indexOf('function plainCard'));
   assert.match(card, /const claimed = carded\(a\)/, 'the repo card no longer knows which epics have cards');
   assert.match(card, /codersOf\(a\)\.filter\(\(w\) => !claimed\.has\(w\.group\?\.epic\)\)/, 'the repo card draws epic-dispatched windows too');
-  assert.match(card, /came out of an epic's plan/, 'nothing accounts for the rows the count includes and the list does not');
+  assert.match(card, /came out of a beadepic's plan/, 'nothing accounts for the rows the count includes and the list does not');
   assert.match(page, /const dispatchedFrom = \(a, id\) => codersOf\(a\)\.filter\(\(w\) => w\.group\?\.epic === id\)/, 'the epic card cannot find its own sessions');
 });
 

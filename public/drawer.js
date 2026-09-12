@@ -103,6 +103,14 @@
     '/bead-session',
     '/archive',
     '/beadsession.html',
+    /* The docket — an epic's whole arc (bc-it26z). The fifth, and it belongs here for the
+       reason the four above it do: it is reached by a tap on a row in a list you want to
+       still be in afterwards. `/epic` is its other name and `/dockets` is the index; both
+       are paths a person types, and a path a person types is one a link will carry. */
+    '/docket',
+    '/dockets',
+    '/epic',
+    '/docket.html',
   ]);
   const SLIDE_MS = 240;
   /* Where a subordinate view with nothing underneath it closes to — the inbox, which
@@ -383,14 +391,24 @@
     // The archived session view reports itself as a `session` rather than as a fourth
     // kind: it is the same subject at a different time, and the panel has nothing it
     // would do differently for one that has stopped running.
-    const kind = location.pathname.startsWith('/doc')
-      ? 'doc'
-      : location.pathname.startsWith('/session') ||
-          location.pathname.startsWith('/bead-session') ||
-          location.pathname.startsWith('/beadsession') ||
-          location.pathname.startsWith('/archive')
-        ? 'session'
-        : 'graph';
+    // **`/docket` is tested before `/doc`, and that order is load-bearing**: `/docket`
+    // starts with `/doc`, so a prefix test in the other order would file an epic's arc as
+    // a *document* and put the reader's file into the panel's heading. It reports itself
+    // as a `graph` rather than as a fifth kind — it is the same subject as the graph, a
+    // bead and what hangs off it, drawn as a chronology instead of a force layout, and
+    // the panel has nothing it would do differently for one of them.
+    const at = location.pathname;
+    const kind =
+      at.startsWith('/docket') || at.startsWith('/epic')
+        ? 'graph'
+        : at.startsWith('/doc')
+          ? 'doc'
+          : at.startsWith('/session') ||
+              at.startsWith('/bead-session') ||
+              at.startsWith('/beadsession') ||
+              at.startsWith('/archive')
+            ? 'session'
+            : 'graph';
     const heading = document.querySelector('.topbar h1');
     const sendTitle = () => post({ type: TITLE, kind, title: (heading ? heading.textContent : document.title).trim() });
     sendTitle();

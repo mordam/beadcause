@@ -293,7 +293,7 @@ await check('the head says whether there is a window and, when there is not, why
   const [one, two, three] = cards(await draw(PAYLOAD)).filter(isEpic);
   // Head only — the reason has to be readable on a shut card, which is all head.
   const head = (c) => c.slice(0, c.indexOf('</div>'));
-  assert.match(head(one), /writing this epic&#39;s plan|writing this epic's plan/, 'a windowed epic does not say so');
+  assert.match(head(one), /writing this beadepic&#39;s plan|writing this beadepic's plan/, 'a windowed epic does not say so');
   assert.match(head(two), /waiting for a slot/, 'an unwindowed epic does not say why, which is the actionable half');
   // Paused beats a reason and beats a window: the epic has stopped, and that is the fact.
   assert.match(head(three), /paused/, 'a paused epic does not say so in its head');
@@ -304,7 +304,7 @@ await check('it can be paused and resumed from its own head', async () => {
   const head = (c) => c.slice(0, c.indexOf('</div>'));
   assert.match(head(one), /data-epic="epicPause" data-ws="demo" data-id="bc-e1"/, 'no pause in the head');
   assert.match(head(three), /data-epic="epicResume" data-ws="demo" data-id="bc-e3"/, 'a paused epic offers no way back');
-  assert.match(head(one), /href="\/graph\?ws=demo&amp;id=bc-e1">Open the epic/, 'no way into the epic from its head');
+  assert.match(head(one), /href="\/graph\?ws=demo&amp;id=bc-e1">Open the beadepic/, 'no way into the epic from its head');
 });
 
 await check('shut, a card is its head — and the head still names all four things', async () => {
@@ -344,14 +344,14 @@ await check('and the planner window is drawn once, on its epic, never as a coder
   const whole = drawn.join('');
   assert.equal(whole.split('<span class="pill id">bc-plan</span>').length - 1, 0, 'the planner is a coder row somewhere');
   // It is the epic card's own row instead, which says what it is rather than quoting a bead.
-  assert.match(drawn[1], /Writing this epic&#39;s plan|Writing this epic's plan/, "bc-e1's planner window has no row at all");
+  assert.match(drawn[1], /Writing this beadepic&#39;s plan|Writing this beadepic's plan/, "bc-e1's planner window has no row at all");
 });
 
 await check('Working now still counts every coder against the limit, and says where they went', async () => {
   const repo = cards(await draw(PAYLOAD, OPEN))[0];
   // Four coders, limit four: the number the daemon rations, not the number of rows drawn.
   assert.match(repo, /<span class="mon-n[^"]*">4\/4<\/span>/, 'the count no longer agrees with the daemon');
-  assert.match(repo, /3 more sessions came out of an epic&#39;s plan|3 more sessions came out of an epic's plan/,
+  assert.match(repo, /3 more sessions came out of a beadepic&#39;s plan|3 more sessions came out of a beadepic's plan/,
     'the card does not account for the rows its count includes and its list does not');
 });
 
@@ -367,15 +367,15 @@ await check('the repo advocate\'s own numbers survive, and stop counting the epi
   );
   assert.match(repo, /4 of 4 sessions/, 'coders against limit has gone from the card');
   assert.match(repo, /1 of 3 EpicAdvocates/, 'planners against epicLimit has gone from the card');
-  assert.match(repo, /3 epics have an advocate assigned — one card each/, 'the card does not point at the cards below it');
+  assert.match(repo, /3 beadepics have an advocate assigned — one card each/, 'the card does not point at the cards below it');
 });
 
 await check('an advocate with no assigned epic still draws exactly one card', async () => {
   const bare = { ...PAYLOAD, advocates: [{ ...PAYLOAD.advocates[0], epicAdvocates: [], workers: [worker('bc-solo')] }] };
   const drawn = cards(await draw(bare, OPEN));
   assert.equal(drawn.length, 1, 'an empty roster grew or lost a card');
-  assert.match(drawn[0], /No epic has an advocate assigned/, 'and the card does not say the roster is empty');
-  assert.ok(!/came out of an epic/.test(drawn[0]), 'it accounts for windows that do not exist');
+  assert.match(drawn[0], /No beadepic has an advocate assigned/, 'and the card does not say the roster is empty');
+  assert.ok(!/came out of a beadepic/.test(drawn[0]), 'it accounts for windows that do not exist');
 });
 
 await check(
@@ -400,7 +400,7 @@ await check(
     const repo = drawn[0];
     assert.match(
       repo,
-      /3 epics have an advocate assigned — one card each.*1 more open epic could have one and has not been assigned yet/,
+      /3 beadepics have an advocate assigned — one card each.*1 more open beadepic could have one and has not been assigned yet/,
       'the count still claims every qualifying root is advocated'
     );
     const coldCard = drawn.find((c) => c.includes('data-epic-card="bc-e4"'));

@@ -62,6 +62,13 @@
     <header class="sheet-head">
       <span class="pill id" id="sheet-id"></span>
       <div class="sheet-actions">
+        <!-- What is about the bead, left of the two that are about the sheet. The popover
+             itself is inserted into this wrap on tap, never rendered with the head — see
+             `openSheetMenu`, which is the inbox card's `state.menu` surgery a second time. -->
+        <div class="menu-wrap">
+          <button id="sheet-menu" class="kebab" aria-haspopup="true" aria-expanded="false"
+            aria-label="More actions">⋮</button>
+        </div>
         <button id="sheet-expand" class="icon-btn" aria-label="Full screen">⤢</button>
         <button id="sheet-close" class="icon-btn" aria-label="Close details">✕</button>
       </div>

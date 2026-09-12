@@ -314,24 +314,35 @@ const WANT = {
   unclaimed: 'bead',
 };
 
-/** The row, in the order it is drawn. Two of the six are places, not slices. */
-const PILLS = ['epics', 'question', 'pr', 'session', 'history', 'bead'];
-/** The four with a predicate — the ones a selection can name. */
-const SLICES = ['question', 'pr', 'session', 'bead'];
+/** The row, in the order it is drawn. Two of the seven are places, not slices. */
+const PILLS = ['home', 'epics', 'question', 'pr', 'session', 'history', 'bead'];
+/**
+ * The five with a predicate — the ones a selection can name.
+ *
+ * `epics` is among them since bc-fwp2c, and its predicate is `false`. That is not a
+ * loophole: no inbox row is ever an epic — a started one is a card on `rootboard` and an
+ * unstarted one an offer in `startable` — so the predicate states the truth about this
+ * list, and stating it is what makes `pick()` select the pill instead of clearing the
+ * selection the way it does for a place. Its badge comes from the caller, which is the
+ * `board` flag below.
+ */
+const SLICES = ['epics', 'question', 'pr', 'session', 'bead'];
 /** The two with none: Home unnarrowed, and a page of its own. */
-const PLACES = ['epics', 'history'];
-/* Which of the six have a ＋, and which have none — bc-khoe.27.1. Not derived from
-   PLACES or SLICES, and it cuts across both: `My Epics` is a place with a create and
+const PLACES = ['home', 'history'];
+/** The one slice whose number is handed in rather than counted off the rows. */
+const BOARD_COUNTED = ['epics'];
+/* Which of the seven have a ＋, and which have none — bc-khoe.27.1. Not derived from
+   PLACES or SLICES, and it cuts across both: `Home` is a place with a create and
    `Questions` is a slice without one. History is a page of its own and never had a ＋,
-   so it is in neither list for a reason that has nothing to do with the other five. */
-const COMPOSE = ['epics', 'session', 'bead'];
+   so it is in neither list for a reason that has nothing to do with the other six. */
+const COMPOSE = ['home', 'epics', 'session', 'bead'];
 const NO_COMPOSE = ['question', 'pr', 'history'];
 /* On neither side, so every scope can hold one: a pull request comes off `gh`, a chat
    session off no sweep at all, and a question can come off either sweep — the human one
    asks it and the agent one returns the beads held for endorsement that fold into it.
    `bead` is the only kind left with a side. public/app.js `kindsForScope` is the other
    half. */
-const ANY_KINDS = ['epics', 'question', 'pr', 'session', 'history'];
+const ANY_KINDS = ['home', 'epics', 'question', 'pr', 'session', 'history'];
 const AGENT_KINDS = [...ANY_KINDS, 'bead'];
 /** A pull request on a given rung, as the row app.js synthesises from the board. */
 const prOn = (stage) => ({ key: `pr:w#${stage}`, workspace: 'w', pr: { number: 1, stage } });
@@ -420,6 +431,10 @@ await check('AND THE FIELD SAYS WHICH CREATE, which is what public/app.js branch
   // with nothing behind it does nothing at all when tapped.
   const makes = Object.fromEntries(list(model.KINDS).filter((k) => k.compose).map((k) => [k.id, k.compose]));
   assert.deepEqual(makes, {
+    // Home's ＋ files a bead — the same form All Beads opens. It is the landing screen
+    // since bc-fwp2c, and a list of everything is where "file another one" is the
+    // obvious next thing; the epic create went with the board, one pill to the right.
+    home: 'bead',
     epics: 'epic',
     session: 'chat',
     // `bead` said `chat` for as long as that is what ＋ did there, and became `bead` the
@@ -429,7 +444,7 @@ await check('AND THE FIELD SAYS WHICH CREATE, which is what public/app.js branch
   });
   const { filter } = load();
   filter.set([]);
-  assert.equal(filter.creates(), 'epic', 'the screen you land on stopped naming its create');
+  assert.equal(filter.creates(), 'bead', 'the screen you land on stopped naming its create');
   filter.set(['session']);
   assert.equal(filter.creates(), 'chat');
   // And nothing at all where there is no button, rather than a word a caller could act on.
@@ -440,8 +455,8 @@ await check('AND THE FIELD SAYS WHICH CREATE, which is what public/app.js branch
 
 await check('＋ follows the lit pill, and the two queues have none', () => {
   const { filter } = load();
-  // Nothing selected is `My Epics`, which is where you land and which has one.
-  assert.equal(filter.current(), 'epics');
+  // Nothing selected is `Home`, which is where you land and which has one.
+  assert.equal(filter.current(), 'home');
   assert.equal(filter.composes(), true, 'the default screen lost ＋');
   for (const id of SLICES) {
     filter.set([id]);
@@ -451,7 +466,7 @@ await check('＋ follows the lit pill, and the two queues have none', () => {
   // And back: a create that does not come back when you widen is a button you lose for
   // the rest of the session by having tapped Questions once.
   filter.set([]);
-  assert.equal(filter.composes(), true, '＋ did not come back on My Epics');
+  assert.equal(filter.composes(), true, '＋ did not come back on Home');
 });
 
 await check('＋ and what it creates are one field, so they cannot disagree on any kind', () => {
@@ -462,8 +477,8 @@ await check('＋ and what it creates are one field, so they cannot disagree on a
   // a state this table can be put into.
   const WHAT = { epics: 'epic', session: 'chat', bead: 'bead' };
   const { filter } = load();
-  // Nothing selected is `My Epics`, the screen you land on.
-  assert.equal(filter.creates(), 'epic', 'the screen you land on stopped naming its create');
+  // Nothing selected is `Home`, the screen you land on, and what ＋ makes there is a bead.
+  assert.equal(filter.creates(), 'bead', 'the screen you land on stopped naming its create');
   for (const id of SLICES) {
     filter.set([id]);
     assert.equal(filter.creates(), WHAT[id] || '', `＋ creates the wrong thing on ${id}`);
@@ -474,20 +489,20 @@ await check('＋ and what it creates are one field, so they cannot disagree on a
 await check('a place clears the selection, and ＋ comes back with it', () => {
   // `History` is the second place and it is the one that is not Home. Tapping it here
   // clears the selection rather than selecting anything (see the check above), so the
-  // kind you are left on is `epics` — and `epics` has a ＋ whatever `history` does.
+  // kind you are left on is `home` — and `home` has a ＋ whatever `history` does.
   const { filter } = load();
   filter.set(['question']);
   assert.equal(filter.composes(), false);
   filter.pick('history');
-  assert.equal(filter.current(), 'epics', 'a place did not leave Home unnarrowed');
+  assert.equal(filter.current(), 'home', 'a place did not leave Home unnarrowed');
   assert.equal(filter.composes(), true, '＋ did not come back');
 });
 
 await check('a scope that drops the selected kind hands ＋ back with the pill', () => {
   // The path no tap goes down: `All Beads` is agent-only, so switching to `Human`
-  // drops it and the lit pill falls back to `My Epics`. A ＋ painted from a stored
+  // drops it and the lit pill falls back to `Home`. A ＋ painted from a stored
   // answer rather than from `current()` would be stale here — and `All Beads` and
-  // `My Epics` both having one is what would hide it, so the assertion is the
+  // `Home` both having one is what would hide it, so the assertion is the
   // *question*, asked twice, not the button being visible both times.
   const { filter } = load();
   filter.survey({ kinds: AGENT_KINDS });
@@ -496,7 +511,7 @@ await check('a scope that drops the selected kind hands ＋ back with the pill',
   assert.equal(filter.composes(), true);
   filter.survey({ kinds: ANY_KINDS });
   assert.deepEqual(list(filter.selected()), [], 'the agent-only kind survived the scope');
-  assert.equal(filter.current(), 'epics');
+  assert.equal(filter.current(), 'home');
   assert.equal(filter.composes(), true);
 });
 
@@ -654,7 +669,7 @@ await check('a phone that stored a retired kind comes back to an unnarrowed Home
   const store = new Map([['beadcause.kinds', JSON.stringify(['endorsement'])]]);
   const { filter } = load({ store });
   assert.deepEqual(list(filter.selected()), []);
-  assert.equal(filter.current(), 'epics');
+  assert.equal(filter.current(), 'home');
   assert.ok(filter.matches(ROWS.endorsement), 'a retired selection hid the list it named');
 });
 
@@ -685,7 +700,7 @@ await check('switching scope drops a selection the new scope cannot produce', ()
   filter.survey({ kinds: ANY_KINDS });
   assert.deepEqual(list(filter.selected()), [], 'All Beads survived a switch to the human scope');
   assert.ok(filter.matches(ROWS.question), 'the human list came up empty for no visible reason');
-  assert.equal(filter.current(), 'epics', 'the row is lit on a pill the scope no longer draws');
+  assert.equal(filter.current(), 'home', 'the row is lit on a pill the scope no longer draws');
 });
 
 await check('a selection the new scope keeps is kept', () => {
@@ -761,19 +776,23 @@ await check('a pill it can produce leaves the scope alone', () => {
   assert.deepEqual(list(filter.selected()), ['pr']);
 });
 
-await check('and My Epics still clears the selection rather than widening anything', () => {
+await check('and Home still clears the selection rather than widening anything', () => {
   // A place has no predicate, so there is nothing for a scope to fail to fetch — and
   // widening on the way to an unnarrowed Home would be a tap that changed a preference
   // for no reason at all.
+  //
+  // `home` rather than `epics` since bc-fwp2c, and the swap is the substance of that
+  // bead rather than a rename: My Epics has a predicate now, so tapping it *selects*
+  // instead of clearing, and it is no longer the pill this rule is about. Home is.
   const { filter } = load();
   filter.survey({ kinds: ANY_KINDS });
   const asked = [];
   filter.onWiden(widener(filter, asked));
   filter.pick('bead');
-  filter.pick('epics');
-  assert.deepEqual(asked, ['bead'], 'My Epics asked for a scope');
+  filter.pick('home');
+  assert.deepEqual(asked, ['bead'], 'Home asked for a scope');
   assert.deepEqual(list(filter.selected()), []);
-  assert.equal(filter.current(), 'epics');
+  assert.equal(filter.current(), 'home');
 });
 
 await check('a page with no answer is left as it was, not broken', () => {
@@ -784,7 +803,7 @@ await check('a page with no answer is left as it was, not broken', () => {
   filter.survey({ kinds: ANY_KINDS });
   filter.pick('bead');
   assert.deepEqual(list(filter.selected()), []);
-  assert.equal(filter.current(), 'epics');
+  assert.equal(filter.current(), 'home');
 });
 
 await check('?kind= names the slice a pill on another page asked for', () => {
@@ -793,7 +812,8 @@ await check('?kind= names the slice a pill on another page asked for', () => {
   // there is no second event to widen on — see `bootScope`.
   assert.equal(load({ search: '?kind=bead' }).filter.asked(), 'bead');
   assert.equal(load({ search: '?workspace=w&kind=pr' }).filter.asked(), 'pr');
-  assert.equal(load({ search: '?kind=epics' }).filter.asked(), null, 'a place is not a slice to reach');
+  assert.equal(load({ search: '?kind=epics' }).filter.asked(), 'epics', 'the board is a slice to reach since bc-fwp2c');
+  assert.equal(load({ search: '?kind=home' }).filter.asked(), null, 'a place is not a slice to reach');
   assert.equal(load({ search: '?kind=endorsement' }).filter.asked(), null, 'a kind folded away months ago');
   assert.equal(load({ search: '' }).filter.asked(), null);
   assert.equal(load({ search: '?kind=%zz' }).filter.asked(), null, 'a malformed query is no instruction');
@@ -1126,8 +1146,8 @@ await check('a pill tells the page, the way the chip it replaced did', () => {
   filter.pick('pr');
   assert.deepEqual(list(filter.selected()), ['pr']);
   assert.deepEqual(list(changes.at(-1)), ['pr'], 'the page was never told the pill moved');
-  filter.pick('epics');
-  assert.deepEqual(list(filter.selected()), [], 'My Epics did not go back to an unnarrowed Home');
+  filter.pick('home');
+  assert.deepEqual(list(filter.selected()), [], 'Home did not go back to an unnarrowed Home');
   assert.deepEqual(list(changes.at(-1)), []);
 });
 
@@ -1558,8 +1578,8 @@ const rowList = () => {
   return vm.runInNewContext(`(${m[1]})`, Object.create(null), { timeout: 1000 });
 };
 
-await check('four of the pills carry a count, and three deliberately do not', () => {
-  // bc-khoe.23. Which four is a property of the row's own list rather than of whatever
+await check('five of the pills carry a count, and three deliberately do not', () => {
+  // bc-khoe.23. Which five is a property of the row's own list rather than of whatever
   // happens to be in the map pushed at it — a kind the row draws no badge for cannot
   // grow one by appearing in the numbers. The three without are three different reasons
   // and none is an omission: All Beads is unbounded, and History and Advocates are pages
@@ -1572,7 +1592,7 @@ await check('four of the pills carry a count, and three deliberately do not', ()
     .map((p) => p.id);
   assert.deepEqual(
     counted,
-    ['epics', 'question', 'pr', 'session'],
+    ['home', 'epics', 'question', 'pr', 'session'],
     `the row counts ${counted.join(', ') || '(nothing)'}`
   );
 });
@@ -1607,9 +1627,9 @@ await check('and the table does not know where any of them goes', () => {
   for (const k of list(model.KINDS)) assert.equal(k.href, undefined, `${k.id} carries an href`);
 });
 
-await check('nothing is lit but My Epics until something says otherwise', () => {
+await check('nothing is lit but Home until something says otherwise', () => {
   const { filter } = load();
-  assert.equal(filter.current(), 'epics');
+  assert.equal(filter.current(), 'home');
 });
 
 await check('the lit pill follows the selection, and is pushed at the row', () => {
@@ -1617,9 +1637,9 @@ await check('the lit pill follows the selection, and is pushed at the row', () =
   filter.pick('pr');
   assert.equal(filter.current(), 'pr');
   assert.equal(marks.at(-1), 'pr', 'the row was never told which pill to light');
-  filter.pick('epics');
-  assert.equal(filter.current(), 'epics');
-  assert.equal(marks.at(-1), 'epics');
+  filter.pick('home');
+  assert.equal(filter.current(), 'home');
+  assert.equal(marks.at(-1), 'home');
 });
 
 await check('the four counted pills are pushed their numbers down the same channel', () => {
@@ -1637,8 +1657,8 @@ await check('the four counted pills are pushed their numbers down the same chann
   assert.equal(last.session, 1);
 });
 
-await check('My Epics is counted here, because no row is ever of that kind', () => {
-  // It is a *place*: no `test`, so `kindOf` can never answer `epics` and the caller's
+await check('Home is counted here, because no row is ever of that kind', () => {
+  // It is a *place*: no `test`, so `kindOf` can never answer `home` and the caller's
   // loop cannot produce a number for it. What picking it does is clear the selection,
   // and `matches()` with nothing selected is `inSub()` alone — which is exactly the rows
   // the caller has already counted, each through its own sub-filter. So the sum of the
@@ -1646,65 +1666,80 @@ await check('My Epics is counted here, because no row is ever of that kind', () 
   // disagreeing about it.
   const { filter, counts } = load();
   filter.survey({ kinds: ANY_KINDS, counts: { question: 3, pr: 2, session: 1, bead: 6 } });
-  assert.equal(counts.at(-1).epics, 12, 'My Epics is not the whole list');
+  assert.equal(counts.at(-1).home, 12, 'Home is not the whole list');
 });
 
-await check('and an epics the caller passed is not counted into its own total', () => {
-  // The derivation sums the *slices*, so a caller that started counting `epics` itself —
+await check('and a home the caller passed is not counted into its own total', () => {
+  // The derivation sums the *slices*, so a caller that started counting `home` itself —
   // which is how two places would come to know the same number — cannot double it.
   const { filter, counts } = load();
-  filter.survey({ kinds: ANY_KINDS, counts: { epics: 99, question: 3, pr: 2 } });
-  assert.equal(counts.at(-1).epics, 5);
+  filter.survey({ kinds: ANY_KINDS, counts: { home: 99, question: 3, pr: 2 } });
+  assert.equal(counts.at(-1).home, 5);
 });
 
-await check('and when My Epics is the board, it counts the cards instead — bc-khoe.49', () => {
-  // The sum above is every row that survives its own sub-filter, and bc-khoe.28 took
-  // those rows off the screen the pill opens: with an epic of yours started, My Epics is
-  // the board and there is no list under it. So the badge was promising eleven rows that
-  // one tap would not draw. The caller says how many cards are on that board, and it is
-  // the cards the badge says — the same promise, about the screen that is actually there.
+await check('and the board\'s own number is kept out of the sum too — bc-fwp2c', () => {
+  // `epics` *is* a slice, so it is inside the sum's reach in a way `home` is not, and
+  // its number is the cards rather than rows. Adding it to Home's total would be Home
+  // counting a screen it does not draw. The `board: true` flag on the row is what keeps
+  // it out; a caller that passes an `epics` count — scripts/viewbar-check.mjs pushes one
+  // straight at the row — must not move Home's badge by doing so.
+  const { filter, counts } = load();
+  filter.survey({ kinds: ANY_KINDS, counts: { epics: 99, question: 3, pr: 2 } });
+  assert.equal(counts.at(-1).home, 5, 'the cards were added to the rows');
+  assert.equal(counts.at(-1).epics, 0, 'the caller\'s count outranked the board');
+});
+
+await check('My Epics counts the cards, and only ever the cards — bc-fwp2c', () => {
+  // bc-khoe.49 made this a choice: the cards when the board was what a tap left you with,
+  // the row sum when a list was. That was a choice only because one pill was both
+  // screens, and the fallback is what put `My Epics 46` over a tracker holding three
+  // epics. My Epics draws the board and nothing else now, so there is no second answer
+  // for it to fall back to.
   const { filter, counts } = load();
   filter.survey({ kinds: ANY_KINDS, counts: { question: 3, pr: 2, session: 1, bead: 6 }, board: 4 });
-  assert.equal(counts.at(-1).epics, 4, 'My Epics counted the list it no longer draws');
-  // And nothing else moved. The other three are counted before the board gate and each
-  // still opens exactly its own slice, which is why this bead is about one badge.
+  assert.equal(counts.at(-1).epics, 4, 'My Epics counted something other than its cards');
+  // And nothing else moved. The others are counted off the rows and each still opens
+  // exactly its own slice, which is why this bead is about two badges and no lists.
+  assert.equal(counts.at(-1).home, 12);
   assert.equal(counts.at(-1).question, 3);
   assert.equal(counts.at(-1).pr, 2);
   assert.equal(counts.at(-1).session, 1);
 });
 
-await check('a board of none is `null`, not zero, and the sum comes back', () => {
-  // The two states, one after the other, through the one call the render makes. `null`
-  // is "there is a list on My Epics" — nothing started, a picked bead, an open card —
-  // and it is the default, so a caller that never heard of the board (and every other
-  // page that mounts this file) gets the derivation unchanged.
+await check('a board of none is zero, and never the sum', () => {
+  // The state that used to reach for the row sum, asked directly: no cards. The honest
+  // reading of that is 0 — you have not started an epic — and it is what the screen
+  // shows, an empty board with `epicsEmptyHtml` under it. A caller that never heard of
+  // the board at all (every page but Home mounts this file) gets the same 0 rather than
+  // a number about a list that is somebody else's pill now.
   const { filter, counts } = load();
   const counted = { question: 3, pr: 2 };
   filter.survey({ kinds: ANY_KINDS, counts: counted, board: 2 });
   assert.equal(counts.at(-1).epics, 2);
   filter.survey({ kinds: ANY_KINDS, counts: counted, board: null });
-  assert.equal(counts.at(-1).epics, 5, 'the board number stuck to a screen that has a list');
+  assert.equal(counts.at(-1).epics, 0, 'an empty board fell back to the row sum');
   filter.survey({ kinds: ANY_KINDS, counts: counted });
-  assert.equal(counts.at(-1).epics, 5, 'an omitted board is not an empty one');
+  assert.equal(counts.at(-1).epics, 0, 'an omitted board is not a list');
+  // Home is untouched by any of it — that is the whole of the split.
+  assert.equal(counts.at(-1).home, 5);
 });
 
-await check('and public/app.js is what decides which of the two it is', () => {
-  // The seam, read statically, because the decision is about the *render* — how many
-  // cards `p0Cards()` leaves and whether anything puts a list back under them — and the
-  // vm above has no render. What is asserted is that the question is asked with the view
-  // forced to My Epics rather than taken from the view being drawn: the badge is on the
-  // row from every pill, so `listHere` (which is about where you are standing) is the
-  // wrong answer everywhere but one.
+await check('and public/app.js hands the cards over unconditionally — bc-fwp2c', () => {
+  // The seam, read statically, because the number is about the *render* — how many cards
+  // `p0Cards()` leaves after the space and workspace chips — and the vm above has no
+  // render. What is asserted is that nothing decides *between* two numbers any more.
+  //
+  // `epicsIsBoard` used to live here: it asked what My Epics would draw if you tapped it,
+  // and passed `null` — meaning "use the row sum" — whenever the answer was a list. That
+  // branch is what put `My Epics 46` on screen, because an empty board took it. My Epics
+  // draws the board on every render now, so the cards are always the honest answer and
+  // there is no second one to pick between.
   const render = APP.slice(APP.indexOf('function render(force = false)'));
   const body = render.slice(0, render.indexOf('\n  function '));
-  assert.ok(body.includes('const epicsIsBoard ='), 'nothing asks what My Epics would draw');
-  const rule = body.slice(body.indexOf('const epicsIsBoard ='));
+  assert.ok(!body.includes('epicsIsBoard'), 'the badge is choosing between two numbers again');
+  assert.ok(/const cards = p0Cards\(\)\.length;/.test(body), 'the cards are no longer counted');
   assert.ok(
-    /const epicsIsBoard = cards > 0 && !beadPicked\(\) && state\.open\.size === 0;/.test(rule),
-    'the rule is not `listHere` with the view forced to My Epics'
-  );
-  assert.ok(
-    body.includes('surveyKinds(forPills, epicsIsBoard ? cards : null)'),
+    body.includes('surveyKinds(forPills, cards)'),
     'the count is surveyed without the board, so the badge is the old sum again'
   );
   // And the survey hands it on rather than counting a second time.
@@ -1752,12 +1787,12 @@ await check('and it outranks what is on disk, which is the whole point of the li
   assert.deepEqual(list(filter.selected()), ['session'], 'the link landed on the last thing looked at');
 });
 
-await check('?kind=epics is an unnarrowed Home, not a selection of nothing-matches', () => {
+await check('?kind=home is an unnarrowed Home, not a selection of nothing-matches', () => {
   const store = new Map([['beadcause.kinds', JSON.stringify(['pr'])]]);
-  const { filter } = load({ store, search: '?kind=epics' });
+  const { filter } = load({ store, search: '?kind=home' });
   assert.deepEqual(list(filter.selected()), []);
-  assert.equal(filter.current(), 'epics');
-  assert.ok(filter.matches(ROWS.question), 'My Epics arrived at an empty screen');
+  assert.equal(filter.current(), 'home');
+  assert.ok(filter.matches(ROWS.question), 'Home arrived at an empty screen');
 });
 
 await check('a malformed query does not take the whole control down with it', () => {
@@ -1814,7 +1849,10 @@ await check('app.js filters the list through it, rather than only drawing it', (
   // two, and the kind filter is deliberately last so the chips count what you can
   // actually get to. What this check is about is that `inKind` still narrows the list
   // rather than only colouring the chips — whichever variable it is handed.
-  assert.ok(/inBoard\.filter\(inKind\)/.test(app), 'the list is not filtered by kind');
+  //
+  // The open-card clause rides in front of it since bc-fwp2c (asserted whole further
+  // down), so this asks only that every row still goes *through* `inKind` on the way in.
+  assert.ok(/inBoard\.filter\((inKind|\(q\) =>[^\n]*inKind\(q\))\)/.test(app), 'the list is not filtered by kind');
   // The board still narrows it — bc-rfnr.2 — but bc-0xil put one thing ahead of it: a bead
   // picked in the search box *replaces* the board's narrowing rather than stacking on it,
   // because half the beads worth searching for are under somebody else's P0 or under none,
@@ -1861,29 +1899,46 @@ await check('a view shows its own kind — the board on My Epics, the list on th
   // page with half its content missing and nothing on screen saying why, which is the same
   // fallback `inKind` makes two paragraphs up.
   assert.ok(/const boardHere = view === null \|\| view === 'epics'/.test(app), 'the board is not gated on the view');
-  // `boardOnly` is counted off the cards and not off the pill, which is bc-6s96 surviving
-  // this bead: with nothing started the section switches off, and a My Epics that drew
-  // neither a card nor a list would be a blank page on a fresh install.
-  // Counted once and read twice since bc-khoe.49 — the badge needs the same number — but
-  // it is still the *cards* it is counted off rather than the pill.
-  assert.ok(/const cards = p0Cards\(\)\.length;/.test(app), 'the cards are no longer counted for the gate');
-  assert.ok(/const boardOnly = view === 'epics' && cards > 0/.test(app), 'an empty board still hides the list');
+  // `boardOnly` is the pill and nothing else since bc-fwp2c. It used to carry `&& cards > 0`
+  // — bc-6s96 — because My Epics *was* Home, and a My Epics that drew neither a card nor a
+  // list would have been a blank page on a fresh install. That clause is what made the badge
+  // wrong: an empty board fell through to the flat list, and the number followed the list.
+  // Home is its own pill now, so an empty board can be an empty My Epics and say so.
+  assert.ok(/const cards = p0Cards\(\)\.length;/.test(app), 'the cards are no longer counted for the badge');
+  assert.ok(/const boardOnly = view === 'epics';/.test(app), 'an empty board falls back to the list again');
   assert.ok(
     /const listHere = !boardOnly \|\| beadPicked\(\) \|\| state\.open\.size > 0/.test(app),
     'the list is not gated on the view'
+  );
+  // An open card outranks the kind filter, which My Epics' `false` predicate makes
+  // load-bearing rather than tidy: without it the row a full-screen sheet is built out of
+  // is removed by the pill the sheet was opened from, and `p0-answer` on a bead in a
+  // board tree — the ordinary way to answer a question from the board — opens nothing.
+  assert.ok(
+    /const visible = inBoard\.filter\(\(q\) => state\.open\.has\(q\.key\) \|\| inKind\(q\)\);/.test(app),
+    'an open card is filtered away by the pill it was opened from'
+  );
+  // And the screen that clause used to protect is drawn on purpose instead of by fallback.
+  assert.ok(app.includes('function epicsEmptyHtml()'), 'an empty board is a blank page again');
+  assert.ok(
+    /if \(!roots\) chunks\.push\(\{ key: '@empty', html: epicsEmptyHtml\(\) \}\);/.test(app),
+    'the empty board draws nothing at all'
   );
   // And the gate is spent where the chunks are pushed. The board is `''` under a kind
   // pill rather than collapsed to its heading: the bead's word is *gone*, not folded.
   assert.ok(/const roots = boardHere \? p0SectionHtml\(\) : ''/.test(app), 'the board is drawn on every pill');
   assert.ok(/if \(!listHere\) \{/.test(app), 'the list is drawn on every pill');
-  // `epics` is what `current()` answers for the empty selection, so the two files agree on
-  // the one id this gate turns on without app.js having to know the table.
+  // `home` is what `current()` answers for the empty selection, and `epics` is a slice you
+  // select — so the two files agree on the ids this gate turns on without app.js having to
+  // know the table.
   const { filter } = load();
-  assert.equal(filter.current(), 'epics', 'the empty selection is no longer My Epics');
+  assert.equal(filter.current(), 'home', 'the empty selection is no longer Home');
   filter.pick('question');
   assert.equal(filter.current(), 'question');
   filter.pick('epics');
-  assert.equal(filter.current(), 'epics', 'a place no longer clears the selection');
+  assert.equal(filter.current(), 'epics', 'My Epics went back to clearing the selection');
+  filter.pick('home');
+  assert.equal(filter.current(), 'home', 'a place no longer clears the selection');
 });
 
 await check('and no empty state anywhere still points at a board above it', () => {

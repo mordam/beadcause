@@ -210,10 +210,14 @@
     in lib/server.js, and test/pagepaths.mjs, which reads that table from hashroute.js.
   */
   const PILLS = [
-    // Home with nothing narrowed: the P0 board and the work under it (bc-rfnr.9). First
-    // because it is where you land, and because every pill to its right is a narrowing
-    // of it rather than a different place.
-    { id: 'epics', kind: 'epics', icon: '🎯', label: 'My Epics', count: true },
+    // Home with nothing narrowed. First because it is where you land, and because every
+    // pill to its right is a narrowing of it rather than a different place.
+    { id: 'home', kind: 'home', icon: '🏠', label: 'Home', count: true },
+    // The P0 board and the work under it (bc-rfnr.9). Second rather than first since
+    // bc-fwp2c: it was the landing pill for as long as the board was drawn on the screen
+    // you land on, and the badge is what separated them — a place can only ever count the
+    // sum of every kind, which is not a number the word "Epics" can carry.
+    { id: 'epics', kind: 'epics', icon: '🎯', label: 'My Beadepics', count: true },
     // Questions, PRs, Chats: what is arriving, in the order it tends to need answering.
     { id: 'question', kind: 'question', icon: '❓', label: 'Questions', count: true },
     { id: 'pr', kind: 'pr', icon: '🚢', label: 'PRs', count: true },
@@ -329,14 +333,22 @@
   nav.setAttribute('aria-label', 'Views');
 
   /**
-   * Which of Home's five pills the filter last chose.
+   * Which of Home's pills the filter last chose.
    *
    * Recorded whether or not Home is on screen — see `mark()` — because on the shell the
    * inbox goes on repainting behind a pane you have switched to, and the narrowing you
-   * left it on is the one that should be lit when you come back. `epics` until something
+   * left it on is the one that should be lit when you come back. `home` until something
    * says otherwise, which is what an unnarrowed Home is.
+   *
+   * **Not `route.HOME`, which it was until bc-fwp2c.** That constant is the *page* — the
+   * view id `/` resolves to, still `epics` because the epic board is what that document
+   * has always been called, and still what a kind pill tapped from another pane switches
+   * to (see `pane` in `draw`). Which of Home's pills is lit is a different fact, and the
+   * two were the same string only for as long as the pill you land on and the pill the
+   * board draws on were one pill. Seeding this from the page id lit `My Epics` on an
+   * unnarrowed Home, over a list Home was drawing and My Epics no longer does.
    */
-  let narrowed = route.HOME;
+  let narrowed = 'home';
 
   /**
    * Which pill is lit. Two answers, and which one applies is a fact about the hash.

@@ -368,6 +368,19 @@ await checksAsync('the children are created under the epic, in order, with their
   assert.equal(state.epic, 'bc-ep1');
 });
 
+await checksAsync('ingest: false keeps the epic and reads nothing — no agent, no JIRA read, no bd (bc-6s383)', async () => {
+  const bd = fakeBd();
+  let runs = 0;
+  const { ing, cfg, fetchImpl } = ingesterOver({ bd, run: async () => ((runs += 1), TWO_BEADS) });
+  cfg.jira.climative.ingest = false;
+  await ing.sweep(cfg, [{ workspace: WS, ticket: ticket(), epic: 'bc-ep1' }]);
+  await ing.drain();
+  assert.equal(runs, 0, 'an agent was started for a space that said ingest: false');
+  assert.equal(fetchImpl.seen.length, 0, 'the ticket was fetched for nothing');
+  assert.equal(bd.calls.length, 0, `bd was asked: ${bd.calls.join(' | ')}`);
+  assert.equal(ing.stateFor('climative', 'TECH-1'), null, 'the row would claim a reading that is never coming');
+});
+
 await checksAsync('the epic is told, because whoever opens it in the morning did not watch this', async () => {
   const bd = fakeBd();
   const { ing, cfg } = ingesterOver({ bd, run: async () => TWO_BEADS });

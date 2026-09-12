@@ -223,27 +223,65 @@
    */
   const KINDS = [
     {
-      id: 'epics',
-      // A place, not a slice. Home with nothing narrowed *is* the board, so this pill
-      // has no predicate and no selection: it is where you land, and every other pill
-      // on this page is a narrowing of it.
+      id: 'home',
+      // The place, and the only one on this page. Home with nothing narrowed holds every
+      // kind, so it has no predicate and no selection: it is where you land, and every
+      // pill to its right is a narrowing of it.
+      //
+      // **This is the pill My Epics used to be** (bc-fwp2c). The two were one thing for
+      // as long as the board was drawn on the screen you land on, and the badge is what
+      // made that untenable: a place's number can only be the sum of the slices — that is
+      // what a tap on it leaves you with — so the pill said `My Epics 46` over a tracker
+      // holding three. Splitting them lets each number be what its own word says.
       side: 'any',
-      icon: '🎯',
-      label: 'My Epics',
-      note: 'The P0 board — the epics you own, and the work under them.',
-      // Home with nothing narrowed holds every kind, so every group here *can* narrow
-      // it — and only the search is offered all the same. The two sub-filters are the
-      // second axis of a pill you have not picked, and offering both of them over a
-      // list that is mostly neither would be two more pills for a view you have not
-      // picked yet.
+      icon: '🏠',
+      label: 'Home',
+      note: 'Everything at once — questions, pull requests, chats and beads, unnarrowed.',
+      // Every group here *can* narrow Home, and only the search is offered all the same.
+      // The two sub-filters are the second axis of a pill you have not picked, and
+      // offering both of them over a list that is mostly neither would be two more pills
+      // for a view you have not picked yet.
       // What they still do here is confessed on the line rather than dropped: see
       // `subSaid`, and the standing `unmerged` default it exists for.
       filters: ['bead'],
       // A place with a create, which is not a contradiction: `compose` is about the
       // screen you are on, and `test` is about which rows are in the list. This is the
-      // screen you land on, so it is also the one ＋ is drawn on by default.
+      // screen you land on, so it is also the one ＋ is drawn on by default — and what it
+      // makes here is a bead, the same form All Beads opens, because a list of everything
+      // is the one screen where "file another one" is the obvious next thing to do.
+      compose: 'bead',
+    },
+    {
+      id: 'epics',
+      // A slice whose predicate is `false`, which is not the dodge it looks like: it is
+      // the measured truth about this list. Every inbox row carries `type`, and an epic
+      // of yours is never among them — a started one is a *card* on `rootboard` and an
+      // unstarted one is an offer in `startable` (see `rootCard` and `rootOffer` in
+      // lib/server.js). So no row is ever of this kind, and saying so in the predicate is
+      // what earns the pill its place in `SLICES`: `pick()` will select it, `current()`
+      // will light it, and the screen it opens is the board rather than a list.
       //
-      // What it makes is an epic *you already filed*: the board is the roots you have
+      // The count therefore cannot come from the row loop, and does not — `survey` takes
+      // it from the caller, which reads it off the cards it just drew. That is the same
+      // seam bc-khoe.49 opened for the board and it is now the only way this pill is ever
+      // counted, rather than a branch taken on some renders and not others.
+      side: 'any',
+      icon: '🎯',
+      label: 'My Beadepics',
+      note: 'The beadepics you have started, and the work under each one.',
+      test: () => false,
+      // **Its number is supplied, not counted** — the flag `survey` reads to keep the
+      // cards out of Home's row sum. Without it a caller that passed an `epics` count
+      // (the fixture in scripts/viewbar-check.mjs does exactly that) would have Home
+      // reporting a board it does not draw, added to the rows it does. A flag rather than
+      // the id in a condition, for this table's standing reason: a second file — or a
+      // second line — that knows which kind is the board is one that can be wrong about it.
+      board: true,
+      // Nothing, and for the reason Chats has nothing: this screen is not a list of rows,
+      // so a search box over it would narrow a list that is not there. The board has its
+      // own two narrowings already — the space and workspace chips, applied in `p0Cards`.
+      filters: [],
+      // What ＋ makes is an epic *you already filed*: the board is the roots you have
       // started, so the create here is picking one of your own unstarted beads and
       // putting it on the board (bc-khoe.27.2). The candidates are the server's
       // `startable`, and the picker they fill is the panel above ＋.
@@ -423,10 +461,10 @@
      *
      * Two readers, and they want the same number for different jobs: `subSaid` asks
      * whether a sub-filter is narrowing anything worth naming on the summary line, and
-     * `paint` pushes the whole map at the pill row, where four of the ids are drawn as a
-     * badge (public/viewbar.js). `epics` is in here too and is the only key not counted
-     * by the caller at all: it is derived, from the slices or — since bc-khoe.49, when My
-     * Epics is the board — from the cards. See `survey`.
+     * `paint` pushes the whole map at the pill row, where five of the ids are drawn as a
+     * badge (public/viewbar.js). Two of them are not counted by the caller's loop at all:
+     * `home` is derived from the slices, and `epics` is handed straight in off the cards.
+     * See `survey`.
      */
     counts: {},
     /** sub group id → option id → the same, one level down. */
@@ -571,8 +609,8 @@
   /**
    * Which pill is lit, as an id from the table. Never null.
    *
-   * The empty selection is `epics`, and that is the whole of what My Epics means — Home
-   * with nothing narrowed. It is a function rather than a stored value because the
+   * The empty selection is `home`, and that is the whole of what Home means — every kind
+   * at once, nothing narrowed. It is a function rather than a stored value because the
    * selection can be changed by things that are not a pill tap (`revealPr` widens it to
    * show a card you arrived at from a notification, and `survey` drops a kind the new
    * scope cannot produce), and a row painted from a second copy of the answer would go
@@ -583,7 +621,7 @@
    * light exactly one and lighting the leftmost is the only answer that does not depend
    * on the order the selections arrived in.
    */
-  const current = () => SLICES.find((k) => state.on.has(k.id))?.id || 'epics';
+  const current = () => SLICES.find((k) => state.on.has(k.id))?.id || 'home';
 
   /**
    * How the page makes a kind reachable that the current scope cannot produce, if it
@@ -599,7 +637,7 @@
    * Tap a pill. Exclusive, unlike the chips it replaced.
    *
    * The chips were a multi-select because they were a filter panel; a row of pills is a
-   * navigation, and a navigation with two destinations lit is not one. `epics` — and
+   * navigation, and a navigation with two destinations lit is not one. `home` — and
    * any other place, and any id the table does not know — clears the selection, which
    * is what "Home with nothing narrowed" is.
    *
@@ -670,10 +708,9 @@
    * promise about the screen a tap opens, and the only way to keep it is to count what
    * this function counts, where it counts it.
    *
-   * `board` is the caller's answer to the one question that promise turns on and this
-   * file cannot see: how many cards My Epics would draw when it draws no list (bc-khoe.49
-   * — `epicsIsBoard` in public/app.js). A number means the board; `null` means there is a
-   * list there and the derivation below is the right one.
+   * `board` is the caller's answer to the one question this file cannot see: how many
+   * cards My Epics is drawing. It is that pill's whole count since bc-fwp2c — never a
+   * fallback and never conditional — because My Epics draws the board and nothing else.
    */
   function survey({ kinds, counts, sub, board = null } = {}) {
     if (sub && typeof sub === 'object') state.subCounts = sub;
@@ -686,46 +723,46 @@
     }
     if (counts && typeof counts === 'object') {
       /*
-        `epics` is derived here rather than counted by the caller, because it is a fact
+        `home` is derived here rather than counted by the caller, because it is a fact
         about this file rather than about the render.
 
-        My Epics is a *place*, not a slice: it carries no `test`, so no row is ever of
-        that kind and a loop keying on `kindOf` can never produce a number for it. What
-        picking it does is clear the selection — and `matches()` with nothing selected is
+        Home is a *place*, not a slice: it carries no `test`, so no row is ever of that
+        kind and a loop keying on `kindOf` can never produce a number for it. What picking
+        it does is clear the selection — and `matches()` with nothing selected is
         `inSub()` alone, which is precisely the rows the caller has already counted, each
         through its own sub-filter. So the sum of the slices *is* the number, and summing
         them here means the two can never disagree about it.
 
-        Summed over the slices only, so an `epics` the caller passed cannot be counted
-        into its own total.
+        Summed over the slices only, so a `home` the caller passed cannot be counted into
+        its own total. `epics` is a slice and so is inside the sum's reach, but its
+        predicate is `false` and the caller's loop keys on `kindOf`, so it never appears
+        in `counts` and contributes nothing — which is the arithmetic agreeing with the
+        screen rather than a case being special.
       */
       const rows = Object.entries(counts).reduce(
-        (n, [id, c]) => (BY_ID.get(id)?.test ? n + (Number(c) || 0) : n),
+        (n, [id, c]) => (BY_ID.get(id)?.test && !BY_ID.get(id)?.board ? n + (Number(c) || 0) : n),
         0
       );
       /*
-        **Except when there is no list to sum, which is bc-khoe.49.**
+        **And `epics` is the caller's number, always** — bc-fwp2c.
 
-        The paragraph above was true of every Home there was when it was written, and
-        bc-khoe.28 made it conditional: with an epic of yours started, My Epics is the
-        *board* and the list below it is gone. Everything the sum is built on still holds
-        — those rows do survive their own sub-filters, and picking the pill does clear the
-        selection — and not one of them gets drawn, so the number was a promise about a
-        screen that no longer exists. The other three badges are untouched by that,
-        because they are counted before the gate and each still opens exactly its own
-        slice.
+        bc-khoe.49 made this a choice between the two: the cards when the board was what a
+        tap left you with, the sum when a list was. That was right while one pill was both
+        screens, and it is what put `My Epics 46` over a tracker holding three epics — on
+        an account whose board had no cards, the condition fell to the sum and the sum is
+        a number about every kind at once.
 
-        So the caller says which of the two screens the pill opens, and this picks the
-        number that describes it: the cards when the board is what a tap leaves you with,
-        the rows when the list is. It is still one count read twice rather than two counts
-        of one thing — what changed is only *which* list the badge is a second reading of.
+        They are two pills now, so neither has to guess which screen it is. Home is the
+        sum because Home draws the list; My Epics is the cards because My Epics draws the
+        board. There is no state in which either number is a promise about the other's
+        screen, which is what the branch was there to arrange and could not.
 
-        Deliberately not a third answer (no badge at all, or the board's card count added
-        to the rows). A pill that lost its number on the one install with an epic started
-        would be the count disappearing exactly when there is something to count, and a
-        sum of cards and rows would be a number nothing on the screen adds up to.
+        `Number(board) || 0` rather than a `typeof` test: a caller that has not drawn the
+        board yet passes nothing, and 0 is the honest reading of that — no cards drawn is
+        no cards. The old `null` meant "ask the other branch", and there is no other
+        branch to ask.
       */
-      state.counts = { ...counts, epics: typeof board === 'number' ? board : rows };
+      state.counts = { ...counts, home: rows, epics: Number(board) || 0 };
     }
     paint();
   }

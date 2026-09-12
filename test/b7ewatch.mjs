@@ -263,6 +263,25 @@ await checkAsync('a finished run red on a suite origin/main is ALSO red on — e
   assert.match(r.stdout, /test\/red-everywhere\.mjs \(also red on origin\/main\)/);
 });
 
+await checkAsync('the recorded tail is NOT printed here — that is b7e-why (bc-dgx7.66), and this pins the split', async () => {
+  // Five sessions read the raw log after a red because the one command that reads the
+  // run record printed names and a blame tag and nothing else. `b7e-why` prints the
+  // tail; this stays a single line, and the guard is here so that stops being an
+  // accident of what nobody got round to.
+  const { file } = await gaterun.startRun(wt1, { suites: ['test/new-red.mjs'] });
+  gaterun.appendResult(file, {
+    suite: 'test/new-red.mjs',
+    status: 'fail',
+    elapsed: 0.1,
+    tail: '  FAIL A CHECK NOBODY SHOULD SEE FROM HERE',
+  });
+  gaterun.endRun(file, { status: 'fail', elapsed: 0.2 });
+  const r = run(wt1);
+  assert.match(r.stdout, /test\/new-red\.mjs/, 'the suite is still named');
+  assert.doesNotMatch(r.stdout, /A CHECK NOBODY SHOULD SEE FROM HERE/);
+  assert.equal(r.stdout.trim().split('\n').length, 1, 'one line, as the header promises');
+});
+
 await checkAsync('--run <id> started from one worktree is readable from another', async () => {
   const { runId, file } = await gaterun.startRun(main, { suites: ['test/green.mjs'] });
   gaterun.appendResult(file, { suite: 'test/green.mjs', status: 'ok', elapsed: 0.1 });
