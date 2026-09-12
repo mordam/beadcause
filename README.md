@@ -392,8 +392,14 @@ images:
 - `images` may be absolute paths on the Mac — they're served through
   `/api/asset`, restricted to `config.assetRoots`.
 - A block that isn't valid YAML shows the parse error on the card rather than
-  silently dropping to free-text. Quote markdown links: bare `- [x](y)` is a YAML
-  flow sequence (beadcause repairs that one case, but quoting is clearer).
+  silently dropping to free-text. Two spellings that are obvious and invalid are
+  repaired before the card is drawn, though quoting them yourself is clearer:
+  a bare markdown link (`- [x](y)` is a YAML flow sequence), and **a colon inside a
+  sentence** — `response: … fetches them from gdrive4t: at build …` reads as a nested
+  mapping and costs the *whole* block, question and every option with it. The repair
+  runs only after the ordinary parse has failed, and only on the keys that carry
+  prose (`question`, `context`, `label`, `title`, `response`, `answer`, `hint`,
+  `detail`, `id`), so a block that already parses is never rewritten.
 - **Write the prose as paragraphs; the hard wrap doesn't survive.** bd stores a
   description, notes, design or acceptance hard-wrapped at about 78 columns, and
   on a phone each of those lines wraps again — so anything that came out of bd
