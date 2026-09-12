@@ -303,6 +303,57 @@ const nowConflicts = mergeConflicts(
 if (!nowConflicts) ok('two branches each adding a suite merge cleanly');
 else bad('two branches each adding a suite merge cleanly', 'git merge-tree reports a conflict — the point of the change is gone');
 
+/* ============================================== the gate runs below the daemon */
+
+/**
+ * bc-1kwl.39 — a gate must not starve the app you are using while it runs.
+ *
+ * The assertions are **relative, never absolute**, and that is the whole subtlety here:
+ * this suite is itself usually running under `npm test`, which has already niced the
+ * whole tree, so the priority a child reports is the runner's floor *or the one it
+ * inherited*, whichever is lower-priority. An assertion that a child sits at exactly 10
+ * passes standalone and fails inside the gate it is testing — the precise shape of flake
+ * this file exists to keep out.
+ *
+ * Priority is reported by the suite itself rather than read from the outside, because
+ * `ps` on a process that has already exited is a race and the number wanted is the one
+ * that was in force *while it ran*.
+ */
+const priorityProbe = `import fs from 'node:fs';
+import os from 'node:os';
+fs.writeFileSync(new URL('./nice.txt', import.meta.url), String(os.getPriority(0)));
+`;
+const nicenessOf = (dir, env = {}) => {
+  const t = tree(dir, { 'test/probe.mjs': priorityProbe });
+  const run = spawnSync(process.execPath, [RUNNER, '--dir', t], {
+    encoding: 'utf8',
+    env: { ...process.env, TMPDIR: tmpdirFor(t), ...env },
+  });
+  const at = path.join(t, 'test', 'nice.txt');
+  if (!fs.existsSync(at)) throw new Error(`the probe suite never ran (exit ${run.status}): ${run.stderr || run.stdout}`);
+  return Number(fs.readFileSync(at, 'utf8'));
+};
+
+const mine = os.getPriority(0);
+
+const niced = nicenessOf('nice-default');
+if (niced >= 10 && niced >= mine) ok('a suite runs at least 10 below normal, so a gate yields to the daemon');
+else bad('a suite runs at least 10 below normal, so a gate yields to the daemon', `the suite ran at ${niced}, this process is at ${mine}`);
+
+const deeper = nicenessOf('nice-env', { BEADCAUSE_GATE_NICE: '15' });
+if (deeper >= 15) ok('and BEADCAUSE_GATE_NICE moves it, so the politeness is tunable');
+else bad('and BEADCAUSE_GATE_NICE moves it, so the politeness is tunable', `asked for 15, the suite ran at ${deeper}`);
+
+/**
+ * The one direction that would be a bug rather than a preference. `setPriority` with a
+ * value *above* the caller's own is refused by the kernel for an unprivileged process,
+ * so a 0 here must leave the inherited niceness alone rather than attempt a raise — and
+ * a gate that threw `EACCES` trying to be impolite would not run at all.
+ */
+const off = nicenessOf('nice-off', { BEADCAUSE_GATE_NICE: '0' });
+if (off >= mine) ok('and with it off the run still happens, inheriting rather than raising priority');
+else bad('and with it off the run still happens, inheriting rather than raising priority', `this process is at ${mine}, the suite somehow ran at ${off}`);
+
 fs.rmSync(tmp, { recursive: true, force: true });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n\x1b[32mall ${ran} checks passed\x1b[0m\n`);
