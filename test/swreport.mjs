@@ -21,7 +21,11 @@
  *    That offline path is also *what it answers with*, which is more than reporting and
  *    is here because this is where the harness for it already lived: a URL that carries
  *    its state in the query string is served the cached page rather than the index
- *    (bc-nib3.11), and the login screen is still neither stored nor served.
+ *    (bc-nib3.11), and the login screen is still neither stored nor served. Beside it,
+ *    the case where the server *did* answer and the answer was that it cannot: a 5xx
+ *    through the deploy window is served out of the cache rather than handed to the page
+ *    (bc-l8ub), and — narrower than the offline path on purpose — is handed back as
+ *    itself when the cache does not hold that address.
  * 2. **The page end**, with a hand-made `navigator.serviceWorker`, proving the relayed
  *    message becomes `POST /api/error` with everything a report costs still spent — and
  *    that `startMessages()` is called, without which the listener is registered, correct,
@@ -462,6 +466,90 @@ await check('and the other half of that: a login screen is never stored in the f
   await outcome(ordinary.request('/history'));
   await settle();
   assert.deepEqual(stored, ['/history'], 'an ordinary page is stored, so the two refusals above mean something');
+});
+
+/* ------------------------------------------- a server that answers that it cannot answer */
+
+/**
+ * A `fetch` that resolves with a status rather than rejecting — the deploy window (bc-l8ub).
+ *
+ * The distinction this whole group turns on: `fetchAndStore` rejects only when the socket
+ * does, and every offline check above is that. bin/router.js holds the port across a swap
+ * and answers 503 while the new backend comes up, which is a *fulfilled* promise — and
+ * until bc-l8ub it went to the page untouched.
+ */
+const answers = (status) => () =>
+  Promise.resolve({ ok: status < 400, status, redirected: false, url: 'http://127.0.0.1:4317/x', clone: () => ({ body: 'copy' }) });
+
+await check('a 503 mid-deploy is answered out of the cache, not handed to the page', async () => {
+  const cache = cacheOf(['/', '/hashroute.js']);
+  const sw = loadWorker({ fetch: answers(503), match: cache.match });
+  const out = await outcome(sw.request('/hashroute.js'));
+  await settle();
+  assert.deepEqual(out.value, { body: 'cached /hashroute.js' }, 'the 503 body was served to a script tag, which is bc-l8ub');
+});
+
+await check('a 502 is the same case — the backend is up but the router cannot reach it', async () => {
+  const cache = cacheOf(['/', '/viewbar.js']);
+  const sw = loadWorker({ fetch: answers(502), match: cache.match });
+  const out = await outcome(sw.request('/viewbar.js'));
+  await settle();
+  assert.deepEqual(out.value, { body: 'cached /viewbar.js' });
+});
+
+await check('a 5xx on a path nothing has cached hands back the 5xx — never the index page', async () => {
+  // The reason this is `cachedInstead` and not `fallback`. `fallback`'s last resort is
+  // `caches.match('/')`, which is right for an offline *navigation* and wrong here: HTML
+  // answered to a script tag is a SyntaxError and the same missing global by a longer
+  // road. The cache holds `/`, and it must not be reached for.
+  const cache = cacheOf(['/']);
+  const sw = loadWorker({ fetch: answers(503), match: cache.match });
+  const out = await outcome(sw.request('/nowhere.js'));
+  await settle();
+  assert.equal(out.value.status, 503, 'the index page was served to a request for a script');
+  assert.ok(!cache.asked.some((a) => a.path === '/'), 'it reached for the last resort, which is what this check exists to forbid');
+});
+
+await check('a 404 is a real answer and is passed straight through', async () => {
+  // A renamed file is gone. Resurrecting a stale copy of it out of the cache would hide
+  // the rename for as long as that cache lived, which is the opposite of the bug fixed.
+  const cache = cacheOf(['/', '/old.js']);
+  const sw = loadWorker({ fetch: answers(404), match: cache.match });
+  const out = await outcome(sw.request('/old.js'));
+  await settle();
+  assert.equal(out.value.status, 404, 'a 404 was answered with a cached copy of the file that was removed');
+  assert.deepEqual(cache.asked, [], 'the cache was consulted for a status that is a real answer');
+});
+
+await check('a 5xx widens past the query string, the same as the offline path does', async () => {
+  const cache = cacheOf(['/', '/history']);
+  const sw = loadWorker({ fetch: answers(503), match: cache.match });
+  const out = await outcome(sw.request('/history?status=closed'));
+  await settle();
+  assert.deepEqual(out.value, { body: 'cached /history' });
+});
+
+await check('a cache that rejects under a 5xx still answers with the 5xx, and says so', async () => {
+  // Storage gone bad while the server is refusing: the worst moment for this function to
+  // throw. The response is already in hand, so it goes to the page — and the failure is
+  // relayed, which is the whole of what `fallback` does in the same spot.
+  const sw = loadWorker({ fetch: answers(503), match: () => Promise.reject(new Error('UnknownError: storage')) });
+  const out = await outcome(sw.request('/hashroute.js'));
+  await settle();
+  assert.equal(out.value.status, 503, 'a rejecting cache turned a 503 into a network error');
+  assert.equal(sw.posted.length, 1, 'a cache that has gone bad said nothing');
+  assert.match(sw.posted[0].message, /the cache could not answer \/hashroute\.js/);
+});
+
+await check('a 200 still comes from the network with the cache untouched', async () => {
+  // The control. Without it every check above passes against a worker that answers
+  // everything out of the cache.
+  const cache = cacheOf(['/', '/app.js']);
+  const sw = loadWorker({ fetch: answers(200), match: cache.match });
+  const out = await outcome(sw.request('/app.js'));
+  await settle();
+  assert.equal(out.value.status, 200, 'a healthy response was replaced by a cached one');
+  assert.deepEqual(cache.asked, [], 'the cache was read on a request the network answered');
 });
 
 await check('a response that cannot be stored is relayed — a full phone stops caching silently', async () => {

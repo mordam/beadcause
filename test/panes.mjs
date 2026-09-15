@@ -432,11 +432,21 @@ await check('and no other page loads it — the row asks, it does not require', 
   assert.deepEqual(loaders, ['index.html'], `${loaders.join(', ')} load panes.js`);
 });
 
-await check('the row reaches for panes with ?. and for the grammar flat', () => {
+await check('the row defaults when panes are absent and refuses to draw when the grammar is', () => {
   // The asymmetry is the whole reason a v81 phone survives this branch: a page with no
   // grammar is broken and should say so, a page with no panes is nine pages out of ten.
-  assert.ok(/window\.beadcause\?\.panes/.test(VIEWBAR), 'viewbar.js requires panes to exist');
-  assert.ok(/const route = window\.beadcause\.route;/.test(VIEWBAR), 'the grammar stopped being required');
+  //
+  // Both are read with `?.` since bc-l8ub, and that is deliberately *not* what is
+  // asserted here any more. The old form of this check pinned the grammar's line
+  // character for character — `const route = window.beadcause.route;` — which made the
+  // optional read look like the requirement being dropped when it was the opposite: the
+  // `?.` is only about not crashing on the shape of the namespace, and the `throw`
+  // underneath it is the requirement, stated by name instead of as a bare TypeError two
+  // dozen lines further down. So: panes fall back to a value, the grammar throws.
+  assert.ok(/window\.beadcause\?\.panes\s*\|\|/.test(VIEWBAR), 'viewbar.js requires panes to exist');
+  const grammar = /const route = window\.beadcause\??\.route;\n\s*if \(!route\) throw new Error\((.+)\);/.exec(VIEWBAR);
+  assert.ok(grammar, 'the grammar stopped being required');
+  assert.match(grammar[1], /hashroute\.js/, 'the refusal does not name the file that is missing');
 });
 
 console.log('\nhiding has to take the pane out of layout');
