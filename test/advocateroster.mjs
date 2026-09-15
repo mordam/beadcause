@@ -360,7 +360,12 @@ check('a session on a descendant no longer blocks an advocate on its ancestor', 
 
 check('the route uses the shared matcher rather than its own', () => {
   const server = read('lib/server.js');
-  const route = server.slice(server.indexOf("p === '/api/bead/advocate'"), server.indexOf("p === '/api/unendorsed'"));
+  // The route's body moved into `openAdvocateOn` when ＋ Add a bead-space became its second
+  // caller (bc-9i62w), so the rule is read there — and the route is held to calling it.
+  const door = server.slice(server.indexOf("p === '/api/bead/advocate'"), server.indexOf("p === '/api/unendorsed'"));
+  assert.match(door, /await openAdvocateOn\(ws, id,/, 'the route launches its own way again');
+  const fn = server.slice(server.indexOf('async function openAdvocateOn('));
+  const route = fn.slice(0, fn.indexOf('\n  }\n'));
   // `advocateSession` rather than a bare `namesBead` here: bc-d6yk arrived at the same
   // defect from the card's side and put the answer in lib/epicadvocate.js, where the door
   // and the button in front of it can share it — which is strictly better than two call

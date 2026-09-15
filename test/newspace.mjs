@@ -84,6 +84,8 @@ const {
   initTracker,
   inspect,
   nameProblem,
+  ownershipOffer,
+  ownershipPicks,
   pinBeadSpace,
   pinSessionDir,
   prefixesInUse,
@@ -393,6 +395,72 @@ check('attaching to a bead-space with no repos block at all makes one', () => {
   const cfg = {};
   attachBeadRepo(cfg, { workspace: 'sophab', dir: '/x/plugin' });
   assert.deepEqual(cfg.repos.sophab.approved, ['/x/plugin']);
+});
+
+/* ------------------------------------------------------------ whose epics they are (bc-9i62w) */
+
+const ME = { me: 'adam@example.com' };
+const graph = [
+  { id: 'sa-1', title: 'An epic nobody owns', status: 'open', priority: 2, issue_type: 'epic', labels: [] },
+  { id: 'sa-2', title: 'A P0 task', status: 'in_progress', priority: 0, issue_type: 'task', labels: [] },
+  { id: 'sa-3', title: 'A leaf', status: 'open', priority: 1, issue_type: 'task', labels: [] },
+  { id: 'sa-4', title: 'Closed epic', status: 'closed', priority: 1, issue_type: 'epic', labels: [] },
+  { id: 'sa-5', title: 'A crash', status: 'open', priority: 0, issue_type: 'task', labels: ['app-error'] },
+  { id: 'sa-6', title: 'Mine, advocated', status: 'open', priority: 3, issue_type: 'epic', labels: ['owner:adam@example.com', 'advocate-assigned'] },
+  { id: 'sa-7', title: 'Carol’s', status: 'open', priority: 1, issue_type: 'epic', labels: ['owner:carol@example.com'] },
+  { id: 'sa-8', title: 'Unendorsed', status: 'open', priority: 1, issue_type: 'epic', labels: ['unendorsed'] },
+];
+
+check('the offer is the open roots, less crashes — no leaves, nothing closed', () => {
+  const ids = ownershipOffer(graph, ME).map((r) => r.id);
+  assert.deepEqual(ids.sort(), ['sa-1', 'sa-2', 'sa-6', 'sa-7', 'sa-8']);
+});
+
+check('the offer puts yours first and says what each already is', () => {
+  const offer = ownershipOffer(new Map(graph.map((b) => [b.id, b])), ME);
+  assert.equal(offer[0].id, 'sa-6');
+  assert.equal(offer[0].mine, true);
+  assert.equal(offer[0].advocate, true);
+  const carol = offer.find((r) => r.id === 'sa-7');
+  assert.deepEqual(carol.owners, ['carol@example.com']);
+  assert.equal(carol.mine, false);
+  assert.match(offer.find((r) => r.id === 'sa-8').noAdvocate, /unendorsed/);
+  assert.equal(offer.find((r) => r.id === 'sa-1').noAdvocate, null);
+});
+
+check('zero picks is an answer, not a refusal', () => {
+  const out = ownershipPicks(ownershipOffer(graph, ME), {}, ME);
+  assert.equal(out.problem, null);
+  assert.deepEqual(out.steps, []);
+});
+
+check('an advocate pick is an ownership pick too', () => {
+  const out = ownershipPicks(ownershipOffer(graph, ME), { advocate: ['sa-1'] }, ME);
+  assert.equal(out.problem, null);
+  assert.deepEqual(out.steps, [{ id: 'sa-1', own: true, advocate: true }]);
+});
+
+check('what is already true is skipped, and one advocate per epic', () => {
+  const out = ownershipPicks(ownershipOffer(graph, ME), { own: ['sa-6', 'sa-7'], advocate: ['sa-6'] }, ME);
+  assert.deepEqual(out.steps, [{ id: 'sa-7', own: true, advocate: false }]);
+});
+
+check('a pick outside the offer refuses the whole answer', () => {
+  const out = ownershipPicks(ownershipOffer(graph, ME), { own: ['sa-1', 'sa-3'] }, ME);
+  assert.match(out.problem, /sa-3 is not an open epic or P0/);
+  assert.deepEqual(out.steps, []);
+});
+
+check('an advocate on an epic it would be refused on is refused before any write', () => {
+  const out = ownershipPicks(ownershipOffer(graph, ME), { own: ['sa-1'], advocate: ['sa-8'] }, ME);
+  assert.match(out.problem, /sa-8 is unendorsed/);
+  assert.deepEqual(out.steps, []);
+});
+
+check('a Mac that does not know who it is writes nothing, and says so', () => {
+  const out = ownershipPicks(ownershipOffer(graph, {}), { own: ['sa-1'] }, {});
+  assert.match(out.problem, /does not know who you are/);
+  assert.deepEqual(out.steps, []);
 });
 
 fs.rmSync(tmp, { recursive: true, force: true });

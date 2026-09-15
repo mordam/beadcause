@@ -305,6 +305,15 @@
         ? `<span class="addspace-changed">${(data.changed || []).map((c) => esc(c)).join('<br>')}</span>`
         : '',
     ].filter(Boolean);
+    window.beadcause?.space?.reload?.();
+    // Created and linked alike end on the ownership question — about the bead-space that
+    // was added, or the one a bead-repo was attached to, since that is whose epics they are.
+    const workspace = data.added ? added.name : added.workspace;
+    if (!workspace) return paintDone(lines);
+    return paintOwnership(workspace, lines);
+  }
+
+  function paintDone(lines) {
     body.innerHTML = `
       <h2 class="accountpick-title">Added</h2>
       <p class="accountpick-lede">${lines.join('</p><p class="accountpick-lede">')}</p>
@@ -312,7 +321,136 @@
         <button type="button" class="accountpick-close" id="addspace-done">Close</button>
       </div>`;
     body.querySelector('#addspace-done').addEventListener('click', () => dlg.close());
-    window.beadcause?.space?.reload?.();
+  }
+
+  /* ------------------------------------------------------------------ round three */
+
+  /**
+   * Which of its epics are yours, and which get an advocate — bc-9i62w.
+   *
+   * Every add or link ends here, because a bead-space whose epics nobody owns draws an empty
+   * board and can have no Epic Advocate: both are keyed off the `owner:` label. Zero is a
+   * real answer and it is the default — nothing is ticked, and the button says so.
+   *
+   * An advocate ticks ownership with it, since an advocate answers to its owner and the
+   * server would refuse one on an epic nobody owns. What is already true is drawn ticked and
+   * fixed rather than offered, and an epic an advocate would be refused on says why instead
+   * of offering a box that fails.
+   *
+   * Nothing to ask is said rather than skipped silently: a new tracker has no epics yet, and
+   * a Mac with no `me` cannot write whose they are.
+   */
+  async function paintOwnership(workspace, lines) {
+    body.innerHTML = `
+      <h2 class="accountpick-title">Added</h2>
+      <p class="accountpick-lede">${lines.join('</p><p class="accountpick-lede">')}</p>
+      <p class="addspace-note">Reading ${esc(workspace)}’s epics…</p>`;
+    let offer;
+    try {
+      const res = await fetch(`/api/workspaces/roots?workspace=${encodeURIComponent(workspace)}`, {
+        headers: { 'x-beadcause-token': token },
+      });
+      offer = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(offer.error || `the Mac answered ${res.status}`);
+    } catch (err) {
+      return paintDone([
+        ...lines,
+        `<span class="addspace-warn">Could not read ${esc(workspace)}’s epics to ask which are yours — ${esc(
+          err.message
+        )}. You can take each one from its sheet instead.</span>`,
+      ]);
+    }
+    const roots = offer.roots || [];
+    if (!roots.length) {
+      return paintDone([...lines, `${esc(workspace)} has no open epics or P0s yet, so there is nothing in it to own.`]);
+    }
+    if (!offer.me) {
+      return paintDone([
+        ...lines,
+        `<span class="addspace-warn">This Mac does not know who you are — <code>me</code> is not set — so it cannot record which of ${esc(
+          workspace
+        )}’s ${roots.length} epics are yours. Set it on the config screen, then take them from each epic’s sheet.</span>`,
+      ]);
+    }
+
+    const who = (r) =>
+      r.mine
+        ? 'yours'
+        : r.owners.length
+          ? `owned by ${esc(r.owners.join(', '))} — taking it moves it to you`
+          : 'nobody owns it';
+    const rowHtml = (r) => `
+      <li class="addspace-root" data-id="${esc(r.id)}">
+        <div class="addspace-root-what">
+          <strong>${esc(r.title || r.id)}</strong>
+          <span class="addspace-root-meta">${esc(r.id)} · ${r.epic ? 'epic' : 'task'}${
+            r.priority != null ? ` · P${esc(r.priority)}` : ''
+          } · ${who(r)}</span>
+          ${r.noAdvocate && !r.advocate ? `<span class="addspace-root-meta">${esc(r.noAdvocate)}</span>` : ''}
+        </div>
+        <div class="addspace-root-picks">
+          <label class="addspace-root-pick"><input type="checkbox" data-pick="own" ${r.mine ? 'checked disabled' : ''}> Mine</label>
+          <label class="addspace-root-pick"><input type="checkbox" data-pick="advocate" ${
+            r.advocate ? 'checked disabled' : r.noAdvocate ? 'disabled' : ''
+          }> Advocate</label>
+        </div>
+      </li>`;
+
+    body.innerHTML = `
+      <h2 class="accountpick-title">Which of ${esc(workspace)}’s epics are yours?</h2>
+      <p class="accountpick-lede">${lines.join('</p><p class="accountpick-lede">')}</p>
+      <p class="addspace-note">Pick none, some or all. <strong>Mine</strong> marks you as the owner, so it is on
+        your board. <strong>Advocate</strong> also opens an Epic Advocate on it now — an agent window that plans
+        and supervises the epic — and makes it yours.</p>
+      <ul class="addspace-roots">${roots.map(rowHtml).join('')}</ul>
+      <div class="accountpick-actions">
+        <button type="button" class="accountpick-add" id="addspace-go" data-label="None of them">None of them</button>
+      </div>
+      <p class="accountform-error" id="addspace-error" hidden></p>`;
+
+    const go = body.querySelector('#addspace-go');
+    const picked = (kind) =>
+      [...body.querySelectorAll(`input[data-pick="${kind}"]:checked:not(:disabled)`)].map((i) => i.closest('li').dataset.id);
+    const relabel = () => {
+      const n = new Set([...picked('own'), ...picked('advocate')]).size;
+      go.dataset.label = n ? `Take ${n}` : 'None of them';
+      go.textContent = go.dataset.label;
+    };
+    for (const li of body.querySelectorAll('.addspace-root')) {
+      const own = li.querySelector('input[data-pick="own"]');
+      const adv = li.querySelector('input[data-pick="advocate"]');
+      adv.addEventListener('change', () => {
+        if (adv.checked && !own.disabled) own.checked = true;
+        relabel();
+      });
+      own.addEventListener('change', () => {
+        if (!own.checked && !adv.disabled) adv.checked = false;
+        relabel();
+      });
+    }
+
+    go.addEventListener('click', async () => {
+      setError('');
+      const own = picked('own');
+      const advocate = picked('advocate');
+      if (!own.length && !advocate.length) return paintDone(lines);
+      busy(true, advocate.length ? 'Opening advocates…' : 'Saving…');
+      try {
+        const data = await api({ action: 'own', workspace, own, advocate });
+        const title = new Map(roots.map((r) => [r.id, r.title]));
+        const said = (data.results || []).map((r) =>
+          r.error
+            ? `<span class="addspace-warn">${esc(r.id)}: ${esc(r.error)}</span>`
+            : `<strong>${esc(r.id)}</strong> ${esc(title.get(r.id) || '')} is yours${
+                r.advocate ? ', and an Epic Advocate is opening on it' : ''
+              }.`
+        );
+        paintDone([...lines, ...said]);
+      } catch (err) {
+        setError(err.message);
+        busy(false);
+      }
+    });
   }
 
   async function open() {

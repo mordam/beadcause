@@ -221,7 +221,12 @@ check('the card is actually given it', () => {
 
 check('the launch door and the card read the same rule', () => {
   const src = read('lib', 'server.js');
-  const route = src.slice(src.indexOf("if (p === '/api/bead/advocate'"));
+  // The launch lives in `openAdvocateOn` since ＋ Add a bead-space became its second caller
+  // (bc-9i62w). The route is held to calling it, and the rules below are read off it.
+  const door = src.slice(src.indexOf("if (p === '/api/bead/advocate'"));
+  assert.match(door.slice(0, 1500), /await openAdvocateOn\(ws, id,/, 'the button launches its own way again');
+  const fn = src.slice(src.indexOf('async function openAdvocateOn('));
+  const route = fn.slice(0, fn.indexOf('\n  }\n'));
   assert.ok(!/name \|\| ''\)\.includes\(id\)/.test(route), 'the prefix-matching refusal is what this replaced');
   assert.match(route.slice(0, 2000), /advocateSession\(liveSessions\(cfg\), id/);
   assert.match(route.slice(0, 3000), /rememberAdvocateOpened\(/, 'a launch that worked has to be remembered');

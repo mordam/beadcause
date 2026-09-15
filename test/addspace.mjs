@@ -89,7 +89,9 @@ const trackerIn = (dir, prefix) => {
 };
 
 /* A `bd` that does what `bd init` does to the disk and nothing else: makes the .beads it
-   was pointed at, and records the argv so the suite can read it back. */
+   was pointed at, and records the argv so the suite can read it back. It also answers
+   `export` and `show` off a `fixture.jsonl` in the tracker, which is all the ownership round
+   reads — a tracker with epics in it, without a Dolt database behind it. */
 const BD = path.join(tmp, 'fake-bd');
 const BD_LOG = path.join(tmp, 'bd-calls.log');
 fs.writeFileSync(
@@ -97,6 +99,8 @@ fs.writeFileSync(
   `#!/bin/sh
 echo "$* | cwd=$PWD | BEADS_DIR=$BEADS_DIR" >> ${JSON.stringify(BD_LOG)}
 [ "$1" = "init" ] && mkdir -p "$BEADS_DIR"
+[ "$1" = "export" ] && cat "$BEADS_DIR/fixture.jsonl" 2>/dev/null
+if [ "$1" = "show" ]; then printf '['; grep -F "\\"id\\":\\"$2\\"" "$BEADS_DIR/fixture.jsonl" 2>/dev/null | head -n 1 | tr -d '\\n'; printf ']'; fi
 exit 0
 `
 );
@@ -106,6 +110,17 @@ fs.chmodSync(BD, 0o755);
    attach to. */
 const home = mk('beads', 'beadcause');
 trackerIn(home, 'bc');
+fs.writeFileSync(
+  path.join(home, '.beads', 'fixture.jsonl'),
+  [
+    { id: 'bc-1', title: 'An epic nobody owns', status: 'open', priority: 2, issue_type: 'epic', labels: [] },
+    { id: 'bc-2', title: 'A leaf', status: 'open', priority: 2, issue_type: 'task', labels: [] },
+    { id: 'bc-3', title: 'An unendorsed epic', status: 'open', priority: 1, issue_type: 'epic', labels: ['unendorsed'] },
+    { id: 'bc-4', title: 'A closed epic', status: 'closed', priority: 1, issue_type: 'epic', labels: [] },
+  ]
+    .map((row) => JSON.stringify(row))
+    .join('\n') + '\n'
+);
 
 const cfg = {
   port: 0,
@@ -357,9 +372,68 @@ await check('and the question round says so, so the dialog never draws the choic
   assert.equal(body.carriesData, true);
 });
 
+console.log('addspace: whose epics they are (bc-9i62w)');
+
+const own = (body) => call('/api/workspaces', { method: 'POST', body: { action: 'own', workspace: 'beadcause', ...body } });
+const bdCalls = () => fs.readFileSync(BD_LOG, 'utf8');
+const writesSince = (before) =>
+  bdCalls()
+    .slice(before.length)
+    .split('\n')
+    .filter((line) => /^(update|label) /.test(line));
+
+await check('the open epics of a bead-space come back to ask about, and nothing else', async () => {
+  const { status, body } = await call('/api/workspaces/roots?workspace=beadcause');
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.me, 'adam@example.com');
+  // bc-2 is a leaf and bc-4 is closed: neither is a thing to be answerable for.
+  assert.deepEqual(body.roots.map((r) => r.id).sort(), ['bc-1', 'bc-3']);
+  assert.match(body.roots.find((r) => r.id === 'bc-3').noAdvocate, /unendorsed/);
+});
+
+await check('picking none is an answer — nothing is written and nothing is refused', async () => {
+  const before = bdCalls();
+  const { status, body } = await own({ own: [], advocate: [] });
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.results, []);
+  assert.deepEqual(writesSince(before), []);
+});
+
+await check('picking one puts your owner: label on it', async () => {
+  const before = bdCalls();
+  const { status, body } = await own({ own: ['bc-1'] });
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.deepEqual(body.results, [{ id: 'bc-1', owned: true, advocate: null, error: null }]);
+  const writes = writesSince(before);
+  assert.equal(writes.length, 1, writes.join('\n'));
+  assert.match(writes[0], /^update bc-1 --add-label owner:adam@example\.com /);
+});
+
+await check('an advocate the epic would be refused is refused before anything is written', async () => {
+  const before = bdCalls();
+  const { status, body } = await own({ own: ['bc-1'], advocate: ['bc-3'] });
+  assert.equal(status, 400);
+  assert.match(body.error, /bc-3 is unendorsed/);
+  assert.deepEqual(writesSince(before), [], 'bc-1 was labelled anyway');
+});
+
+await check('a leaf was never offered, so picking it is refused', async () => {
+  const { status, body } = await own({ own: ['bc-2'] });
+  assert.equal(status, 400);
+  assert.match(body.error, /bc-2 is not an open epic or P0/);
+});
+
 console.log('addspace: the wiring');
 
 const read = (rel) => fs.readFileSync(path.join(HERE, '..', rel), 'utf8');
+
+await check('every add and link in the dialog ends on the ownership question', async () => {
+  const dialog = read('public/addspace.js');
+  assert.match(dialog, /return paintOwnership\(workspace, lines\)/, 'done() no longer asks');
+  assert.ok(dialog.includes('/api/workspaces/roots'), 'the round does not read the offer');
+  assert.match(dialog, /action: 'own'/, 'the round does not post its answer');
+});
 
 await check('every page with the picker also loads the dialog behind its last row', async () => {
   // history.html (bc-khoe.30.15) and releases.html (bc-khoe.30.22) were in this list until

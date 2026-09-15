@@ -1203,6 +1203,17 @@ body {
   color: var(--prose); font-size: 12.5px; line-height: 1.5;
 }
 .addspace-changed { display: block; margin-top: 6px; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* Round three (bc-9i62w): which epics are yours. Scrolls inside the dialog, because a
+   linked work tracker can offer dozens and the buttons must stay reachable on a phone. */
+.addspace-roots { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.addspace-root { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.addspace-root-what { display: flex; flex-direction: column; gap: 2px; flex: 1 1 180px; min-width: 0; }
+.addspace-root-what strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.addspace-root-meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.addspace-root-picks { display: flex; gap: 12px; }
+.addspace-root-pick { display: flex; align-items: center; gap: 6px; min-height: 36px; font-size: 13px; }
+.addspace-root-pick input { accent-color: var(--accent); width: 18px; height: 18px; }
+.addspace-root-pick:has(input:disabled:not(:checked)) { color: var(--muted); }
 
 /* The bottom 12px is the gap after the last card. It used to be 0 because the body
    reserved the bottom bar's whole height under the list; the list is the scroller now
