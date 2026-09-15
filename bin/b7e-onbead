@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+/**
+ * `b7e-onbead` — who else is live on this bead right now: pid, worktree, work in hand,
+ * and how to reach them.
+ *
+ *     b7e-onbead -w beadcause -b bc-7qo.24
+ *     b7e-onbead -w beadcause -b bc-7qo.24 --json
+ *
+ * bc-7qo.24: three sessions on three different beads each built a different, partial
+ * instrument for this exact question before their first `Edit` — a guessed worktree
+ * slug that silently resumed a *live* peer's tree, a bare `pgrep`/`lsof` cwd census
+ * with no bead in it, and a `cd` into a sibling's worktree to read its diff by hand.
+ * See lib/onbead.js for the design and what it reuses (mostly `lib/prior.js`'s
+ * `branchesFor` and `lib/claude.js`'s `liveSessions`/`liveProcessLines`); this file is
+ * only the argv parsing and the printing around it, same split as `bin/b7e-prior`.
+ *
+ * Exit codes: `0` ran to completion, whether or not any window is live on this bead —
+ * an empty answer is the ordinary "nobody is on this", not a failure. `2` bad usage.
+ * `4` `-w`/`-b` named something this checkout's tracker does not have.
+ *
+ * Read-only in the same construction sense as `b7e-siblings`/`b7e-prior`: it spawns
+ * `bd show`, then only `git` reads (`git worktree list`, `git log`, `git status
+ * --porcelain` in a worktree) plus `~/.claude/sessions/*.json` and a `ps` read — no
+ * push, no merge, no write of any kind.
+ *
+ * @grant read
+ */
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { windowsFor, isEmpty, describeWindows } from '../lib/onbead.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-onbead -w <workspace> -b <bead> [--json]
+
+Who else is live on this bead right now: one row per live window naming it, plus every
+dead tree its branch left behind. Per row — pid and age, its own chosen name (and
+whether that name is the address \`SendMessage\` will accept, or shared with another row
+here), the worktree path and branch, and whether it is dirty, committed-unpushed,
+committed and pushed, empty, or gone.
+
+  -w, --workspace <name>   which tracker (required; one of the configured workspaces)
+  -b, --bead <id>          the bead to check (required)
+  --json                   the machine-readable form instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const beadId = value('-b', '--bead');
+const JSON_MODE = has('--json');
+
+function fail(msg, code = 2) {
+  console.error(`b7e-onbead: ${msg}`);
+  process.exit(code);
+}
+
+if (!wsName) fail(`-w/--workspace is required\n${USAGE}`);
+if (!beadId) fail(`-b/--bead is required\n${USAGE}`);
+
+const cfg = loadConfig();
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 4);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+let row;
+try {
+  row = await bd.show(ws, beadId);
+} catch (err) {
+  fail(`${ws.name} has no bead ${beadId}: ${String(err?.message || err).split('\n')[0]}`, 4);
+}
+if (!row) fail(`${ws.name} has no bead ${beadId}`, 4);
+
+let dir;
+try {
+  dir = resolveSessionDir(cfg, ws, row);
+} catch (err) {
+  fail(`could not resolve a checkout for ${ws.name}: ${String(err?.message || err).split('\n')[0]}`, 4);
+}
+
+const rows = await windowsFor(dir, beadId, { cfg, workspace: ws.name });
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ workspace: ws.name, bead: beadId, assignee: row.assignee || null, status: row.status || null, rows }, null, 2));
+  process.exit(0);
+}
+
+if (isEmpty(rows)) process.exit(0);
+
+console.log(
+  `b7e-onbead ${beadId} · ${ws.name}${row.assignee ? ` — assignee ${row.assignee}` : ''}${row.status ? ` (${row.status})` : ''}\n`
+);
+for (const line of describeWindows(beadId, rows)) console.log(line);
+
+process.exit(0);
