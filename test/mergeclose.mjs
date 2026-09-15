@@ -1,39 +1,33 @@
 #!/usr/bin/env node
 /**
- * **The close a merge owes** — answered on the phone, refused by bd, kept until it can.
+ * **The delivery card's Merge tap queues rather than merges** (bc-xl7n.135) — and **the
+ * close a queue's own merge owes**, answered on the phone, refused by bd, kept until it
+ * can.
  *
  *     npm test
  *     node test/mergeclose.mjs
  *
- * Tapping **Merge** on a delivery card does two things: it merges the pull request,
- * and it closes the work bead, because the merge is what makes the work finished. The
- * second one had never worked. `bin/deliver.js` parks the work bead behind the card —
- * so the advocate does not open a second session onto work already in a pull request —
- * and bd refuses to close an issue with an open blocker. The card doing the blocking is
- * the card being answered, and it does not close until after the merge has run. So the
- * close was refused *every time*, and the refusal was a `console.error` under a note
- * that said "Merged #25 — closed bc-ec6".
+ * Tapping **Merge** on a delivery card used to be `pr.merge` straight through — no
+ * downmerge, no baseline comparison, no one-at-a-time, and no record anywhere that Adam
+ * had decided anything. bc-xl7n.135 measured what that cost: this exact tap merged a
+ * four-day-red branch past a check its own branch had broken and turned `main` red for
+ * the whole repo. So it no longer merges — it admits the pull request to the merge queue,
+ * the same decision `admitPlan` makes for `beadcause-merge` and the PR board's own button
+ * (bc-02ldo). The **first three sections** below are that: what the tap now does instead
+ * of merging, and to which bead.
  *
- * bc-ec6 was answered twice, on two cards a re-delivery had filed, and both answers
- * carried that sentence. The bead was open the whole time.
+ * The **last two sections** are the failure this file was originally written for, and it
+ * still happens — just one step later, on the merge the *queue* makes rather than the one
+ * this tap used to. `bin/deliver.js` parks the work bead behind the merge-bead, and bd
+ * refuses to close an issue with an open blocker — so a work bead with a second open
+ * blocker beside the one that just merged is refused, has to be written down, and retried
+ * once the gate clears. bc-ec6 was answered twice, on two cards a re-delivery had filed,
+ * and the bead was open the whole time. `lib/owed.js`'s retry is what those sections drive
+ * directly, seeded by hand — what it is a claim about is the tracker, not the clock, and
+ * not the tap that put a bead there.
  *
- * Four failures are worth this file:
- *
- * 1. **A card claiming a close that was refused.** The one that costs hours later: the
- *    thread says the work is finished and the tracker says it is not, and there is
- *    nothing on either to say which is true.
- * 2. **The merge not closing the work bead at all.** The ordinary case has to work
- *    without any retry: drop the answered card's own edge, then close.
- * 3. **A retry that never comes.** A close bd genuinely refuses — a second card, an
- *    unrelated blocker — has to be written down and tried again when the gate clears,
- *    or the bead sits open over merged work forever.
- * 4. **A retry that closes the wrong thing.** The sweep runs unattended on every poll.
- *    A record whose bead is still blocked, already closed, or gone has to end quietly
- *    and correctly, and only a genuinely clear gate may lead to a `bd close`.
- *
- * The delivery card, the merge and the work bead are real code paths — a real
- * `POST /api/respond` through `createApp`, with `bd` and `gh` as fakes. The sweep is
- * driven directly, because what it is a claim about is the tracker, not the clock.
+ * The delivery card and the queue entry it becomes are real code paths — a real
+ * `POST /api/respond` through `createApp`, with `bd` and `gh` as fakes.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -71,6 +65,7 @@ const { Bd } = await import(LIB('bd.js'));
 const { readOwed, oweClose, sweepOwed, OWED_PATH } = await import(LIB('owed.js'));
 const { isClaimGuard } = await import(LIB('bd.js'));
 const { readSweepRequests, MERGE_SWEEPS_PATH } = await import(LIB('mergesweep.js'));
+const { MERGE_ASSIGNEE, MERGE_LABEL, queueState, withQueueBlock, mergeBeadBody } = await import(LIB('mergebead.js'));
 
 /* ------------------------------------------------------------ which card is which */
 
@@ -137,6 +132,7 @@ fs.appendFileSync(${JSON.stringify(BD_LOG)}, JSON.stringify(args) + '\\n');
 const w = JSON.parse(fs.readFileSync(WORLD, 'utf8'));
 const save = () => fs.writeFileSync(WORLD, JSON.stringify(w, null, 2));
 const flag = (n) => { const i = args.indexOf(n); return i === -1 ? null : args[i + 1]; };
+const flags = (n) => args.map((a, i) => (a === n ? args[i + 1] : null)).filter((v) => v !== null);
 const die = (m) => { process.stderr.write(m + '\\n'); process.exit(1); };
 const hydrate = (i) => ({ ...i, dependencies: (i.dependencies || []).map((d) => ({ ...d, status: (w.issues[d.id] || {}).status || 'closed' })) });
 
@@ -147,6 +143,56 @@ if (args[0] === 'show') {
   process.exit(0);
 }
 if (args[0] === 'comments') { process.stdout.write('[]'); process.exit(0); }
+// \`bd.listLive\` — every issue, hydrated the same way \`show\` is. Not for
+// \`--parent\` reads (bd's own children lookup, used elsewhere in the answer path):
+// those fall through to the catch-all below, unanswered, exactly as before this file
+// started driving \`admitDeliveryToQueue\`.
+if (args[0] === 'list' && !args.includes('--parent')) {
+  process.stdout.write(JSON.stringify(Object.values(w.issues).map(hydrate)));
+  process.exit(0);
+}
+if (args[0] === 'create') {
+  w.next = (w.next || 0) + 1;
+  const id = 'zz-q' + w.next;
+  w.issues[id] = {
+    id,
+    title: flag('--title') || '',
+    description: flag('--description') || '',
+    notes: flag('--notes') || '',
+    labels: flags('--label'),
+    assignee: '',
+    status: 'open',
+    issue_type: flag('--type') || 'task',
+    priority: Number(flag('--priority') || 2),
+    dependencies: [],
+    comments: [],
+  };
+  save();
+  process.stdout.write(JSON.stringify({ id }));
+  process.exit(0);
+}
+if (args[0] === 'update') {
+  const issue = w.issues[args[1]];
+  if (!issue) die('Error: no issue found matching "' + args[1] + '"');
+  const assignee = args.find((a) => a.startsWith('--assignee='));
+  if (assignee) issue.assignee = assignee.slice('--assignee='.length);
+  if (flag('--description') !== null) issue.description = flag('--description');
+  if (flag('--notes') !== null) issue.notes = flag('--notes');
+  const add = flags('--add-label');
+  const drop = flags('--remove-label');
+  if (add.length || drop.length) {
+    issue.labels = [...(issue.labels || []).filter((l) => !drop.includes(l)), ...add.filter((l) => !(issue.labels || []).includes(l))];
+  }
+  save();
+  process.exit(0);
+}
+if (args[0] === 'dep' && args[1] === 'add') {
+  const issue = w.issues[args[2]];
+  if (!issue) die('Error: no issue found matching "' + args[2] + '"');
+  (issue.dependencies = issue.dependencies || []).push({ id: args[3], dependency_type: 'blocks' });
+  save();
+  process.exit(0);
+}
 if (args[0] === 'close') {
   const issue = w.issues[args[1]];
   if (!issue) die('Error: no issue found matching "' + args[1] + '"');
@@ -199,6 +245,7 @@ const bdCalls = () =>
 const BIN = path.join(tmp, 'bin');
 fs.mkdirSync(BIN, { recursive: true });
 const PR_STATE = path.join(tmp, 'pr.json');
+const GH_LOG = path.join(tmp, 'gh-calls.log');
 const rawPR = () => ({
   number: 7,
   title: 'Something small',
@@ -224,6 +271,7 @@ fs.writeFileSync(
   `#!/usr/bin/env node
 const fs = require('fs');
 const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(GH_LOG)}, JSON.stringify(args) + '\\n');
 const out = (s) => { process.stdout.write(s); process.exit(0); };
 if (args[0] === 'auth') out('Logged in to github.com\\n');
 if (args[0] === 'pr') {
@@ -244,6 +292,10 @@ process.exit(1);
   { mode: 0o755 }
 );
 process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
+
+const ghCalls = () =>
+  fs.existsSync(GH_LOG) ? fs.readFileSync(GH_LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+const merges = () => ghCalls().filter((c) => c[0] === 'pr' && c[1] === 'merge');
 
 /* ------------------------------------------------------------------ the daemon */
 
@@ -338,28 +390,40 @@ const DELIVERY = {
   summary: 'Something small.',
 };
 
-/** The tracker as a delivery leaves it: a card, a work bead, and the edge between them. */
-const reset = ({ sibling = false } = {}) => {
+/**
+ * The tracker as a delivery leaves it: a card and a work bead parked behind it.
+ *
+ * `sibling` is a second delivery card on the *same* pull request — bc-8fyu made this
+ * rare rather than impossible. `already` is the queue's own bead for this pull request,
+ * raised or handed back once already (`isMergeBead`, lib/mergebead.js) — the case where
+ * this tap is recording an approval on something rather than moving anything.
+ */
+const reset = ({ sibling = false, already = false } = {}) => {
   fs.rmSync(MERGE_SWEEPS_PATH, { force: true });
+  const workDeps = [{ id: 'zz-pr', dependency_type: 'blocks' }];
   const issues = {
     'zz-pr': {
       id: 'zz-pr',
       title: 'Merge #7?',
       description: deliveryBody(DELIVERY),
+      notes: '',
       labels: ['human', 'pr-delivery'],
+      assignee: '',
       status: 'open',
       issue_type: 'task',
       dependencies: [],
-      comment_count: 0,
+      comments: [],
     },
     'zz-work': {
       id: 'zz-work',
       title: 'The work',
       description: '',
+      notes: '',
       labels: [],
+      assignee: '',
       status: 'in_progress',
       issue_type: 'task',
-      dependencies: [{ id: 'zz-pr', dependency_type: 'blocks' }],
+      dependencies: workDeps,
     },
   };
   if (sibling) {
@@ -367,60 +431,103 @@ const reset = ({ sibling = false } = {}) => {
       id: 'zz-sib',
       title: 'Merge #7?',
       description: deliveryBody(DELIVERY),
+      notes: '',
       labels: ['human', 'pr-delivery'],
+      assignee: '',
       status: 'open',
       issue_type: 'task',
       dependencies: [],
-      comment_count: 0,
+      comments: [],
     };
-    issues['zz-work'].dependencies.push({ id: 'zz-sib', dependency_type: 'blocks' });
+    workDeps.push({ id: 'zz-sib', dependency_type: 'blocks' });
   }
-  writeWorld({ issues });
+  if (already) {
+    issues['zz-merge'] = {
+      id: 'zz-merge',
+      title: 'Merge #7 — zz-work: something small',
+      // Carrying the `beadpr` block is what makes this findable at all — `beadsAbout`
+      // matches on that, not on the label or the title.
+      description: mergeBeadBody(DELIVERY, {}),
+      notes: withQueueBlock('', { attempts: 1, approved: false, approvedBy: '', approvedAt: '', at: '', baseline: [] }),
+      labels: [MERGE_LABEL],
+      assignee: MERGE_ASSIGNEE,
+      status: 'open',
+      issue_type: 'task',
+      dependencies: [],
+      comments: [],
+    };
+    workDeps.push({ id: 'zz-merge', dependency_type: 'blocks' });
+  }
+  writeWorld({ issues, next: 0 });
   fs.writeFileSync(BD_LOG, '');
+  fs.writeFileSync(GH_LOG, '');
   fs.writeFileSync(PR_STATE, JSON.stringify(rawPR()));
   fs.rmSync(OWED_PATH, { force: true });
 };
 
 const MERGE = 'MERGE: merge #7, then close zz-work.';
+const SHIP = 'SHIP: merge #7, then deploy demo.';
 
-console.log('\nmerging from the phone\n');
+// The window a worker left behind — created once, checked throughout, because none of
+// the taps below land a merge and so none of them has any business renaming it.
+queuedWindow();
+
+console.log('\nqueuing from the phone\n');
 
 /* --------------------------------------------------- the ordinary single card */
 
 {
   reset();
-  queuedWindow();
   const res = await post('/api/respond', { workspace: 'demo', id: 'zz-pr', response: MERGE });
   check('the answer is taken', res.status === 200, JSON.stringify(res.json));
+
+  // The bug this file was rewritten for: nothing merged, and nothing tried to.
+  check('nothing was merged at GitHub', merges().length === 0, JSON.stringify(merges()));
+  check('the pull request is still open', JSON.parse(fs.readFileSync(PR_STATE, 'utf8')).state === 'OPEN');
+
+  // The card itself is answered and closed exactly as any other question is — nothing
+  // about the outer `/api/respond` machinery changes, because nothing here relabels
+  // *this* bead (see `admitDeliveryToQueue`'s own docblock for why).
+  check('the card closes, answered', world().issues['zz-pr'].status === 'closed', world().issues['zz-pr'].status);
   check(
-    'the card’s own edge is dropped, because it is being answered',
-    bdCalls().some((c) => c.slice(0, 4).join(' ') === 'dep remove zz-work zz-pr'),
-    bdCalls().map((c) => c.join(' ')).join(' | ')
-  );
-  check('the work bead closes with the merge', world().issues['zz-work'].status === 'closed', world().issues['zz-work'].status);
-  check(
-    'and the close reason names the pull request',
-    /#7/.test(world().issues['zz-work'].close_reason || ''),
-    world().issues['zz-work'].close_reason
-  );
-  check(
-    'the thread says it closed it',
-    (world().issues['zz-pr'].comments || []).some((c) => /closed zz-work/.test(c)),
+    'and the close comment says where it went',
+    (world().issues['zz-pr'].comments || []).some((c) => /merge queue as zz-q/.test(c)),
     JSON.stringify(world().issues['zz-pr'].comments)
   );
+
+  // A fresh bead carries the approval — the same one a worker files when nothing in the
+  // tracker is about a pull request yet.
+  const filed = Object.values(world().issues).find((i) => i.id.startsWith('zz-q'));
+  check('a queue entry was filed', Boolean(filed), JSON.stringify(Object.keys(world().issues)));
+  check('carrying the queue label', (filed?.labels || []).includes(MERGE_LABEL), JSON.stringify(filed?.labels));
+  check('and the queue assignee', filed?.assignee === MERGE_ASSIGNEE, filed?.assignee);
+  const state = queueState(filed || {});
+  check('the approval is recorded in the queue block', state.approved === true, JSON.stringify(state));
+  check('with who gave it', Boolean(state.approvedBy), JSON.stringify(state));
+  check('the attempt budget is unspent', state.attempts === 0, JSON.stringify(state));
+
+  // The work bead is not closed, and not the same bead it was — it is parked behind the
+  // queue entry now, not only the (now-closed, and therefore harmless) delivery card.
+  check('the work bead is not closed', world().issues['zz-work'].status === 'in_progress', world().issues['zz-work'].status);
+  check(
+    'and it is parked behind the queue entry',
+    (world().issues['zz-work'].dependencies || []).some((d) => d.id === filed.id),
+    JSON.stringify(world().issues['zz-work'].dependencies)
+  );
+
+  // The three things this tap used to do afterwards. All three belong to the merge, and
+  // the merge has not happened — lib/mergequeue.js's own `finish` does all three the
+  // moment it lands one.
+  check('no conflict sweep is asked for', Object.keys(readSweepRequests()).length === 0, JSON.stringify(readSweepRequests()));
+  check('the window is not renamed — nothing has landed yet', windowName() === 'QUEUED-Demo - zz-work the work', windowName());
   check('nothing is left owing', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
-  // bc-9d37.4. A merge leaves every other open branch on this base measured against a
-  // base it has never seen, and the tap is one of four doors that has to say so. Recorded
-  // rather than swept, because the resolver registry that stops two windows opening on
-  // one branch lives in the daemon's memory and the poll cycle is what reaches it — so
-  // this returns when the merge is done, not when a window has opened.
-  const asked = readSweepRequests();
-  check('and the conflict sweep is asked for', Object.keys(asked).length === 1, JSON.stringify(asked));
-  check('naming the repo and the merge', asked.demo?.key === 'demo' && asked.demo?.number === 7, JSON.stringify(asked.demo));
-  // A `--review` delivery files no merge-bead, so lib/mergequeue.js never sees this pull
-  // request and would never rename its window. This tap is the only door that can, and a
-  // window left saying `QUEUED-` claims to be waiting on a queue that will not touch it.
-  check('THE WINDOW THAT DELIVERED IT IS RENAMED DONE-', windowName() === 'DONE-Demo - zz-work the work', windowName());
+
+  // The pull request is told, so the record is where the diff is.
+  check(
+    'and the pull request carries a comment naming the approval',
+    ghCalls().some((c) => c[0] === 'pr' && c[1] === 'comment'),
+    ghCalls().map((c) => c.join(' ')).join(' | ')
+  );
 }
 
 /* ------------------------------------------ the sibling card, which is the bug */
@@ -428,74 +535,110 @@ console.log('\nmerging from the phone\n');
 {
   reset({ sibling: true });
   const res = await post('/api/respond', { workspace: 'demo', id: 'zz-pr', response: MERGE });
-  check('the answer is still taken — the merge happened', res.status === 200, JSON.stringify(res.json));
-  check('and the pull request really merged', JSON.parse(fs.readFileSync(PR_STATE, 'utf8')).state === 'MERGED');
-  check('the work bead is still open, because bd refused', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
+  check('the answer is taken', res.status === 200, JSON.stringify(res.json));
+  check('nothing was merged', merges().length === 0, JSON.stringify(merges()));
 
-  const answer = (world().issues['zz-pr'].comments || []).join('\n');
-  check('the card does not claim a close that did not happen', !/— closed zz-work/.test(answer), answer);
-  check('it says which bead is still open', /zz-work is still open/.test(answer), answer);
-  check('and names what is holding it', /zz-sib/.test(answer), answer);
-
-  const owed = readOwed();
-  check('the close is written down', Boolean(owed['demo/zz-work']), JSON.stringify(owed));
-  check('with the reason it will carry when it goes through', /#7/.test(owed['demo/zz-work']?.reason || ''), owed['demo/zz-work']?.reason);
-
-  /* ------------------------------------------------------------- and the retry */
-
-  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test' });
-  let swept = await sweepOwed(bd, cfg.workspaces);
-  check('while the sibling is open, the sweep leaves it alone', swept[0]?.status === 'blocked', JSON.stringify(swept));
-  check('and keeps the record', Boolean(readOwed()['demo/zz-work']), JSON.stringify(readOwed()));
-
-  // The sibling is answered a minute later, which is exactly what happened to bc-ec6.
-  const w = world();
-  w.issues['zz-sib'].status = 'closed';
-  writeWorld(w);
-
-  swept = await sweepOwed(bd, cfg.workspaces);
-  check('once its last blocker closes, the retry closes it', swept[0]?.status === 'closed', JSON.stringify(swept));
-  check('the work bead is finally closed', world().issues['zz-work'].status === 'closed', world().issues['zz-work'].status);
+  // `zz-pr` is excluded from what `admitPlan` is asked about (it is about to close, a
+  // few lines below, as an ordinary answered question) — so the sibling becomes the
+  // queue entry, not a third bead filed beside it.
+  check('the card closes', world().issues['zz-pr'].status === 'closed', world().issues['zz-pr'].status);
+  check('no fresh bead was filed', !Object.keys(world().issues).some((id) => id.startsWith('zz-q')), JSON.stringify(Object.keys(world().issues)));
+  const sib = world().issues['zz-sib'];
+  check('the sibling becomes the queue entry instead', (sib.labels || []).includes(MERGE_LABEL), JSON.stringify(sib.labels));
+  check('and it is not closed — nothing has merged yet', sib.status === 'open', sib.status);
+  check('the work bead stays open too', world().issues['zz-work'].status === 'in_progress', world().issues['zz-work'].status);
   check(
-    'with the reason written down at the merge, not a generic one',
-    /Merged #7 as c5004cce/.test(world().issues['zz-work'].close_reason || ''),
-    world().issues['zz-work'].close_reason
+    'and is parked behind the sibling now, as well as the closed card',
+    (world().issues['zz-work'].dependencies || []).some((d) => d.id === 'zz-sib'),
+    JSON.stringify(world().issues['zz-work'].dependencies)
   );
-  check('and the record is gone', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
 }
 
-/* ------------------------------------ an epic, which a merge does not close (bc-arj0.3) */
+/* --------------------------------------------- when it is already on the queue */
 
 {
-  // The bead behind the card is an epic. bc-ka5y closed exactly this way — on the merge
-  // of a branch that shared its name, with twenty-one adoptees still open — and bd had
-  // no objection, because an `Adopts:` line is prose and the epic had no children.
-  reset();
-  const w = world();
-  w.issues['zz-work'].issue_type = 'epic';
-  writeWorld(w);
-
+  // The queue had already raised this pull request as a card once, or it is mid-attempt
+  // right now — either way, something in the tracker already carries the queue's label
+  // for it. The approval is recorded there; nothing is relabelled a second time.
+  reset({ already: true });
   const res = await post('/api/respond', { workspace: 'demo', id: 'zz-pr', response: MERGE });
-  check('the answer is still taken — the merge is not in doubt', res.status === 200, JSON.stringify(res.json));
-  check('and the pull request merged', JSON.parse(fs.readFileSync(PR_STATE, 'utf8')).state === 'MERGED');
-  check('the epic stays open', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
+  check('the answer is taken', res.status === 200, JSON.stringify(res.json));
+  check('nothing was merged', merges().length === 0, JSON.stringify(merges()));
+  check('the card closes', world().issues['zz-pr'].status === 'closed', world().issues['zz-pr'].status);
+  check('no fresh bead was filed', !Object.keys(world().issues).some((id) => id.startsWith('zz-q')), JSON.stringify(Object.keys(world().issues)));
+  check('the existing queue entry still carries the label', (world().issues['zz-merge'].labels || []).includes(MERGE_LABEL));
+  check('and it is still assigned to the queue', world().issues['zz-merge'].assignee === MERGE_ASSIGNEE);
+  check('with the approval now recorded on it', queueState(world().issues['zz-merge']).approved === true, world().issues['zz-merge'].notes);
+}
+
+/* ------------------------------------------------------------------- shipping it */
+
+{
+  // Ship used to merge and deploy in one request. The merge is unattended now, so there
+  // is nothing left to deploy here — the note says what happens instead, and it never
+  // claims a deploy this request did not start.
+  reset();
+  const res = await post('/api/respond', { workspace: 'demo', id: 'zz-pr', response: SHIP });
+  check('the answer is taken', res.status === 200, JSON.stringify(res.json));
+  check('nothing was merged', merges().length === 0, JSON.stringify(merges()));
   check(
-    'and it is told why, on the epic itself',
-    (world().issues['zz-work'].comments || []).some((c) => /stays open/.test(c)),
-    JSON.stringify(world().issues['zz-work'].comments)
+    'and the card says this workspace has no automatic ship declared',
+    /no automatic ship declared/.test((world().issues['zz-pr'].comments || []).join('\n')),
+    JSON.stringify(world().issues['zz-pr'].comments)
   );
-  check(
-    'nothing is owed, because no retry would ever make a merge the right evidence',
-    Object.keys(readOwed()).length === 0,
-    JSON.stringify(readOwed())
-  );
-  check('and the card does not claim it closed it', !(world().issues['zz-pr'].comments || []).some((c) => /— closed zz-work/.test(c)), JSON.stringify(world().issues['zz-pr'].comments));
 }
 
 {
-  // And the backstop, for a record written before this rule existed — or by anything
-  // that owes a close without asking. The retry has nothing in hand but the stored
-  // sentence, so it is the sentence the gate is asked about.
+  // The same tap, in a workspace that ships itself once a merge lands — the note says so
+  // instead, and still starts no deploy of its own.
+  reset();
+  const shippy = { ...cfg, autoShipPerWorkspace: { demo: true } };
+  const app2 = createApp(shippy);
+  const servers2 = listen({ ...shippy, port: 0 }, app2.handler);
+  const port2 = await boundPort(servers2);
+  const res = await new Promise((resolve, reject) => {
+    const payload = JSON.stringify({ workspace: 'demo', id: 'zz-pr', response: SHIP });
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port: port2,
+        path: '/api/respond',
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), 'x-beadcause-token': cfg.token },
+      },
+      (r) => {
+        let out = '';
+        r.setEncoding('utf8');
+        r.on('data', (c) => (out += c));
+        r.on('end', () => resolve({ status: r.statusCode, json: JSON.parse(out || '{}') }));
+      }
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+  check('the answer is taken', res.status === 200, JSON.stringify(res.json));
+  check('nothing was merged', merges().length === 0, JSON.stringify(merges()));
+  check(
+    'and the card says the workspace deploys itself',
+    /deploys itself once a merge lands/.test((world().issues['zz-pr'].comments || []).join('\n')),
+    JSON.stringify(world().issues['zz-pr'].comments)
+  );
+  for (const s of servers2) s.close?.();
+  if (servers2[0]?.front) servers2[0].front.close?.();
+}
+
+{
+  // The epic-safety backstop (bc-arj0.3), kept and moved here: an epic's own theme
+  // finishing is not the same fact as a pull request landing, and nothing here says it
+  // is any more — resolveDeliveryFor no longer touches the work bead at all, so the
+  // HTTP-level version of this test that used to be above went with it. What survives is
+  // the retry's own rule, seeded directly, exactly as `lib/mergequeue.js`'s own `finish`
+  // relies on it now (test/mergequeue.mjs covers that path end to end).
+  //
+  // A record written before this rule existed — or by anything that owes a close
+  // without asking. The retry has nothing in hand but the stored sentence, so it is the
+  // sentence the gate is asked about.
   const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test' });
   reset();
   const w = world();
