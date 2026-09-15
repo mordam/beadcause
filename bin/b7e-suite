@@ -1,0 +1,156 @@
+#!/usr/bin/env node
+/**
+ * `b7e-suite` — a handful of named suites, in one call the worktree guard will allow.
+ *
+ *     b7e-suite panes releases deploystart   bare names, resolved against the tree's own suites
+ *     b7e-suite test/panes.mjs               a full suite path works too
+ *     b7e-suite 'test/b7e*.mjs'              a glob — quote it, or the shell expands it first
+ *     b7e-suite --all                        the whole sweep — the same set b7e-gate/npm test run
+ *     b7e-suite --jobs 4                     how many suites at once (default 6)
+ *     b7e-suite --dir <root>                 another tree — this is how it is tested
+ *
+ * bc-khoe.30.17 names seven sessions that each wrote `for s in <names>; do node
+ * test/$s.mjs; done` after an edit and were refused by the worktree guard on every one
+ * of the seven — "too complex to verify that it stays inside the worktree" — because a
+ * loop is not one command a guard can read. This is one command: a flat argv of names.
+ * `lib/suite.js` resolves them against the tree's own suite list; `lib/gate.js` runs
+ * them, the same runner `bin/b7e-gate` uses, so a suite passing here and a suite passing
+ * in the whole gate can never disagree about what passing means.
+ *
+ * A misspelled or nonexistent name is reported — `MISSING <name>` — before a single
+ * suite starts, never as the module-not-found stack a plain `node test/<name>.mjs`
+ * would give for the same typo.
+ *
+ * Exit codes: `0` every suite passed; `1` at least one failed or timed out; `2` refused
+ * — bad usage, a name that resolves to nothing, or another gate already running on this
+ * tree (the lock is the same one `bin/b7e-gate` takes, keyed by the resolved root, so
+ * the two can never double up the load on one Mac).
+ *
+ * Deliberately NOT on `DEFAULT_TOOL_LIST`, for `b7e-gate`'s reason rather than a
+ * read-only one: it runs every suite it is given, concurrently, through the same
+ * `lib/gate.js` pool `b7e-gate` itself uses — which is `Bash(npm test:*)`'s own shape,
+ * already a write held by merge-advocate alone on "nothing about run the tests is a
+ * read". Its whole occasion is a worker session wanting a handful of suites after an
+ * edit, without the worktree guard refusing the shell loop that used to be the only way
+ * to ask for more than one by name; `dispatch`, the one agent that list governs, has no
+ * branch and no suite of its own to re-run.
+ *
+ * @grant excluded
+ */
+import path from 'node:path';
+import { REPO_ROOT, acquireLock, discoverSuites, runGate, summaryLine } from '../lib/gate.js';
+import { resolveNames } from '../lib/suite.js';
+import { onExit } from '../lib/teardown.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-suite <name>...      bare (panes), a full path (test/panes.mjs), or a glob',
+      'b7e-suite --all          the whole sweep — same set b7e-gate/npm test would run',
+      'b7e-suite --jobs N       how many suites at once (default 6)',
+      'b7e-suite --dir <root>   another tree — this is how it is tested',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const ALL = has('--all');
+let JOBS = 6;
+let DIR = null;
+const names = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--all') continue;
+  if (a === '--jobs') {
+    JOBS = Math.max(1, Number(argv[++i]) || 6);
+    continue;
+  }
+  if (a.startsWith('--jobs=')) {
+    JOBS = Math.max(1, Number(a.slice('--jobs='.length)) || 6);
+    continue;
+  }
+  if (a === '--dir') {
+    DIR = argv[++i];
+    continue;
+  }
+  if (a.startsWith('--dir=')) {
+    DIR = a.slice('--dir='.length);
+    continue;
+  }
+  names.push(a);
+}
+
+const ROOT = path.resolve(DIR || REPO_ROOT);
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+/** `process.exit` does not wait for a pipe to drain — same trap `bin/b7e-gate` flushes for. */
+const leave = async (code) => {
+  await new Promise((r) => process.stdout.write('', r));
+  process.exit(code);
+};
+
+if (!ALL && !names.length) {
+  console.error(red('no suite names given — pass one or more, or --all'));
+  await leave(2);
+}
+
+const lock = acquireLock(ROOT);
+if (!lock.ok) {
+  const since = lock.startedAt ? `${Math.round((Date.now() - lock.startedAt) / 1000)}s ago` : 'a while ago';
+  console.error(red(`a gate is already running on this tree — pid ${lock.pid}, started ${since}`));
+  console.error(dim("refusing rather than doubling the load; that run's own output is the one to read"));
+  await leave(2);
+}
+const releaseLock = onExit(lock.release);
+
+const allSuites = discoverSuites(ROOT);
+let suites;
+if (ALL) {
+  suites = allSuites;
+} else {
+  const { resolved, missing } = resolveNames(names, allSuites);
+  if (missing.length) {
+    for (const m of missing) console.log(red(`MISSING ${m.input}${m.reason ? ` — ${m.reason}` : ''}`));
+    releaseLock();
+    lock.release();
+    await leave(2);
+  }
+  suites = resolved;
+}
+
+const onResult = (r, done, total) => {
+  const mark = r.status === 'ok' ? green('ok') : r.status === 'TIMEOUT' ? amber('TIMEOUT') : red('FAIL');
+  const secs = (r.ms / 1000).toFixed(1);
+  console.log(`${dim(`[${done}/${total}]`)} ${mark} ${r.suite} ${dim(`${secs}s`)}`);
+  if (r.status !== 'ok') {
+    const tail = String(r.out || '').trim().split('\n').slice(-15);
+    for (const line of tail) console.log(dim(`      ${line}`));
+    if (r.scratch) console.log(dim(`      scratch kept in ${r.scratch}`));
+  }
+};
+
+let result;
+try {
+  result = await runGate(ROOT, { suites, jobs: JOBS, onResult, signalAbort: onExit });
+} finally {
+  // Two calls, not one — bc-dgx7.40, and `bin/b7e-gate`'s teardown carries the same pair.
+  // `onExit` hands back a *disarm*: it marks the job done and splices it out of the list,
+  // and it never runs `fn` itself. So `releaseLock()` alone does not release anything; it
+  // only guarantees the exit handler behind it will not. Disarm, then release for real —
+  // otherwise a clean run leaves its lock file in the OS temp dir for ever, harmless only
+  // because the next `acquireLock` reads a dead pid and reclaims it as stale.
+  releaseLock();
+  lock.release();
+}
+
+console.log('');
+console.log(result.ok ? green(summaryLine(result)) : red(summaryLine(result)));
+
+await leave(result.ok ? 0 : 1);
