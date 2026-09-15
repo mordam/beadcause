@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// Are the corner radii and the font weights still a scale, or a habit again?
+// Are the corner radii, the font weights and the type sizes still a scale, or a habit again?
 //
 //   npm test
 //   node test/metricscale.mjs
@@ -36,14 +36,26 @@
 // is real. The other eleven — 420, 450, 500, 520, 540, 560, 570, 590, 620, 630, 640, 660,
 // 680, 800 — were a handful of uses each.
 //
-// ## What is deliberately NOT enforced here
+// **Type: 9 / 11 / 13 / 16 / 19 / 24.** This one had to be *asked* rather than decided,
+// which is why it arrived a fortnight after the other two. A radius cannot move a box and
+// a weight barely can — the whole of bc-03pz's snap moved seven text runs by 1–3px and not
+// one box height — where a font-size moves layout on a 360px phone, so this was a design
+// decision rather than a normalization. bc-ka5y.22 measured all four candidate scales
+// against the real sheet before Adam picked this one: apply each candidate, re-render all
+// 77 cards, and diff the computed-style fingerprint. It keeps 11, 13, 16 and 24 exactly
+// where they already were, and no declaration moved more than 2px.
 //
-// **Type sizes.** There are 22 of them and they are the worst of the three, but which
-// scale to snap them to moves layout on a phone and is a design decision rather than a
-// normalization — the bead says so in as many words. Radii cannot move a box at all and
-// a weight barely can, which is why those two could land without asking. The type scale
-// is bc-03pz's remaining half; when it is decided, its allowed set belongs here beside
-// these two and this comment goes.
+// **The rounding rule is part of the scale, and it mattered more than the scale did.**
+// Three sizes were equidistant from two steps — 10px (×9 declarations), 12px (×71) and
+// 14.5px (×18) — and they round **down**, to 9, 11 and 13. Measured, that is 6 boxes
+// taller and 27 shorter; rounding the same 98 declarations up instead gives 29 taller and
+// 7 shorter, with one card growing 83px. So a later addition at 12px is not a near-miss to
+// be waved through: it is 11px or it is 13px, and the sheet has already decided which.
+//
+// **What this cannot reach**, and it is deliberate rather than a gap: `code` at 0.94em and
+// one 0.78em track their parent and no px scale can snap them, so they are in `SIZE_FREE`
+// the way `0`/`inherit` are free of the radius scale. The browser's own 13.3333px for
+// `small` and a bare `input` has no declaration to hold to anything.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,9 +67,13 @@ const SHEETS = ['public/style.css', 'public/flow.js'];
 
 const RADII = ['6px', '10px', '14px', '18px', '999px', '50%'];
 const WEIGHTS = ['400', '550', '600', '650', '700'];
+const SIZES = ['9px', '11px', '13px', '16px', '19px', '24px'];
 
 /** Values that are not a step and never were: no corner at all, or one inherited. */
 const RADIUS_FREE = new Set(['0', '0px', 'inherit', 'var(--radius)']);
+
+/** Sizes relative to their parent, which a px scale cannot express — see the header. */
+const SIZE_FREE = new Set(['0.94em', '0.78em', 'inherit', '100%']);
 
 let failures = 0;
 const ok = (name) => console.log(`  \x1b[32m✓\x1b[0m ${name}`);
@@ -146,6 +162,46 @@ const num = (v) => (/^-?[\d.]+px$/.test(v) ? parseFloat(v) : null);
     });
   }
   check('and the `font:` shorthand is on the scale too', shorthand.length === 0, shorthand.join('\n      '));
+}
+
+{
+  // Type is the third axis and the one that had to be asked about rather than decided:
+  // bc-ka5y.22 measured all four candidate scales against the real sheet before Adam
+  // picked this one, because a font-size moves layout where a radius cannot.
+  const decls = declarations('font-size');
+  const offenders = decls.filter(
+    (d) => !SIZES.includes(d.value) && !SIZE_FREE.has(d.value) && !/^var\(/.test(d.value)
+  );
+  check(
+    `every font-size is one of ${SIZES.join(' / ')}`,
+    offenders.length === 0,
+    offenders.slice(0, 12).map((d) => `${d.where}  ${d.value}`).join('\n      ')
+  );
+  check('the sheet still has sizes to check', decls.length > 400, `${decls.length} declarations`);
+
+  // Same property the radius steps are held to, and for the same reason: vocabulary.mjs
+  // calls two sizes within 1px of each other a smear, so a scale whose own steps were
+  // 1px apart would be reported as one by the very script that argued for it.
+  const steps = SIZES.map(num).sort((a, b) => a - b);
+  const tight = steps.slice(1).map((s, i) => [steps[i], s]).filter(([a, b]) => b - a <= 1);
+  check(
+    'no two type steps are within 1px of each other — the threshold vocabulary.mjs calls a smear',
+    tight.length === 0,
+    JSON.stringify(tight)
+  );
+
+  // The `font:` shorthand carries a size as well as a weight. One rule uses it (the body
+  // font at 16px); the check is here so a second one cannot arrive off the scale.
+  const shorthand = [];
+  for (const file of SHEETS) {
+    const src = blank(fs.readFileSync(path.join(ROOT, file), 'utf8'));
+    src.split('\n').forEach((line, i) => {
+      for (const m of line.matchAll(/font\s*:\s*(?:\d{3}\s+)?(\d+(?:\.\d+)?px)\b/g)) {
+        if (!SIZES.includes(m[1])) shorthand.push(`${file}:${i + 1}  font: … ${m[1]}`);
+      }
+    });
+  }
+  check('and the size in a `font:` shorthand is on the scale too', shorthand.length === 0, shorthand.join('\n      '));
 }
 
 {

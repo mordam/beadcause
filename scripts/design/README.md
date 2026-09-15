@@ -231,18 +231,28 @@ the palette was checkable and the metrics were not** — an off-palette colour i
 hex among `var(--…)` and fails review on sight, where `9px` beside `10px` and `11px` looks
 like every line around it.
 
-So two of the three axes now have a scale and a suite, and `test/metricscale.mjs` is the
-thing the palette had all along:
+So all three axes now have a scale and a suite, and `test/metricscale.mjs` is the thing the
+palette had all along:
 
 | axis | scale | why |
 |---|---|---|
 | corner radius | `6 / 10 / 14 / 18`, plus `999px` and `50%` | four apart on purpose — this script calls two radii within 2px a smear, so a scale with 2px steps would be one |
 | font weight | `400 / 550 / 600 / 650 / 700` | the four this count found carrying the app, plus the one real bold |
-| type size | **not enforced** | 22 sizes and the worst of the three, but a type scale moves layout on a 360px phone. That is a design decision, not a normalization, and it is still open |
+| type size | `9 / 11 / 13 / 16 / 19 / 24`, ties **down** | keeps the 11, 13, 16 and 24 that already carried the app; every other size moved 2px or less. `em`-relative sizes are free of it, because no px scale can express one |
 
 Radius and weight could land unattended precisely because neither can move a box: the whole
 snap moved seven text runs by 1–3px and not one box height, which is what `baseline.mjs`
-below was used to prove. Re-run this count after any change to the sheet.
+below was used to prove. **Type could not, and that is the difference worth keeping in
+mind** — bc-ka5y.22 had to be asked rather than decided, and then answered by applying each
+candidate scale to the real sheet and diffing the fingerprint, about a minute a candidate.
+Two of the things it settled are counter-intuitive enough to write down. Rounding the three
+equidistant sizes down rather than up is the single biggest lever in the change — 6 boxes
+taller against 29 — even though the six steps are identical either way. And **`baseline.mjs`'s
+height column stops being a wrap detector for a font-size change**: line-heights here are
+unitless multipliers, so every moved size drags its own line box 1–2px and 292 elements
+change height without anything reflowing. Read `|Δh| ≥ 5px` as the reflow set instead.
+
+Re-run this count after any change to the sheet.
 
 ## The regression baseline
 
