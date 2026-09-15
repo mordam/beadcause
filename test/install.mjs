@@ -88,6 +88,8 @@ if [ -t 0 ]; then stdin=tty; else stdin=notty; fi
 printf '%s [stdin=%s]\\n' "$*" "$stdin" >> "$log"
 case "$*" in
   *onboard.mjs*) exit "\${BEADCAUSE_TEST_ONBOARD_EXIT:-0}" ;;
+  *phone-host*)  printf '%s' "\${BEADCAUSE_TEST_PHONE:-noip}"; exit 0 ;;
+  *bind-host*)   printf '%s' "\${BEADCAUSE_TEST_HOST:-127.0.0.1}"; exit 0 ;;
 esac
 case "$1" in
   -p) echo "\${BEADCAUSE_TEST_NODE_MAJOR:-22}" ;;
@@ -141,21 +143,59 @@ printf '%s\\n' "$*" >> "$BEADCAUSE_TEST_LOGDIR/$(basename "$0").log"
 exit 0
 `;
 
-/** A run of the installer: its own HOME, its own shim log, nothing shared. */
-function run(name, { args = [], env = {}, previousPlist = null } = {}) {
+/**
+ * `brew`, present only in a run that asks for it. It logs its argv and makes what it was
+ * asked to install actually appear — a shim on PATH, an app bundle in the fake
+ * Applications folder, the Tailscale binary where BEADCAUSE_TAILSCALE points — so the
+ * installer's re-check afterwards finds it the way it would find the real thing.
+ * BEADCAUSE_TEST_BREW_FAIL makes every call fail.
+ */
+const BREW_SHIM = `#!/bin/bash
+printf '%s\\n' "$*" >> "$BEADCAUSE_TEST_LOGDIR/brew.log"
+[ -n "\${BEADCAUSE_TEST_BREW_FAIL:-}" ] && exit 1
+bin="$(dirname "$0")"
+shim() { printf '#!/bin/bash\\nexit 0\\n' > "$bin/$1"; chmod +x "$bin/$1"; }
+case "$*" in
+  "install beads"|"upgrade beads") shim bd ;;
+  "install gh") shim gh ;;
+  "install jq") shim jq ;;
+  "install --cask claude-code") shim claude ;;
+  "install --cask iterm2") mkdir -p "$BEADCAUSE_APP_DIRS/iTerm.app" ;;
+  "install --cask tailscale-app") : > "$BEADCAUSE_TAILSCALE" ;;
+esac
+exit 0
+`;
+
+/**
+ * A run of the installer: its own HOME, its own shim log, nothing shared.
+ *
+ * `brew: true` puts the brew shim on PATH. `shims` overrides a default shim's body, or
+ * removes it with null — which is how a dependency is made missing. `apps` is what the
+ * fake Applications folder holds.
+ */
+function run(name, { args = [], env = {}, previousPlist = null, brew = false, shims = {}, apps = ['iTerm.app'] } = {}) {
   const dir = path.join(tmp, name);
   const home = path.join(dir, 'home');
   const bin = path.join(dir, 'bin');
   const logs = path.join(dir, 'logs');
-  for (const d of [path.join(home, 'Library', 'LaunchAgents'), bin, logs]) fs.mkdirSync(d, { recursive: true });
+  const appsDir = path.join(dir, 'apps');
+  for (const d of [path.join(home, 'Library', 'LaunchAgents'), bin, logs, appsDir]) fs.mkdirSync(d, { recursive: true });
+  for (const app of apps) fs.mkdirSync(path.join(appsDir, app), { recursive: true });
 
-  for (const [file, body] of [
-    ['node', NODE_SHIM],
-    ['launchctl', LAUNCHCTL_SHIM],
-    ['curl', CURL_SHIM],
-    ['npm', NOOP_SHIM],
-    ['bd', NOOP_SHIM],
-  ]) {
+  const bodies = {
+    node: NODE_SHIM,
+    launchctl: LAUNCHCTL_SHIM,
+    curl: CURL_SHIM,
+    npm: NOOP_SHIM,
+    bd: NOOP_SHIM,
+    gh: NOOP_SHIM,
+    claude: NOOP_SHIM,
+    tailscale: NOOP_SHIM,
+    ...(brew ? { brew: BREW_SHIM } : {}),
+    ...shims,
+  };
+  for (const [file, body] of Object.entries(bodies)) {
+    if (body === null) continue;
     const p = path.join(bin, file);
     fs.writeFileSync(p, body);
     fs.chmodSync(p, 0o755);
@@ -183,6 +223,12 @@ function run(name, { args = [], env = {}, previousPlist = null } = {}) {
       PATH: `${bin}:/usr/bin:/bin`,
       BEADCAUSE_TEST_LOGDIR: logs,
       BEADCAUSE_TEST_LOADED: path.join(ROOT, 'bin', 'router.js'),
+      // Every place the installer would otherwise look on the real Mac: Homebrew off PATH,
+      // /Applications, and the absolute Tailscale paths. Without these a run here could
+      // find — or install into — the machine it is running on.
+      BEADCAUSE_BREW_SEARCH: '',
+      BEADCAUSE_APP_DIRS: appsDir,
+      BEADCAUSE_TAILSCALE: path.join(bin, 'tailscale'),
       ...env,
     },
   });
@@ -197,6 +243,7 @@ function run(name, { args = [], env = {}, previousPlist = null } = {}) {
     rejectedText: fs.existsSync(`${plist}.rejected`) ? fs.readFileSync(`${plist}.rejected`, 'utf8') : null,
     node: read('node.log'),
     launchctl: read('launchctl.log').trim().split('\n').filter(Boolean),
+    brew: read('brew.log').trim().split('\n').filter(Boolean),
   };
 }
 
@@ -294,6 +341,102 @@ console.log("\nthe team's tracker");
   check('a step that may work next time only warns', r.status === 0, `exit ${r.status}\n${r.out}`);
   check('and says so, with the code', /not set up yet.*exit 2/.test(r.out), r.out);
   check('the daemon is still installed', r.launchctl.some((l) => l.includes(`${LABEL}.plist`)), r.launchctl.join('\n'));
+}
+
+/* ------------------------------------------------- 1c. installing what is missing */
+
+console.log('\ninstalling what is missing');
+
+{
+  const r = run('deps-fresh', { args: ['-n'], brew: true, shims: { bd: null, gh: null, claude: null, tailscale: null }, apps: [] });
+  check('a Mac with nothing on it still installs', r.status === 0, `exit ${r.status}\n${r.out}`);
+  check('beads is installed with brew', r.brew.includes('install beads'), r.brew.join('\n'));
+  check('and so are gh, iTerm2 and Claude Code', ['install gh', 'install --cask iterm2', 'install --cask claude-code'].every((l) => r.brew.includes(l)), r.brew.join('\n'));
+  check('the bd it installed is the one the service is loaded with', r.launchctl.some((l) => l.includes(`${LABEL}.plist`)), r.launchctl.join('\n'));
+  check('Tailscale is not part of the default install', !r.brew.some((l) => l.includes('tailscale')), r.brew.join('\n'));
+  check('and nothing complains that it is missing', !/Tailscale not found/.test(r.out), r.out);
+}
+
+/* ------------------------------------------------------------- 1d. the phone */
+
+console.log('\nthe phone');
+
+{
+  const r = run('loopback', { args: ['-n'] });
+  check('without --phone it answers on loopback and says so', /127\.0\.0\.1:4318, on this Mac only/.test(r.out), r.out);
+  check('and says how to turn the phone on later', /install-service -- --phone/.test(r.out), r.out);
+  check('no pairing QR for an address the phone cannot reach', !/--qr/.test(r.node), r.node);
+  check('and the tailnet address is never written', !/phone-host/.test(r.node), r.node);
+}
+
+{
+  const r = run('phone-tailscale', { args: ['--phone', '--interactive'], brew: true, shims: { tailscale: null } });
+  check('--phone installs Tailscale with somebody there', r.brew.includes('install --cask tailscale-app'), r.brew.join('\n'));
+  check('and they are told to sign it in', /sign in/.test(r.out), r.out);
+}
+
+{
+  const r = run('phone-unattended', { args: ['--phone', '-n'], brew: true, shims: { tailscale: null } });
+  check('--phone with nobody to type the admin password does not try', !r.brew.some((l) => l.includes('tailscale')), r.brew.join('\n'));
+  check('and names the command instead', /brew install --cask tailscale-app/.test(r.out), r.out);
+}
+
+{
+  const r = run('phone-noip', { args: ['--phone', '-n'] });
+  check('--phone before Tailscale is signed in says to sign in and re-run', /sign in, then re-run with --phone/.test(r.out), r.out);
+  check('and still finishes', r.status === 0, `exit ${r.status}\n${r.out}`);
+}
+
+{
+  const r = run('phone-on', {
+    args: ['--phone', '-n'],
+    env: { BEADCAUSE_TEST_PHONE: 'set 100.64.0.7', BEADCAUSE_TEST_HOST: '100.64.0.7' },
+  });
+  check('--phone writes the tailnet address', /phone-host/.test(r.node) && /listening on 100\.64\.0\.7/.test(r.out), `${r.node}\n${r.out}`);
+  check('before the service is loaded, so it starts listening there', r.node.indexOf('phone-host') < r.node.indexOf('bind-host'), r.node);
+  check('and prints the pairing QR', /--qr/.test(r.node), r.node);
+}
+
+{
+  const r = run('deps-present', { args: ['-n'], brew: true });
+  check('nothing already there is installed or upgraded', r.brew.length === 0, r.brew.join('\n'));
+}
+
+{
+  const old = `#!/bin/bash
+[ "$1" = --version ] && echo "bd version 1.1.0 (Homebrew)"
+exit 0
+`;
+  const r = run('deps-oldbd', { args: ['-n'], brew: true, shims: { bd: old } });
+  check(`a bd older than 1.2.1 is upgraded`, r.brew.includes('upgrade beads'), r.brew.join('\n'));
+}
+
+// Compared number by number, not as text: 1.10.0 is newer than 1.2.1 though it sorts before it.
+for (const version of ['1.2.1', '1.10.0']) {
+  const bd = `#!/bin/bash
+[ "$1" = --version ] && echo "bd version ${version} (Homebrew)"
+exit 0
+`;
+  const r = run(`deps-bd-${version}`, { args: ['-n'], brew: true, shims: { bd } });
+  check(`bd ${version} is left alone`, !r.brew.includes('upgrade beads'), r.brew.join('\n'));
+}
+
+{
+  const r = run('deps-brew-fails', { args: ['-n'], brew: true, apps: [], env: { BEADCAUSE_TEST_BREW_FAIL: '1' } });
+  check('a failed optional install does not stop the install', r.status === 0, `exit ${r.status}\n${r.out}`);
+  check('and says what failed', /brew install --cask iterm2 failed/.test(r.out), r.out);
+}
+
+{
+  const r = run('deps-off', { args: ['-n', '--no-deps'], brew: true, shims: { bd: null } });
+  check('--no-deps never runs brew', r.brew.length === 0, r.brew.join('\n'));
+  check('and a missing bd is still fatal', r.status === 1 && /not on your PATH/.test(r.out), `exit ${r.status}\n${r.out}`);
+}
+
+{
+  const r = run('deps-nobrew', { args: ['-n'], shims: { bd: null } });
+  check('without Homebrew a missing bd is fatal', r.status === 1, `exit ${r.status}\n${r.out}`);
+  check('and it says where Homebrew comes from', /brew\.sh/.test(r.out), r.out);
 }
 
 /* ------------------------------------------------------ 2. loading, and not */

@@ -21,25 +21,27 @@ agent files a `human` bead ──► beadcause polls ──► ntfy push to phon
 
 macOS only — it runs as a launchd agent and drives iTerm2.
 
-**You need:** Node 20+, the [`bd`](https://github.com/steveyegge/beads) CLI at **1.2.1
-or newer** (`brew upgrade beads`; 1.2.1 is where cross-type blocking dependencies
-arrived, and `test/epicedgereal.mjs` skips itself with a loud line on anything older
-rather than failing the repo) with at
-least one workspace under `~/beads/<name>/.beads` — or anywhere else you point
-[`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have),
-including a repo whose own `.beads` makes the repo the workspace — and
-[Tailscale](https://tailscale.com) on the Mac and the phone, signed in as the same
-user. Optional: iTerm2 and Claude Code, for the "discuss this on the Mac" button.
+**You need:** [Homebrew](https://brew.sh). The installer uses it to install whatever else
+is missing — Node 20+, the [`bd`](https://github.com/steveyegge/beads) CLI (upgraded if
+older than **1.2.1**), `gh`, `jq`, iTerm2 and Claude Code; `--no-deps` makes it only
+check. Sign `claude` in once in a terminal. Workspaces are read from `~/beads/<name>/.beads`
+or wherever [`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) points.
+
+**Phone support is off by default** — beadcause answers on `http://127.0.0.1:4318`, on this
+Mac only. Turn it on later with `npm run install-service -- --phone`: that installs
+[Tailscale](https://tailscale.com) (from a terminal — its installer wants an admin password),
+listens on the tailnet address too, and prints the pairing QR. Sign Tailscale in on the Mac
+and the phone as the same user first.
 
 ```bash
 git clone <this repo> beadcause && cd beadcause
 npm run install-service
 ```
 
-That checks the prerequisites, installs dependencies, **points this Mac at the team's
+That installs anything missing, installs dependencies, **points this Mac at the team's
 tracker if there is one**, **asks you the handful of things that can't be guessed**,
 generates a launchd plist for *your* home directory and node binary, starts the service,
-waits for it to answer, and prints the pairing QR. It's re-runnable — run it again after
+waits for it to answer, and — with `--phone` — prints the pairing QR. It's re-runnable — run it again after
 pulling. Joining a tracker somebody else already has needs one file and no questions at
 all: [installing against a team's tracker](#installing-against-a-teams-tracker).
 

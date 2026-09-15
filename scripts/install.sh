@@ -4,6 +4,8 @@
 #
 #   npm run install-service
 #   npm run install-service -- --non-interactive    # ask nothing; keep the answers on file
+#   npm run install-service -- --no-deps            # install nothing with brew; only check
+#   npm run install-service -- --phone              # reach it from a phone, over Tailscale
 #
 # Everything machine-specific is discovered here rather than committed: the plist is
 # generated with *this* user's home, node binary and checkout path. A checked-in
@@ -46,40 +48,211 @@ Install beadcause as a launchd agent (macOS).
   -n, --non-interactive  do not run scripts/configure.js. What is already in
                          ~/.config/beadcause/config.json is printed and left alone;
                          change it later with 'npm run configure' in a terminal.
+                         With --phone, Tailscale is not installed either: its
+                         installer asks for an admin password.
       --interactive      ask even when the environment looks unattended.
+      --phone            turn on phone support: install Tailscale if it is missing,
+                         listen on this Mac's tailnet address as well as 127.0.0.1,
+                         and print the pairing QR. Without it beadcause answers on
+                         this Mac only — run this again with --phone any time.
+      --no-deps          install nothing. Node, bd, gh, jq, iTerm2, Claude Code (and
+                         Tailscale, with --phone) are still checked for and what is
+                         missing is named, but brew is never run.
   -h, --help             this.
 
 SKIP_CONFIGURE=1 in the environment means the same as --non-interactive, and an
-agent or CI environment (CLAUDECODE, AI_AGENT, CI) implies it — see the note above
-the configure step for why an agent session must not be asked questions.
+agent or CI environment (CLAUDECODE, AI_AGENT, CI) implies it — see the note where
+UNATTENDED_WHY is decided for why an agent session must not be asked questions.
+BEADCAUSE_NO_DEPS=1 means the same as --no-deps, and BEADCAUSE_PHONE=1 as --phone.
 USAGE
 }
 
 NON_INTERACTIVE=0
 FORCE_INTERACTIVE=0
+INSTALL_DEPS=1
+[ -z "${BEADCAUSE_NO_DEPS:-}" ] || INSTALL_DEPS=0
+PHONE=0
+[ -z "${BEADCAUSE_PHONE:-}" ] || PHONE=1
 while [ $# -gt 0 ]; do
   case "$1" in
     -n|--non-interactive) NON_INTERACTIVE=1 ;;
     --interactive)        FORCE_INTERACTIVE=1 ;;
+    --no-deps)            INSTALL_DEPS=0 ;;
+    --phone)              PHONE=1 ;;
     -h|--help)            usage; exit 0 ;;
     *)                    usage >&2; die "unknown option: $1" ;;
   esac
   shift
 done
 
+# Is anybody there to answer? Two steps need to know: the setup questions, and — with
+# --phone — Tailscale's installer, a .pkg that asks for an admin password: the same hang.
+#
+# The questions are read from /dev/tty, because `npm run` pipes stdin. But /dev/tty is
+# *the controlling terminal*, which is not the same thing as a human who is paying
+# attention. In an agent session it belongs to the agent: the questions are asked of
+# nobody, no prompt is visible anywhere, and the install hangs on the first one for as
+# long as you let it. The escape people reached for — drop the controlling terminal
+# (setsid) so /dev/tty fails and the step warns and carries on — also leaves the GUI
+# session, and `launchctl bootstrap gui/<uid>` then fails *after* the bootout, leaving
+# the daemon unloaded. Two workarounds cancelling each other out.
+#
+# So say it in a flag instead, and recognise the obvious cases without being asked.
+UNATTENDED_WHY=""
+if [ "$NON_INTERACTIVE" = 1 ]; then
+  UNATTENDED_WHY="--non-interactive"
+elif [ -n "${SKIP_CONFIGURE:-}" ]; then
+  UNATTENDED_WHY="SKIP_CONFIGURE=$SKIP_CONFIGURE"
+elif [ -n "${CLAUDECODE:-}" ] || [ -n "${AI_AGENT:-}" ]; then
+  UNATTENDED_WHY="this is an agent session, and nobody would see the questions"
+elif [ -n "${CI:-}" ]; then
+  UNATTENDED_WHY="CI=$CI"
+fi
+if [ "$FORCE_INTERACTIVE" = 1 ]; then UNATTENDED_WHY=""; fi
+
 # ---------------------------------------------------------------- prerequisites
 
 [ "$(uname -s)" = "Darwin" ] || die "this installer is macOS-only (it uses launchd)."
 
+# Everything below that Homebrew can install is installed when it is missing, rather than
+# only complained about: a second engineer's Mac should get from `git clone` to a running
+# service without a list to work through first. What is already there is left alone —
+# never upgraded, except a bd too old for beadcause, or a Homebrew node too old to run it.
+#
+# Homebrew itself is not installed here. Its installer wants sudo and a person at the
+# keyboard, and piping a remote script into bash is not a thing to do on somebody's
+# behalf. Without it every check below still runs and names what to install by hand.
+#
+# brew is looked for off PATH too, because the shell that has just installed Homebrew has
+# not yet read the profile line that puts it there. BEADCAUSE_BREW_SEARCH replaces those
+# places, and test/install.mjs sets it empty so that a test run can never reach the real
+# Homebrew on the Mac it runs on.
+BD_MIN="1.2.1"
+BREW=""
+if [ "$INSTALL_DEPS" = 1 ]; then
+  BREW="$(command -v brew || true)"
+  if [ -z "$BREW" ]; then
+    for candidate in ${BEADCAUSE_BREW_SEARCH-/opt/homebrew/bin/brew /usr/local/bin/brew}; do
+      if [ -x "$candidate" ]; then BREW="$candidate"; break; fi
+    done
+    if [ -n "$BREW" ]; then PATH="$(dirname "$BREW"):$PATH"; export PATH; fi
+  fi
+  if [ -z "$BREW" ]; then
+    warn "Homebrew not found (https://brew.sh), so nothing missing can be installed for you."
+  fi
+fi
+
+# brew_get <what> <brew arguments…> — install one thing and say so. Never fatal on its
+# own: whatever is still missing afterwards is for the check that called it to judge.
+brew_get() {
+  local what="$1"
+  shift
+  if [ -z "$BREW" ]; then return 1; fi
+  say "installing $what — brew $*"
+  if NONINTERACTIVE=1 "$BREW" "$@"; then return 0; fi
+  warn "brew $* failed."
+  return 1
+}
+
+# version_lt A B — is the x.y.z A older than B.
+version_lt() {
+  local IFS=.
+  local -a a=($1) b=($2)
+  local i
+  for i in 0 1 2; do
+    if [ "${a[i]:-0}" -lt "${b[i]:-0}" ]; then return 0; fi
+    if [ "${a[i]:-0}" -gt "${b[i]:-0}" ]; then return 1; fi
+  done
+  return 1
+}
+
+# An app bundle in either Applications folder. BEADCAUSE_APP_DIRS replaces the two, for the
+# same reason BEADCAUSE_BREW_SEARCH exists.
+have_app() {
+  local dir
+  for dir in ${BEADCAUSE_APP_DIRS-/Applications $HOME/Applications}; do
+    if [ -d "$dir/$1" ]; then return 0; fi
+  done
+  return 1
+}
+
+# Looked for where lib/config.js's tailscaleBin() looks, not on PATH: the daemon runs under
+# launchd and finds it by absolute path, so a tailscale on this shell's PATH alone is one
+# the service would never see. BEADCAUSE_TAILSCALE overrides it there and so here.
+have_tailscale() {
+  if [ -n "${BEADCAUSE_TAILSCALE:-}" ]; then
+    if [ -e "$BEADCAUSE_TAILSCALE" ]; then return 0; fi
+    return 1
+  fi
+  local bin
+  for bin in /usr/local/bin/tailscale /opt/homebrew/bin/tailscale /Applications/Tailscale.app/Contents/MacOS/Tailscale; do
+    if [ -e "$bin" ]; then return 0; fi
+  done
+  return 1
+}
+
+if ! command -v node >/dev/null 2>&1; then brew_get "Node" install node || true; fi
 NODE="$(command -v node || true)"
 [ -n "$NODE" ] || die "node not found. Install Node 20+ (brew install node) and re-run."
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+# Upgraded only when it is Homebrew's own node. One from nvm or asdf is somebody's choice,
+# and a second node installed beside it would lose to it on PATH anyway.
+if [ "$NODE_MAJOR" -lt 20 ] && [ -n "$BREW" ] && [ "$NODE" = "$(dirname "$BREW")/node" ]; then
+  brew_get "a newer Node (this one is $NODE_MAJOR)" upgrade node || true
+  NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+fi
 [ "$NODE_MAJOR" -ge 20 ] || die "node $NODE_MAJOR is too old; beadcause needs 20+."
 
 # launchd starts with a bare PATH, so `bd` has to be found by absolute path or live
 # somewhere the plist's PATH covers. Fail now rather than at the first poll.
+if ! command -v bd >/dev/null 2>&1; then brew_get "beads (bd)" install beads || true; fi
 BD="$(command -v bd || true)"
-[ -n "$BD" ] || die "the beads CLI (bd) is not on your PATH. Install it first — beadcause is a front-end for it."
+[ -n "$BD" ] || die "the beads CLI (bd) is not on your PATH. Install it first (brew install beads) — beadcause is a front-end for it."
+
+# 1.2.1 is where cross-type blocking dependencies arrived. A version that cannot be read
+# is left alone rather than upgraded on a guess.
+BD_VERSION="$(bd --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sed -n 1p || true)"
+if [ -n "$BD_VERSION" ] && version_lt "$BD_VERSION" "$BD_MIN"; then
+  brew_get "a newer beads (bd $BD_VERSION is older than $BD_MIN)" upgrade beads || \
+    warn "bd $BD_VERSION is older than $BD_MIN, which beadcause needs — brew upgrade beads."
+fi
+
+# The rest are not needed for the service to come up, so each one missing is a warning.
+# Each is here because something runs it (lib/suppliers.js keeps that list): gh opens and
+# reads pull requests, jq is how scripts/claim-guard.sh reads a hook payload, iTerm2 is
+# the terminal every agent window opens in, and every agent is a `claude` subprocess.
+for tool in gh jq; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    brew_get "$tool" install "$tool" || warn "$tool not found — brew install $tool"
+  fi
+done
+
+if ! have_app iTerm.app; then
+  brew_get "iTerm2" install --cask iterm2 || \
+    warn "iTerm2 not found, and agent windows open in it — brew install --cask iterm2"
+fi
+
+if ! command -v claude >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/claude" ]; then
+  if brew_get "Claude Code" install --cask claude-code; then
+    say "run \`claude\` once in a terminal to sign it in."
+  else
+    warn "claude not found, so no agent can run — brew install --cask claude-code"
+  fi
+fi
+
+# Tailscale only with --phone. Everything but the phone works on loopback, and a first
+# install should not stop for an admin password over a feature nobody has asked for yet.
+if [ "$PHONE" = 1 ] && ! have_tailscale; then
+  if [ -n "$BREW" ] && [ -n "$UNATTENDED_WHY" ]; then
+    warn "Tailscale not found, and not installed now: its installer asks for an admin password"
+    warn "and nobody is here to type one ($UNATTENDED_WHY). From a terminal:"
+    warn "  brew install --cask tailscale-app"
+  elif brew_get "Tailscale" install --cask tailscale-app; then
+    say "Tailscale installed — open it and sign in, here and on the phone, as the same user."
+  else
+    warn "Tailscale not found, so a phone cannot reach this Mac — brew install --cask tailscale-app"
+  fi
+fi
 
 # Said as a warning rather than a failure, because the tracker step below may be about to
 # create one — a second engineer's Mac has no ~/beads at all, and on that machine this is
@@ -105,9 +278,6 @@ if [ ! -d "$HOME/beads" ] && [ -z "$CONFIGURED_ROOTS" ]; then
     warn "the team's tracker in team.json — see \"Onboarding a second engineer\" in the README."
   fi
 fi
-
-command -v tailscale >/dev/null 2>&1 || \
-  warn "tailscale not found. beadcause binds to 127.0.0.1 and your Tailscale IP; without it, only this Mac can reach it."
 
 # ------------------------------------------------------------------- dependencies
 
@@ -145,31 +315,10 @@ fi
 
 # Writes ~/.config/beadcause/config.json on first run, then asks the few things that
 # cannot be guessed. Fed from /dev/tty rather than stdin because `npm run` pipes stdin,
-# and an installer that silently skipped its own questions was the original bug.
-#
-# But /dev/tty is *the controlling terminal*, which is not the same thing as a human
-# who is paying attention. In an agent session it belongs to the agent: the questions
-# are asked of nobody, no prompt is visible anywhere, and the install hangs on the
-# first one for as long as you let it. The escape people reached for — drop the
-# controlling terminal (setsid) so /dev/tty fails and this step warns and carries on —
-# also leaves the GUI session, and `launchctl bootstrap gui/<uid>` then fails *after*
-# the bootout, leaving the daemon unloaded. Two workarounds cancelling each other out.
-#
-# So say it in a flag instead, and recognise the obvious cases without being asked.
-SKIP_CONFIGURE_WHY=""
-if [ "$NON_INTERACTIVE" = 1 ]; then
-  SKIP_CONFIGURE_WHY="--non-interactive"
-elif [ -n "${SKIP_CONFIGURE:-}" ]; then
-  SKIP_CONFIGURE_WHY="SKIP_CONFIGURE=$SKIP_CONFIGURE"
-elif [ -n "${CLAUDECODE:-}" ] || [ -n "${AI_AGENT:-}" ]; then
-  SKIP_CONFIGURE_WHY="this is an agent session, and nobody would see the questions"
-elif [ -n "${CI:-}" ]; then
-  SKIP_CONFIGURE_WHY="CI=$CI"
-fi
-if [ "$FORCE_INTERACTIVE" = 1 ]; then SKIP_CONFIGURE_WHY=""; fi
-
-if [ -n "$SKIP_CONFIGURE_WHY" ]; then
-  say "not asking the setup questions ($SKIP_CONFIGURE_WHY)"
+# and an installer that silently skipped its own questions was the original bug. Not
+# asked at all when nobody is there — see where UNATTENDED_WHY is decided, near the top.
+if [ -n "$UNATTENDED_WHY" ]; then
+  say "not asking the setup questions ($UNATTENDED_WHY)"
   # Fed /dev/null deliberately: with no TTY configure.js prints what is currently
   # configured and changes nothing, which is the useful half of it when nobody can
   # answer. Everything below reads the same config either way.
@@ -178,6 +327,35 @@ if [ -n "$SKIP_CONFIGURE_WHY" ]; then
 else
   ( cd "$ROOT" && node scripts/configure.js < /dev/tty ) || \
     warn "configuration skipped — run 'npm run configure' later to set it up."
+fi
+
+# ----------------------------------------------------------------- phone support
+
+# Off unless asked for: without it beadcause answers on 127.0.0.1 alone, which is all a
+# first install needs. The phone is a second step, taken with --phone once Tailscale is
+# installed and signed in.
+#
+# It writes the address as well as installing Tailscale, because `host` is filled in once,
+# when config.json is first written. A Mac set up without Tailscale keeps 127.0.0.1 on
+# disk, and installing Tailscale afterwards changes nothing the daemon reads. The base URL
+# follows by itself: the router reconciles a generated one every time it starts.
+if [ "$PHONE" = 1 ]; then
+  PHONE_RESULT="$(cd "$ROOT" && node -e '/* phone-host */
+    import("./lib/config.js").then((m) => {
+      const ip = m.tailscaleIp();
+      if (!ip) return process.stdout.write("noip");
+      const cfg = m.loadConfig();
+      if (cfg.host === ip) return process.stdout.write("same " + ip);
+      cfg.host = ip;
+      m.saveConfig(cfg);
+      process.stdout.write("set " + ip);
+    }).catch((e) => process.stdout.write("error " + e.message));
+  ' 2>/dev/null || echo error)"
+  case "$PHONE_RESULT" in
+    set\ *|same\ *) say "phone support on — listening on ${PHONE_RESULT#* } as well as 127.0.0.1" ;;
+    noip)           warn "phone support needs Tailscale up: open Tailscale, sign in, then re-run with --phone." ;;
+    *)              warn "could not set the tailnet address ($PHONE_RESULT) — carrying on, on 127.0.0.1 only." ;;
+  esac
 fi
 
 # ------------------------------------------------------------ migrate old install
@@ -466,9 +644,22 @@ else
   say "console not opened at login — visit /monitor when you want it"
 fi
 
+# The pairing code only means something to a phone that can reach this Mac — that is, when
+# the daemon listens on a tailnet address. On loopback it would encode http://127.0.0.1,
+# which on the phone opens the phone.
+BIND_HOST="$(cd "$ROOT" && node -e '/* bind-host */
+  import("./lib/config.js")
+    .then((m) => process.stdout.write(String(m.loadConfig().host || "127.0.0.1")))
+    .catch(() => process.stdout.write("127.0.0.1"));
+' 2>/dev/null || echo 127.0.0.1)"
 echo
-say "pair your phone (needs Tailscale on both devices):"
-( cd "$ROOT" && node bin/beadcause.js --qr ) || true
+if [ "$BIND_HOST" != "127.0.0.1" ]; then
+  say "pair your phone (needs Tailscale on both devices):"
+  ( cd "$ROOT" && node bin/beadcause.js --qr ) || true
+else
+  say "phone support is off — beadcause answers on http://127.0.0.1:4318, on this Mac only."
+  say "to use it from a phone later: npm run install-service -- --phone"
+fi
 
 cat <<NEXT
 
@@ -486,6 +677,7 @@ bin/router.js, which cannot replace itself — it says so in the log when it cha
 
   npm run uninstall-service                      # remove it again
   npm run install-service -- --non-interactive   # re-run this without the questions
+  npm run install-service -- --phone             # reach it from a phone, over Tailscale
   npm run onboard -- --dry-run                   # is this Mac pointed at the team's tracker?
 
 Config (token, ntfy topic, workspaces) lives in ~/.config/beadcause/config.json. What is
