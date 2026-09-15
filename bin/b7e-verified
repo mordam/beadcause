@@ -1,0 +1,73 @@
+#!/usr/bin/env node
+/**
+ * `b7e-verified` — what actually ran here and what it said, in the sentence a
+ * delivery's `--tests` wants.
+ *
+ *   b7e-verified                        auto-discover this worktree's own gate evidence
+ *   b7e-verified <log>...                one or more gate logs — a b7e-gate log, a
+ *                                        lib/gaterun.js run record, or a directory of them
+ *   b7e-verified --since <ref>          the diff-coverage check is against <ref>...HEAD (default: main)
+ *   b7e-verified --dir <root>           "here" is <root>, not this repo's own root
+ *   b7e-verified --json                 the same report, as one JSON object
+ *
+ * bc-36xx.27: six sessions composed a `--tests` string by hand, from memory, after a
+ * run that had scrolled past hours earlier, and no two used the same shape — one of
+ * them attested a suite was already red on main when it was not. `lib/verified.js`
+ * carries the reading and the judgement; this file is the argv parsing and the
+ * printing around it, the same split every other `b7e-*` command in this repo uses.
+ *
+ * Exit codes: `0` a report was printed (whatever it says — reds and diff gaps are
+ * reported, not gated on); `1` no run was evidenced, nothing printed to stdout; `2`
+ * refused — bad usage.
+ *
+ * Read-only by construction: it reads this repo's own files and the evidence a run
+ * already left behind, and prints the sentence a delivery wants. It runs no suite,
+ * writes nothing and spawns nothing that could.
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { REPO_ROOT, buildReport } from '../lib/verified.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-verified                  auto-discover this worktree\'s own gate evidence',
+      'b7e-verified <log>...         one or more gate logs — a b7e-gate log, a',
+      '                              lib/gaterun.js run record, or a directory of them',
+      'b7e-verified --since <ref>    the diff-coverage check is against <ref>...HEAD (default: main)',
+      'b7e-verified --dir <root>     "here" is <root>, not this repo\'s own root',
+      'b7e-verified --json           the same report, as one JSON object',
+    ].join('\n')
+  );
+  process.exit(0);
+}
+
+const ROOT = path.resolve(value('--dir', REPO_ROOT));
+const SINCE = value('--since', 'main');
+const JSON_MODE = has('--json');
+
+const logs = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--dir' && argv[i - 1] !== '--since');
+
+const report = await buildReport(ROOT, logs, { since: SINCE });
+
+if (!report.ok) {
+  console.error(`b7e-verified: ${report.reason}`);
+  process.exit(1);
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(report));
+} else {
+  console.log(report.line);
+}
+process.exit(0);
