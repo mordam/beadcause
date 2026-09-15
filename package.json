@@ -76,6 +76,7 @@
     "b7e-dup": "bin/b7e-dup",
     "b7e-enroll": "bin/b7e-enroll",
     "b7e-entry": "bin/b7e-entry",
+    "b7e-episode": "bin/b7e-episode",
     "b7e-eyeball": "bin/b7e-eyeball",
     "b7e-field": "bin/b7e-field",
     "b7e-filed": "bin/b7e-filed.js",

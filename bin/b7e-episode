@@ -1,0 +1,182 @@
+#!/usr/bin/env node
+/**
+ * `b7e-episode` — a webseries episode's measured facts: frames, runtime, and the beat
+ * timings, before a single post about it can be written.
+ *
+ *   b7e-episode kazran-orves                 bare name, resolved under
+ *                                             <repo root>/webseries/episodes
+ *   b7e-episode webseries/episodes/kazran-orves   an explicit directory, relative to cwd
+ *   b7e-episode kazran-orves --json
+ *   b7e-episode --all                         every episode under webseries/episodes
+ *
+ * bc-dgx7.105 — three deluvia sessions (dv-2uu.6, dv-2uu.5, dv-2uu.3) each re-derived the
+ * same facts about one episode directory by hand, a different way, before a single post
+ * could be written: `ls`/`cat`/`afinfo`/`ffprobe` by hand, a python heredoc apportioning
+ * the audio duration across `transcript.json`, and a reimplementation of
+ * `make_episode.py`'s own `build_beats` checked against an `ffmpeg` scene-detect pass.
+ * See `lib/episode.js` for the fuller history, and for why the beat count that matches
+ * the rendered video is `build_beats`'s own 12, not `transcript.json`'s 14 paragraphs.
+ *
+ * Exit codes: `0` ran to completion, whether or not the episode has everything rendered
+ * yet — a missing mp4 or audio file is reported, not a failure. `2` bad usage, or no such
+ * episode directory. `4` `--all` found no `webseries/episodes` directory to scan.
+ *
+ * @grant read
+ */
+import { discoverEpisodes, measureEpisode, repoRoot, resolveEpisodeDir, toolsAvailable } from '../lib/episode.js';
+
+const USAGE = `usage: b7e-episode <episode-name|path> [--json]
+       b7e-episode --all [--json]
+
+  <episode-name|path>  a bare name resolves under "<repo root>/webseries/episodes/<name>"
+                        (repo root is git's own toplevel from the current directory);
+                        anything with a "/" or an absolute path is a directory, relative
+                        to the current directory if not absolute
+  --all                  every directory under "<repo root>/webseries/episodes", sorted
+  --json                  the report(s) as JSON instead of the printed form
+
+Prints, per episode: the img_* frame count against every other file in images/, whether
+a title card exists, every rendered mp4 with duration/dimensions/size, every top-level
+audio file with its duration, the beat count with each beat's derived start, end and
+opening words, and any disagreement in entry count between script.txt, transcript.json,
+prompts.json and moods.json. An episode missing a file says so and still reports
+everything else — nothing here fails just because the episode is not finished.`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let json = false;
+let all = false;
+let target = null;
+
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  switch (a) {
+    case '--json':
+      json = true;
+      break;
+    case '--all':
+      all = true;
+      break;
+    default:
+      if (a.startsWith('--')) {
+        console.error(`b7e-episode: unknown flag ${a}`);
+        process.exit(2);
+      }
+      if (target !== null) {
+        console.error(`b7e-episode: one <episode-name|path> only, got a second: ${a}`);
+        process.exit(2);
+      }
+      target = a;
+  }
+}
+
+if (!all && target === null) {
+  console.error('b7e-episode: needs an <episode-name|path>, or --all\n');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (all && target !== null) {
+  console.error('b7e-episode: --all takes no <episode-name|path>');
+  process.exit(2);
+}
+
+const root = repoRoot();
+const probe = toolsAvailable().ffprobe;
+if (!probe) {
+  console.error('b7e-episode: `ffprobe` is not runnable on this machine — durations and dimensions will be reported as null');
+}
+
+let reports;
+if (all) {
+  const names = discoverEpisodes(root);
+  if (names.length === 0) {
+    console.error(`b7e-episode: no "webseries/episodes" directory found under ${root}`);
+    process.exit(4);
+  }
+  reports = names.map((n) => measureEpisode(resolveEpisodeDir(n, { root, cwd: process.cwd() }), { probe }));
+} else {
+  const dir = resolveEpisodeDir(target, { root, cwd: process.cwd() });
+  const report = measureEpisode(dir, { probe });
+  if (!report.exists) {
+    console.error(`b7e-episode: ${report.problems[0]}`);
+    process.exit(2);
+  }
+  reports = [report];
+}
+
+if (json) {
+  console.log(JSON.stringify(all ? reports : reports[0], null, 2));
+  process.exitCode = 0;
+} else {
+  reports.forEach((r, i) => {
+    if (i > 0) console.log('');
+    printReport(r);
+  });
+  process.exitCode = 0;
+}
+
+function fmtSize(bytes) {
+  if (bytes == null) return '?';
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function fmtDur(s) {
+  return s == null ? '?s' : `${s.toFixed(1)}s`;
+}
+
+function printReport(r) {
+  console.log(`${r.name}  (${r.dir})`);
+  if (!r.exists) {
+    console.log(`  ${r.problems.join('; ')}`);
+    return;
+  }
+
+  if (r.images.exists) {
+    console.log(
+      `images: ${r.images.imgCount} img_* frames of ${r.images.total} files in images/` +
+        (r.images.otherFiles.length ? ` (${r.images.otherFiles.length} other: ${r.images.otherFiles.join(', ')})` : '')
+    );
+  } else {
+    console.log('images: no images/ directory');
+  }
+
+  console.log(`title card: ${r.titleCard ? 'yes' : 'no'}`);
+
+  if (r.mp4s.length) {
+    for (const m of r.mp4s) {
+      console.log(`mp4: ${m.file}  ${fmtDur(m.duration)}  ${m.width && m.height ? `${m.width}x${m.height}` : '?x?'}  ${fmtSize(m.sizeBytes)}`);
+    }
+  } else {
+    console.log('mp4: none rendered');
+  }
+
+  if (r.audio.length) {
+    console.log(`audio: ${r.audio.map((a) => `${a.file} ${fmtDur(a.duration)}`).join(', ')}`);
+  } else {
+    console.log('audio: none');
+  }
+
+  if (r.beats) {
+    console.log(
+      `beats: ${r.beats.count} (narration ${fmtDur(r.beats.total)}${r.beats.offsetSeconds ? ` + ${r.beats.offsetSeconds.toFixed(1)}s intro` : ''})`
+    );
+    for (const b of r.beats.items) {
+      console.log(`  ${b.index}  ${b.start.toFixed(1)} -> ${b.end.toFixed(1)}  "${b.openingWords}"`);
+    }
+  } else {
+    console.log('beats: not computed');
+  }
+
+  const counts = Object.entries(r.sourceCounts)
+    .map(([k, v]) => `${k}=${v === null ? '—' : v}`)
+    .join(' ');
+  console.log(`counts: ${counts}${r.disagreement ? '  DISAGREE' : ''}`);
+
+  if (r.problems.length) {
+    console.log(`problems: ${r.problems.join('; ')}`);
+  }
+}
