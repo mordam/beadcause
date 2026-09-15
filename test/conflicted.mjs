@@ -353,6 +353,57 @@ check('a core.hooksPath outside the git directory is refused, not silently obeye
   git(['config', '--local', '--unset', 'core.hooksPath']);
 });
 
+// --------------------------------------------------------------------------------
+// bc-xl7n.125 — `--install-hook` run from a *worktree* must not bake in that
+// worktree's own path. `repo` above is never a worktree of anything, so it cannot
+// tell the two apart; this builds a real main-checkout/worktree pair instead.
+
+check('--install-hook run from a worktree points the hook at the main checkout, and it survives the worktree being deleted — bc-xl7n.125', () => {
+  const main = path.join(tmp, 'retire-main');
+  git(['init', '-q', '-b', 'main', main], tmp);
+  // A stand-in for the real scripts/conflict-check.mjs: it only has to prove which
+  // copy the hook actually ran, not re-implement the conflict check (that is
+  // everything above this check). It approves every commit and leaves a mark.
+  fs.mkdirSync(path.join(main, 'scripts'), { recursive: true });
+  fs.writeFileSync(
+    path.join(main, 'scripts', 'conflict-check.mjs'),
+    `import fs from 'node:fs';\nimport path from 'node:path';\nimport { fileURLToPath } from 'node:url';\n` +
+      `fs.writeFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'ran.txt'), String(Date.now()));\n` +
+      `process.exit(0);\n`,
+  );
+  fs.writeFileSync(path.join(main, 'seed.txt'), 'seed\n');
+  git(['add', '-A'], main);
+  git(['commit', '-qm', 'seed'], main);
+
+  const wt = path.join(tmp, 'retire-worktree');
+  git(['worktree', 'add', '-q', '-b', 'retire-wt-branch', wt], main);
+
+  const res = runCode(['--install-hook'], wt);
+  assert.equal(res.code, 0, res.out);
+
+  const hookFile = path.join(main, '.git', 'hooks', 'pre-commit');
+  assert.ok(fs.existsSync(hookFile), 'no hook written into the common git dir');
+  const body = fs.readFileSync(hookFile, 'utf8');
+  const mainScript = path.join(main, 'scripts', 'conflict-check.mjs');
+  const worktreeScript = path.join(wt, 'scripts', 'conflict-check.mjs');
+  assert.ok(body.includes(mainScript), `hook does not point at the main checkout's script:\n${body}`);
+  assert.ok(!body.includes(worktreeScript), `hook baked in the installing worktree's own path:\n${body}`);
+
+  // Delete the worktree that ran the install — the whole point of the bead.
+  git(['worktree', 'remove', '--force', wt], main);
+  assert.ok(!fs.existsSync(wt), 'worktree removal did not actually remove it');
+
+  const ranMarker = path.join(main, 'scripts', 'ran.txt');
+  assert.ok(!fs.existsSync(ranMarker), 'stub already ran before the real assertion');
+  fs.writeFileSync(path.join(main, 'later.txt'), 'later\n');
+  git(['add', '-A'], main);
+  git(['commit', '-qm', 'after the worktree is gone'], main); // throws (MODULE_NOT_FOUND) if the bug is back
+  assert.ok(fs.existsSync(ranMarker), 'the hook did not actually run the main checkout script');
+
+  git(['worktree', 'prune'], main);
+  fs.rmSync(hookFile);
+});
+
 fs.rmSync(tmp, { recursive: true, force: true });
 
 console.log(failures ? `\n${failures} failed\n` : '\nall good\n');
